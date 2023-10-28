@@ -1,0 +1,47 @@
+{
+	"name": "rootless-docker",
+
+	// Update the 'dockerComposeFile' list if you have more compose files or use different names.
+	"dockerComposeFile": "docker-compose.yml",
+
+	// The 'service' property is the name of the service for the container that VS Code should
+	// use. Update this value and .devcontainer/docker-compose.yml to the real service name.
+	"service": "app",
+
+	// The 'workspaceFolder' property is the path VS Code should open by default when
+	// connected. Corresponds to a volume mount in .devcontainer/docker-compose.yml
+	"workspaceFolder": "/home/jovyan/work",
+
+	"customizations": {
+		"vscode": {
+			// Set *default* container specific settings.json values on container create.
+			"settings": {
+				"python.defaultInterpreterPath": "/opt/conda/bin/python",
+				"r.rterm.linux": "/opt/conda/bin/radian",	// for R
+				"r.bracketedPaste": true, 					// for R
+				"r.plot.useHttpgd": true					// for R 
+			},
+			// Add the IDs of extensions you want installed when the container is created.
+			"extensions": [
+				"quarto.quarto",
+				"ms-python.python",
+				"ms-toolsai.jupyter",
+				"ms-toolsai.jupyter-keymap",
+				"reditorsupport.r",
+				"RDebugger.r-debugger",
+				"analytic-signal.preview-pdf",
+				"ms-vscode.live-server",
+				"github.copilot"
+			]
+		}
+	},
+
+	// Uncomment the next line if you want to keep your containers running after VS Code shuts down.
+	"shutdownAction": "none"
+
+	// Uncomment the next line to use 'postCreateCommand' to run commands after the container is created.
+	// "postCreateCommand": "uname -a",
+
+	// Comment out to connect as root instead. To add a non-root user, see: https://aka.ms/vscode-remote/containers/non-root.
+	// "remoteUser": "root"
+}
