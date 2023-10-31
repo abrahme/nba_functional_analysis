@@ -44,7 +44,7 @@ USER ${NB_USER}
 RUN pip install pip install -U "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 RUN pip install numpyro[cuda] -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 RUN pip install blackjax
-RUN pip install pymc==5.9.2
+RUN pip install pymc
 
 USER root
 
