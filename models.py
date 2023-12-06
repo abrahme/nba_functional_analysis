@@ -43,5 +43,6 @@ def fda_model_re(covariate_X, data_set, basis):
     with fda_model_intercept:
         print("fitting model")
         trace = pm.sample()
+        pm.sample_posterior_predictive(trace, extend_inferencedata=True)
 
     az.to_netcdf(trace, "data/uncorrelated_metrics_pca_re.ncdf")

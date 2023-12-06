@@ -9,6 +9,7 @@ USER root
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl lmodern && \
+    apt install -y tmux && \
     rm -rf /var/lib/apt/lists/*
 
 ENV QUARTO_VERSION 1.3.450
@@ -41,10 +42,11 @@ RUN R -q -e 'install.packages("cmdstanr", repos = c("https://mc-stan.org/r-packa
 ## INSTALL JAX and NUMPYRO
 USER ${NB_USER}
 
+RUN pip install pymc tensorly tensorly-viz
 RUN pip install pip install -U "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 RUN pip install numpyro[cuda] -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 RUN pip install blackjax
-RUN pip install pymc
+
 
 USER root
 
