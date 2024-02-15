@@ -43,11 +43,11 @@ plot_posterior <- function(player, functional_posterior, predictive_posterior, d
     predictive_player <- predictive_posterior |> filter(player_name == player) |> mutate(age = as.numeric(age))
     data_player <- data |> filter(name == player) |> mutate(age = as.numeric(age))
 
-    p <- ggplot() + geom_line(aes(y=mean, x = age),data = predictive_player, colour="blue") + 
+    p <- ggplot() + geom_line(aes(y=mean, x = age),data = predictive_player, colour="blue") + scale_linetype_manual(name = "Predicted") +
     geom_ribbon(aes(ymin=`hdi_3%`, ymax=`hdi_97%`, x = age), data = predictive_player,alpha=0.2, fill = "blue") + 
-    geom_line(aes(y=mean, x = age), colour="green", data = functional_player) + 
+    geom_line(aes(y=mean, x = age), colour="green", data = functional_player) + scale_linetype_manual(name = "Functional") + 
     geom_ribbon(aes(ymin=`hdi_3%`, ymax=`hdi_97%`, x = age),data = functional_player, alpha=0.2, fill = "green") + 
-    geom_point(aes(y = value, x = age, colour = "red"), data = data_player) + 
+    geom_point(aes(y = value, x = age), colour = "red", data = data_player) + scale_color_manual( name = "Observed") + 
     facet_wrap(~metric, scales = "free") + ggtitle(glue("Posterior: {player}"))
     return(p)
 }
