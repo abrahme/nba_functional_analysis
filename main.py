@@ -10,8 +10,8 @@ from model.models import NBAFDAModel
 
 
 if __name__ == "__main__":
-    numpyro.set_platform("METAL")
-    print(jax.local_device_count())
+    numpyro.set_platform("cpu")
+    numpyro.set_host_device_count(4)
     data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
 
     agg_dict = {"obpm":"mean", "dbpm":"mean", "bpm":"mean", 

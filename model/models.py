@@ -2,7 +2,8 @@ import pandas as pd
 from abc import abstractmethod, ABC
 import arviz as az
 import jax 
-from numpyro import sample , plate
+from numpyro import sample 
+from numpyro import deterministic
 from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial
 from numpyro.infer import MCMC, NUTS, init_to_median
 import jax.numpy as jnp
@@ -31,7 +32,7 @@ class HilbertSpaceFunctionalRegression(ABC):
         alpha = sample("alpha", self.prior["alpha"])
         length = sample("length", self.prior["length"])
         return approx_se_ncp(self.basis, alpha=alpha, length=length, M = self.M, output_size=self.output_size,
-                             L =  self.L)
+                             L =  self.L, name = "beta")
     @abstractmethod
     def run_inference(self, *args, **kwargs):
         raise NotImplementedError
@@ -47,8 +48,8 @@ class NBAFDAModel(HilbertSpaceFunctionalRegression):
     def sample_basis(self, dim):
         alpha = sample("alpha", self.prior["alpha"], sample_shape=(dim,))
         length = sample("length", self.prior["length"], sample_shape=(dim,))
-        return jnp.stack([approx_se_ncp(self.basis, alpha=alpha[i], length=length[i], M = self.M, output_size=self.output_size,
-                             L =  self.L) for i in range(dim)] )
+        return deterministic("basis", jnp.stack([approx_se_ncp(self.basis, alpha=alpha[i], length=length[i], M = self.M, output_size=self.output_size,
+                             L =  self.L, name= f"beta_{i}") for i in range(dim)] ))
     
     def model_fn(self, covariate_X, data_set) -> None:
         covariate_dim = covariate_X.shape[1]
@@ -56,8 +57,7 @@ class NBAFDAModel(HilbertSpaceFunctionalRegression):
         intercept = sample("intercept", Normal(0, 5), sample_shape =  (self.basis.shape[0], num_outputs))
 
         basis = self.sample_basis(covariate_dim)
-        
-        mu = intercept + jnp.matmul(covariate_X, basis) 
+        mu = intercept + jnp.einsum("...i,ijk -> ...jk",covariate_X, basis)
         for index, data_entity in enumerate(data_set):
             output = data_entity["output"]
             metric = data_entity["metric"]
@@ -66,7 +66,7 @@ class NBAFDAModel(HilbertSpaceFunctionalRegression):
             output_data = data_entity["output_data"]
             exposure =  exposure_data[mask].flatten()
             if output == "gaussian":
-                sd = Exponential(f"sigma_{metric}", 1.0)
+                sd = sample(f"sigma_{metric}", Exponential(1.0))
                 ## likelihood
                 y = sample(f"likelihood_{metric}", Normal( loc = mu[:,:,index][mask].flatten(), scale = sd / exposure),  obs=output_data[mask].flatten())
             
@@ -74,7 +74,7 @@ class NBAFDAModel(HilbertSpaceFunctionalRegression):
                 y = sample(f"likelihood_{metric}", Poisson(jnp.exp(mu[:,:,index][mask].flatten() + exposure)) , obs = output_data[mask].flatten())
             
             elif output == "binomial":
-                y = sample(f"likelihod_{metric}", Binomial(logits =  mu[:,:,index][mask].flatten + intercept, total_count = exposure), obs=output_data[mask].flatten())
+                y = sample(f"likelihod_{metric}", Binomial(logits =  mu[:,:,index][mask].flatten(), total_count = exposure), obs=output_data[mask].flatten())
         
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
         mcmc = MCMC(
