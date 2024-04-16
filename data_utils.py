@@ -1,5 +1,4 @@
-import pandas as pd
-import numpy as np
+import jax.numpy as jnp
 
 def process_data(df, output_metric, exposure, model, input_metrics):
 
@@ -14,14 +13,14 @@ def process_data(df, output_metric, exposure, model, input_metrics):
     games_df = df[["id", "age", "games"]]
     metric_df  = metric_df.pivot(columns="age",values=output_metric,index="id")
     if model == "poisson":
-        offset = np.log(exposure_df.pivot(columns="age", values=exposure,index="id").to_numpy()) + np.log(games_df.pivot(columns="age", values = "games", index = "id").to_numpy())
-        return offset, metric_df.to_numpy(), X
+        offset = jnp.log(exposure_df.pivot(columns="age", values=exposure,index="id").to_numpy()) + jnp.log(games_df.pivot(columns="age", values = "games", index = "id").to_numpy())
+        return offset, jnp.array(metric_df.to_numpy()), X
     elif model == "binomial":
-        trials = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
-        return trials, metric_df.to_numpy(), X
+        trials = jnp.array(exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy())
+        return trials, jnp.array(metric_df.to_numpy()), X
     elif model == "gaussian":
-        variance_scale = np.sqrt(exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy())
-        return variance_scale, metric_df.to_numpy(), X
+        variance_scale = jnp.sqrt(exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy())
+        return variance_scale, jnp.array(metric_df.to_numpy()), X
     return ValueError
 
 

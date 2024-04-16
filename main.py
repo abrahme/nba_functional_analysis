@@ -1,9 +1,9 @@
 import pandas as pd
-import numpy as np
+import jax.numpy as jnp
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from data_utils import process_data
-from models import fda_model_re
+from model.models import NBAFDAModel
 
 
 
@@ -31,7 +31,7 @@ if __name__ == "__main__":
     X = StandardScaler().fit_transform(agged_data[latent_metrics])
     pca_x = PCA(whiten=True).fit(X)
     X_pca = pca_x.transform(X)
-    covariate_X = MinMaxScaler().fit_transform(X_pca[:, 0:3])
+    covariate_X = jnp.array(MinMaxScaler().fit_transform(X_pca[:, 0:3]))
     metric_output = (["gaussian"] * 2) + (["poisson"] * 6) + (["binomial"] * 3)
     metrics = ["obpm","dbpm","blk","stl","ast","dreb","oreb","tov","ftm","fg2m","fg3m"]
     exposure_list = (["median_minutes_per_game"] * 8) + ["fta","fg2a","fg3a"]
@@ -40,11 +40,14 @@ if __name__ == "__main__":
 
     for output,metric,exposure_val in zip(metric_output, metrics, exposure_list):
         exposure, Y, _ = process_data(data, metric, exposure_val, output, ["position_group"])
-        data_dict = {"metric":metric, "output": output, "exposure_data": exposure, "output_data": Y, "mask": np.isfinite(exposure)}
+        data_dict = {"metric":metric, "output": output, "exposure_data": exposure, "output_data": Y, "mask": jnp.isfinite(exposure)}
         data_set.append(data_dict)
 
-    basis = np.arange(18,39)
+    basis = jnp.arange(18,39)
 
-    fda_model_re(covariate_X, data_set, basis)
+    model = NBAFDAModel(basis, output_size=len(metric_output), M=10)
+    model.initialize_priors()
+    mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"covariate_X": covariate_X, "data_set": data_set})
+
 
     
