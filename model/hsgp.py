@@ -34,7 +34,7 @@ def approx_se_ncp(x, alpha, length, L, M, output_size = 1):
     exponential kernel in the non-centered parametrisation.
     """
     phi = eigenfunctions(x, L, M)
-    spd = jnp.sqrt(diag_spectral_density(alpha, length, L, M))
+    spd = jnp.tile(jnp.sqrt(diag_spectral_density(alpha, length, L, M)), (output_size,1)).T
     beta = sample("beta", dist.Normal(0, 1), sample_shape=(M, output_size)) ### can have multi-output
     f = deterministic("f", phi @ (spd * beta))
     return f

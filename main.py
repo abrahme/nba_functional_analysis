@@ -1,5 +1,7 @@
 import pandas as pd
 import jax.numpy as jnp
+import jax
+import numpyro
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from data_utils import process_data
@@ -8,7 +10,8 @@ from model.models import NBAFDAModel
 
 
 if __name__ == "__main__":
-
+    numpyro.set_platform("METAL")
+    print(jax.local_device_count())
     data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
 
     agg_dict = {"obpm":"mean", "dbpm":"mean", "bpm":"mean", 

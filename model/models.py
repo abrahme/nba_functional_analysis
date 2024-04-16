@@ -44,12 +44,18 @@ class NBAFDAModel(HilbertSpaceFunctionalRegression):
         self.prior["alpha"] = HalfNormal()
         self.prior["length"] = InverseGamma(10.0, 2.0)
     
+    def sample_basis(self, dim):
+        alpha = sample("alpha", self.prior["alpha"], sample_shape=(dim,))
+        length = sample("length", self.prior["length"], sample_shape=(dim,))
+        return jnp.stack([approx_se_ncp(self.basis, alpha=alpha[i], length=length[i], M = self.M, output_size=self.output_size,
+                             L =  self.L) for i in range(dim)] )
+    
     def model_fn(self, covariate_X, data_set) -> None:
         covariate_dim = covariate_X.shape[1]
         num_outputs = len(data_set)
-        intercept = sample("intercept", Normal(0, 5, sample_shape =  (self.basis.shape[0], num_outputs)))
-        with plate("full_basis", size=covariate_dim, dim=0):
-            basis = self.sample_basis()
+        intercept = sample("intercept", Normal(0, 5), sample_shape =  (self.basis.shape[0], num_outputs))
+
+        basis = self.sample_basis(covariate_dim)
         
         mu = intercept + jnp.matmul(covariate_X, basis) 
         for index, data_entity in enumerate(data_set):
