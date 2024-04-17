@@ -54,7 +54,7 @@ class NBAFDAModel(HilbertSpaceFunctionalRegression):
     def model_fn(self, covariate_X, data_set) -> None:
         covariate_dim = covariate_X.shape[1]
         num_outputs = len(data_set)
-        intercept = sample("intercept", Normal(0, 5), sample_shape =  (self.basis.shape[0], num_outputs))
+        intercept = sample("intercept", Normal(0, 5), sample_shape =  (1, num_outputs))
 
         basis = self.sample_basis(covariate_dim)
         mu = intercept + jnp.einsum("...i,ijk -> ...jk",covariate_X, basis)
@@ -87,3 +87,43 @@ class NBAFDAModel(HilbertSpaceFunctionalRegression):
     )
         mcmc.run(jax.random.PRNGKey(0), **model_args)
         return mcmc
+
+
+class NBAFDAREModel(NBAFDAModel):
+    def __init__(self, basis, output_size: int = 1, M: int = 10) -> None:
+        super().__init__(basis, output_size, M)
+    
+    def initialize_priors(self) -> None:
+        super().initialize_priors()
+        self.prior["ranef_sigma"] = InverseGamma(10.0, 2.0)
+    def sample_basis(self, dim):
+        return super().sample_basis(dim)
+    
+    def model_fn(self, covariate_X, data_set) -> None:
+        num_players, covariate_dim = covariate_X.shape
+        num_outputs = len(data_set)
+        intercept = sample("intercept", Normal(0, 5), sample_shape =  (1, num_outputs))
+        ranef_sigma = sample("ranef_sigma", self.prior["ranef_sigma"])
+        ranef_intercept = sample("ranef_intercept", Normal(0, ranef_sigma), sample_shape=(num_players, self.basis.shape[0] , num_outputs))
+        basis = self.sample_basis(covariate_dim)
+        mu = intercept + jnp.einsum("...i,ijk -> ...jk",covariate_X, basis) + ranef_intercept
+        for index, data_entity in enumerate(data_set):
+            output = data_entity["output"]
+            metric = data_entity["metric"]
+            mask = data_entity["mask"]
+            exposure_data = data_entity["exposure_data"]
+            output_data = data_entity["output_data"]
+            exposure =  exposure_data[mask].flatten()
+            if output == "gaussian":
+                sd = sample(f"sigma_{metric}", Exponential(1.0))
+                ## likelihood
+                y = sample(f"likelihood_{metric}", Normal( loc = mu[:,:,index][mask].flatten(), scale = sd / exposure),  obs=output_data[mask].flatten())
+            
+            elif output == "poisson":
+                y = sample(f"likelihood_{metric}", Poisson(jnp.exp(mu[:,:,index][mask].flatten() + exposure)) , obs = output_data[mask].flatten())
+            
+            elif output == "binomial":
+                y = sample(f"likelihod_{metric}", Binomial(logits =  mu[:,:,index][mask].flatten(), total_count = exposure), obs=output_data[mask].flatten())
+
+    def run_inference(self, num_warmup, num_samples, num_chains, model_args):
+        return super().run_inference(num_warmup, num_samples, num_chains, model_args)
