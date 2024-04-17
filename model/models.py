@@ -83,6 +83,7 @@ class NBAFDAModel(HilbertSpaceFunctionalRegression):
         num_samples=num_samples,
         num_chains=num_chains,
         progress_bar=True,
+        chain_method="parallel"
     )
         mcmc.run(jax.random.PRNGKey(0), **model_args)
         return mcmc

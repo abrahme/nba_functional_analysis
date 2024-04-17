@@ -1,6 +1,6 @@
 import pandas as pd
+import pickle
 import jax.numpy as jnp
-import jax
 import numpyro
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
@@ -51,6 +51,10 @@ if __name__ == "__main__":
     model = NBAFDAModel(basis, output_size=len(metric_output), M=10)
     model.initialize_priors()
     mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"covariate_X": covariate_X, "data_set": data_set})
+    mcmc_run.print_summary()
+    samples = mcmc_run.get_samples(group_by_chain=True)
 
-
+    with open("model_output/nba_fda_model.pkl", "wb") as f:
+        pickle.dump(samples, f)
+    f.close()
     
