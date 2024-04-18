@@ -1,14 +1,23 @@
 import pandas as pd
-import numpy as np
+import argparse
+import pickle
+import jax.numpy as jnp
+import numpyro
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from data_utils import process_data
-from models import fda_model_re
+from model.models import NBAFDAModel, NBAFDAREModel
 
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Description of your program')
+    parser.add_argument('--model_name', help='which model to fit', required=True)
+    args = vars(parser.parse_args())
+    model_name = args["model_name"]
 
+    numpyro.set_platform("cpu")
+    numpyro.set_host_device_count(4)
     data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
 
     agg_dict = {"obpm":"mean", "dbpm":"mean", "bpm":"mean", 
@@ -31,7 +40,7 @@ if __name__ == "__main__":
     X = StandardScaler().fit_transform(agged_data[latent_metrics])
     pca_x = PCA(whiten=True).fit(X)
     X_pca = pca_x.transform(X)
-    covariate_X = MinMaxScaler().fit_transform(X_pca[:, 0:3])
+    covariate_X = jnp.array(MinMaxScaler().fit_transform(X_pca[:, 0:3]))
     metric_output = (["gaussian"] * 2) + (["poisson"] * 6) + (["binomial"] * 3)
     metrics = ["obpm","dbpm","blk","stl","ast","dreb","oreb","tov","ftm","fg2m","fg3m"]
     exposure_list = (["median_minutes_per_game"] * 8) + ["fta","fg2a","fg3a"]
@@ -40,11 +49,23 @@ if __name__ == "__main__":
 
     for output,metric,exposure_val in zip(metric_output, metrics, exposure_list):
         exposure, Y, _ = process_data(data, metric, exposure_val, output, ["position_group"])
-        data_dict = {"metric":metric, "output": output, "exposure_data": exposure, "output_data": Y, "mask": np.isfinite(exposure)}
+        data_dict = {"metric":metric, "output": output, "exposure_data": exposure, "output_data": Y, "mask": jnp.isfinite(exposure)}
         data_set.append(data_dict)
 
-    basis = np.arange(18,39)
+    basis = jnp.arange(18,39)
 
-    fda_model_re(covariate_X, data_set, basis)
+    if model_name == "nba_fda_model":
+        model = NBAFDAModel(basis, output_size=len(metric_output), M=10)
+    elif model_name == "nba_fda_re_model":
+        model = NBAFDAREModel(basis, output_size=len(metric_output), M=10)
+    else:
+        raise ValueError("Wrong model name")
+    model.initialize_priors()
+    mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"covariate_X": covariate_X, "data_set": data_set})
+    mcmc_run.print_summary()
+    samples = mcmc_run.get_samples(group_by_chain=True)
 
+    with open(f"model_output/{model_name}.pkl", "wb") as f:
+        pickle.dump(samples, f)
+    f.close()
     
