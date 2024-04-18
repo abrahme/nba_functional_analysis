@@ -103,10 +103,10 @@ class NBAFDAREModel(NBAFDAModel):
         num_players, covariate_dim = covariate_X.shape
         num_outputs = len(data_set)
         intercept = sample("intercept", Normal(0, 5), sample_shape =  (1, num_outputs))
-        ranef_sigma = sample("ranef_sigma", self.prior["ranef_sigma"])
-        ranef_intercept = sample("ranef_intercept", Normal(0, ranef_sigma), sample_shape=(num_players, self.basis.shape[0] , num_outputs))
+        ranef_sigma = sample("ranef_sigma", self.prior["ranef_sigma"], sample_shape=(1, num_outputs))
+        ranef_intercept = sample("ranef_intercept_raw", Normal(0, 1), sample_shape=(num_players, self.basis.shape[0] , num_outputs))
         basis = self.sample_basis(covariate_dim)
-        mu = intercept + jnp.einsum("...i,ijk -> ...jk",covariate_X, basis) + ranef_intercept
+        mu = intercept + jnp.einsum("...i,ijk -> ...jk",covariate_X, basis) + ranef_intercept * ranef_sigma
         for index, data_entity in enumerate(data_set):
             output = data_entity["output"]
             metric = data_entity["metric"]
