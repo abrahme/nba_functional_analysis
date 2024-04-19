@@ -127,3 +127,52 @@ class NBAFDAREModel(NBAFDAModel):
 
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
         return super().run_inference(num_warmup, num_samples, num_chains, model_args)
+    
+class NBAFDALatentModel(NBAFDAModel):
+    def __init__(self, basis, output_size: int = 1, M: int = 10, latent_dim1: int = 100, latent_dim2: int = 2) -> None:
+        super().__init__(basis, output_size, M)
+        self.latent_dim = (latent_dim1, latent_dim2)
+
+    def initialize_priors(self) -> None:
+        return super().initialize_priors()
+
+    def sample_basis(self, dim):
+        return super().sample_basis(dim)
+    
+    def run_inference(self, num_warmup, num_samples, num_chains, model_args):
+        return super().run_inference(num_warmup, num_samples, num_chains, model_args)
+    
+    def sample_latent(self):
+        ### samples  from uniform distribution on steifel 
+        X = sample("latent_raw", Normal(0, 1), sample_shape=self.latent_dim)
+        XtX = jnp.matmul(X.T, X)
+        U, L, V = jnp.linalg.svd(XtX, full_matrices = False)
+        return jnp.matmul(X, jnp.matmul(U * jnp.power(L, -.5), V))
+
+    def model_fn(self, data_set) -> None:
+        covariate_dim = self.latent_dim[1]
+        num_outputs = len(data_set)
+        intercept = sample("intercept", Normal(0, 5), sample_shape =  (1, num_outputs))
+        covariate_X = self.sample_latent()
+        basis = self.sample_basis(covariate_dim)
+        mu = intercept + jnp.einsum("...i,ijk -> ...jk",covariate_X, basis)
+        for index, data_entity in enumerate(data_set):
+            output = data_entity["output"]
+            metric = data_entity["metric"]
+            mask = data_entity["mask"]
+            exposure_data = data_entity["exposure_data"]
+            output_data = data_entity["output_data"]
+            exposure =  exposure_data[mask].flatten()
+            if output == "gaussian":
+                sd = sample(f"sigma_{metric}", Exponential(1.0))
+                ## likelihood
+                y = sample(f"likelihood_{metric}", Normal( loc = mu[:,:,index][mask].flatten(), scale = sd / exposure),  obs=output_data[mask].flatten())
+            
+            elif output == "poisson":
+                y = sample(f"likelihood_{metric}", Poisson(jnp.exp(mu[:,:,index][mask].flatten() + exposure)) , obs = output_data[mask].flatten())
+            
+            elif output == "binomial":
+                y = sample(f"likelihood_{metric}", Binomial(logits =  mu[:,:,index][mask].flatten(), total_count = exposure), obs=output_data[mask].flatten())
+
+
+
