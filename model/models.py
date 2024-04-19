@@ -172,7 +172,7 @@ class NBAFDALatentModel(NBAFDAModel):
                 y = sample(f"likelihood_{metric}", Poisson(jnp.exp(mu[:,:,index][mask].flatten() + exposure)) , obs = output_data[mask].flatten())
             
             elif output == "binomial":
-                y = sample(f"likelihod_{metric}", Binomial(logits =  mu[:,:,index][mask].flatten(), total_count = exposure), obs=output_data[mask].flatten())
+                y = sample(f"likelihood_{metric}", Binomial(logits =  mu[:,:,index][mask].flatten(), total_count = exposure), obs=output_data[mask].flatten())
 
 
 
