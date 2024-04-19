@@ -1,5 +1,5 @@
 import jax.numpy as jnp 
-from numpyro import deterministic, plate, sample
+from numpyro import sample
 import numpyro.distributions as dist
 
 
