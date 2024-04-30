@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import argparse
 import pickle
 import jax.numpy as jnp
@@ -12,7 +13,7 @@ from model.models import NBAFDAModel, NBAFDAREModel, NBAFDALatentModel
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Description of your program')
     parser.add_argument('--model_name', help='which model to fit', required=True)
-    parser.add_argument("--basis_dims", help="size of the basis", required=True)
+    parser.add_argument("--basis_dims", help="size of the basis", required=True, type=int)
     args = vars(parser.parse_args())
     model_name = args["model_name"]
     basis_dims = args["basis_dims"]
@@ -20,10 +21,11 @@ if __name__ == "__main__":
     numpyro.set_platform("cpu")
     numpyro.set_host_device_count(4)
     data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
-
-    metric_output = (["gaussian"] * 2) + (["poisson"] * 6) + (["binomial"] * 3)
-    metrics = ["obpm","dbpm","blk","stl","ast","dreb","oreb","tov","ftm","fg2m","fg3m"]
-    exposure_list = (["median_minutes_per_game"] * 8) + ["fta","fg2a","fg3a"]
+    data["log_min"] = np.log(data["minutes"])
+    data["simple_exposure"] = 1
+    metric_output = (["gaussian"] * 3) + (["poisson"] * 6) + (["binomial"] * 3)
+    metrics = ["log_min", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","ftm","fg2m","fg3m"]
+    exposure_list = ["simple_exposure"] + (["median_minutes_per_game"] * 8) + ["fta","fg2a","fg3a"]
     covariate_X = create_basis(data, basis_dims)
     data_set = []
     for output,metric,exposure_val in zip(metric_output, metrics, exposure_list):

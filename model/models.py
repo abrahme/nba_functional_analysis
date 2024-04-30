@@ -1,6 +1,4 @@
-import pandas as pd
 from abc import abstractmethod, ABC
-import arviz as az
 import jax 
 from numpyro import sample 
 from numpyro import deterministic
