@@ -2,8 +2,10 @@ from abc import abstractmethod, ABC
 import jax 
 from numpyro import sample 
 from numpyro import deterministic
-from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, MultivariateNormal
-from numpyro.infer import MCMC, NUTS, init_to_median
+from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial
+from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO
+from numpyro.infer.autoguide import AutoDelta
+from optax import linear_onecycle_schedule
 import jax.numpy as jnp
 from .hsgp import approx_se_ncp
 
@@ -212,9 +214,11 @@ class NBAMixedOutputProbabilisticPCA(ProbabilisticPCA):
         self.outputs = output_name ### ex: [gaussian, gaussian, poisson, ...]
         self.features = feature_name ## ex: [obpm, minutes, stl, ...]
         self.num_gaussian = 0
-        for output_type in self.outputs:
+        self.gaussian_indices = jnp.zeros_like(self.X)
+        for i, output_type in enumerate(self.outputs):
             if output_type == "gaussian":
                 self.num_gaussian += 1
+                self.gaussian_indices[:, i*self.T: (i+1)*self.T] = self.num_gaussian - 1
     
     def initialize_priors(self) -> None:
         ### initialize sigma
@@ -224,25 +228,35 @@ class NBAMixedOutputProbabilisticPCA(ProbabilisticPCA):
 
         ### initialize Beta
         self.prior["beta"] = Normal()
+
+        ### initialize W
+        self.prior["W"] = Normal()
     
-    def model_fn(self, gaussian_index) -> None:
+    def model_fn(self) -> None:
         """
         gaussian_index: array of 1, 2, ... d of length p indicating which indices go for gaussian 
         gaussian_scale: n x p array of 1 / value indicating how much to divide gaussian obs by. mssing val gets 1
         """
         alpha = sample("alpha", self.prior["alpha"], sample_shape=(self.p,))
         beta = sample("beta", self.prior["beta"], sample_shape=(self.r, self.p))
+        W = sample("W", self.prior["W"], sample_shape=(self.n, self.r))
         sigma = sample("sigma", self.prior["sigma"], sample_shape=(self.num_gaussian,))
+        y = jnp.matmul(W, beta) + jnp.outer(jnp.ones((self.n,)), alpha)
+        y_normal = sample("likelihood_normal", Normal(loc = y[(self.missing & (self.output == 1))].flatten(), 
+                                                      scale=sigma[self.gaussian_indices[(self.missing & (self.output == 1))].flatten()]/self.exposure[(self.missing & (self.output == 1))].flatten()), 
+                          obs = self.X[(self.missing & (self.output == 1))].flatten())
+        y_poisson = sample("likelihood_poisson", Poisson(rate = jnp.exp(y[(self.missing & (self.output == 2))].flatten() + self.exposure[(self.missing & (self.output == 2))].flatten())), 
+                           obs=self.X[(self.missing & (self.output == 2))].flatten())
+        y_binomial = sample("likelihood_binomial", Binomial(total_count=self.exposure[(self.missing & (self.output == 3))].flatten(), 
+                                                            logits = y[(self.missing & (self.output == 3))].flatten()), 
+                                                            obs=self.X[(self.missing & (self.output == 3))].flatten())
 
-        cov_mat = jnp.matmul(beta.T, beta) + jnp.eye(self.p)
-        y_raw = sample("y_raw", MultivariateNormal(loc = jnp.zeros_like(alpha), covariance_matrix=cov_mat), sample_shape=(self.n,))
-        y = y_raw + jnp.outer(jnp.ones(shape=(self.n,)), alpha)
+    def run_inference(self, num_steps):
+        svi = SVI(self.model_fn, guide=AutoDelta, loss=Trace_ELBO(), optim=linear_onecycle_schedule(10, .05))
+        svi.run(jax.random.PRNGKey(0), num_steps=num_steps)
+        return svi
 
-        y_normal = sample("likelihood_normal", Normal(loc = y[].flatten, scale=sigma[gaussian_index]/gaussian_scale[].flatten), obs = self.X[].flatten())
-        y_poisson = sample("likelihood_poisson", Poisson(rate = jnp.exp(y_raw[].flatten() + self.exposure[].flatten)), obs=self.X[].flatten())
-        y_binomial = sample("likelihood_binomial", Binomial(total_count=self.exposure[].flatten(), logits = y_raw[].flatten()), obs=self.X[].flatten())
-
-
+        
 
 
 
