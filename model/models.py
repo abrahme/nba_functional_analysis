@@ -2,7 +2,7 @@ from abc import abstractmethod, ABC
 import jax 
 from numpyro import sample 
 from numpyro import deterministic
-from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial
+from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, MultivariateNormal
 from numpyro.infer import MCMC, NUTS, init_to_median
 import jax.numpy as jnp
 from .hsgp import approx_se_ncp
@@ -173,4 +173,84 @@ class NBAFDALatentModel(NBAFDAModel):
                 y = sample(f"likelihood_{metric}", Binomial(logits =  mu[:,:,index][mask].flatten(), total_count = exposure), obs=output_data[mask].flatten())
 
 
+
+class ProbabilisticPCA(ABC):
+    """
+    model for probabilistic pca with normal output 
+    """
+    def __init__(self, X, rank: int, *args, **kwargs) -> None:
+        self.X = X 
+        self.r = rank 
+        self.n, self.p = self.X.shape
+        self.prior = {}
+    
+    @abstractmethod
+    def initialize_priors(self, *args, **kwargs) -> None:
+        raise NotImplementedError
+    
+    @abstractmethod
+    def model_fn(self, *args, **kwargs) -> None:
+        raise NotImplementedError 
+
+    @abstractmethod
+    def run_inference(self, *args, **kwargs):
+        raise NotImplementedError
+
+
+class NBAMixedOutputProbabilisticPCA(ProbabilisticPCA):
+    """
+    model for probabilistic pca with mixed output + missing data
+    """
+
+    def __init__(self, X, rank: int, M, E, O, output_name: list, feature_name: list) -> None:
+        super().__init__(X, rank)
+        assert (self.X.shape == E.shape) & (self.X.shape == M.shape) & (self.X.shape == O.shape) ### have to have same shape
+        self.exposure = E ### exposure for each element in X
+        self.output = O ### type of output for each element in X (1 gaussian, 2 poisson, 3 binomial)
+        self.missing = M ### matrix of 1 / 0 indicating missing or not
+        self.T = int(self.X.shape[1] // len(feature_name)) ### time steps
+        self.outputs = output_name ### ex: [gaussian, gaussian, poisson, ...]
+        self.features = feature_name ## ex: [obpm, minutes, stl, ...]
+        self.num_gaussian = 0
+        for output_type in self.outputs:
+            if output_type == "gaussian":
+                self.num_gaussian += 1
+    
+    def initialize_priors(self) -> None:
+        ### initialize sigma
+        self.prior["sigma"] = InverseGamma(10.0, 2.0)
+        ### initialize alpha
+        self.prior["alpha"] = Normal()
+
+        ### initialize Beta
+        self.prior["beta"] = Normal()
+    
+    def model_fn(self, gaussian_index) -> None:
+        """
+        gaussian_index: array of 1, 2, ... d of length p indicating which indices go for gaussian 
+        gaussian_scale: n x p array of 1 / value indicating how much to divide gaussian obs by. mssing val gets 1
+        """
+        alpha = sample("alpha", self.prior["alpha"], sample_shape=(self.p,))
+        beta = sample("beta", self.prior["beta"], sample_shape=(self.r, self.p))
+        sigma = sample("sigma", self.prior["sigma"], sample_shape=(self.num_gaussian,))
+
+        cov_mat = jnp.matmul(beta.T, beta) + jnp.eye(self.p)
+        y_raw = sample("y_raw", MultivariateNormal(loc = jnp.zeros_like(alpha), covariance_matrix=cov_mat), sample_shape=(self.n,))
+        y = y_raw + jnp.outer(jnp.ones(shape=(self.n,)), alpha)
+
+        y_normal = sample("likelihood_normal", Normal(loc = y[].flatten, scale=sigma[gaussian_index]/gaussian_scale[].flatten), obs = self.X[].flatten())
+        y_poisson = sample("likelihood_poisson", Poisson(rate = jnp.exp(y_raw[].flatten() + self.exposure[].flatten)), obs=self.X[].flatten())
+        y_binomial = sample("likelihood_binomial", Binomial(total_count=self.exposure[].flatten(), logits = y_raw[].flatten()), obs=self.X[].flatten())
+
+
+
+
+
+
+
+        
+
+        
+
+    
 
