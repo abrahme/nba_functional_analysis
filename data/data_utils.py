@@ -27,7 +27,7 @@ def process_data(df, output_metric, exposure, model, input_metrics):
         return variance_scale, jnp.array(metric_df.to_numpy()), X
     return ValueError
 
-def create_pca_matrix(df, metric_output, exposure_list, metrics):
+def create_pca_data(df, metric_output, exposure_list, metrics):
     """
     metric_output: list of [poisson, gaussian, binomial]
     exposure_list: list indicating which column to use as an exposure
@@ -76,3 +76,14 @@ def create_basis(data, dims):
     return covariate_X
 
 
+def create_fda_data(data, basis_dims, metric_output, metrics, exposure_list):
+    covariate_X = create_basis(data, basis_dims)
+    data_set = []
+    for output,metric,exposure_val in zip(metric_output, metrics, exposure_list):
+        exposure, Y, _ = process_data(data, metric, exposure_val, output, ["position_group"])
+        data_dict = {"metric":metric, "output": output, "exposure_data": exposure, "output_data": Y, "mask": jnp.isfinite(exposure)}
+        data_set.append(data_dict)
+
+    basis = jnp.arange(18,39)
+
+    return covariate_X, data_set, basis
