@@ -256,17 +256,10 @@ class NBAMixedOutputProbabilisticPCA(ProbabilisticPCA):
                                                             logits = y[self.binomial_indices].flatten()), 
                                                             obs=self.X[self.binomial_indices].flatten())
 
-    def run_inference(self, num_warmup, num_samples, num_chains):
-        mcmc = MCMC(
-        NUTS(self.model_fn, init_strategy=init_to_median),
-        num_warmup=num_warmup,
-        num_samples=num_samples,
-        num_chains=num_chains,
-        progress_bar=True,
-        chain_method="parallel"
-    )
-        mcmc.run(jax.random.PRNGKey(0))
-        return mcmc
+    def run_inference(self, num_steps):
+        svi = SVI(self.model_fn, AutoDelta(self.model_fn), optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO())
+        svi.run(jax.random.PRNGKey(0), num_steps = num_steps)
+        return svi
         
 
 
