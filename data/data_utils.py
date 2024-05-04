@@ -43,11 +43,11 @@ def create_pca_data(df, metric_output, exposure_list, metrics):
         masks.append(jnp.isfinite(exposure))
         exposures.append(exposure)
         if output == "gaussian":
-            outputs.append(jnp.ones_like(Y))
+            outputs.append(jnp.ones_like(Y, dtype=int))
         elif output == "poisson":
-            outputs.append(2 * jnp.ones_like(Y))
+            outputs.append(2 * jnp.ones_like(Y, dtype=int))
         elif output == "binomial":
-            outputs.append(3 * jnp.ones_like(Y))
+            outputs.append(3 * jnp.ones_like(Y, dtype=int))
 
     return jnp.hstack(exposures), jnp.hstack(masks), jnp.hstack(data), jnp.hstack(outputs)
 

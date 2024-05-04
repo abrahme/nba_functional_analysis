@@ -13,12 +13,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Description of your program')
     parser.add_argument('--model_name', help='which model to fit', required=True)
     parser.add_argument("--basis_dims", help="size of the basis", required=True, type=int)
+    numpyro.set_platform("cpu")
+    numpyro.set_host_device_count(4)
     args = vars(parser.parse_args())
     model_name = args["model_name"]
     basis_dims = args["basis_dims"]
-
-    numpyro.set_platform("cpu")
-    numpyro.set_host_device_count(4)
     data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
@@ -28,6 +27,7 @@ if __name__ == "__main__":
     
 
     if model_name == "nba_fda_model":
+
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
         model = NBAFDAModel(basis, output_size=len(metric_output), M=10)
     elif model_name == "nba_fda_re_model":
@@ -43,13 +43,15 @@ if __name__ == "__main__":
         raise ValueError("Wrong model name")
     
     model.initialize_priors()
-    if "latent" not in model_name:
+    if model_name in ["nba_fda_model", "nba_fda_re_model"]:
+
         mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"covariate_X": covariate_X, "data_set": data_set})
         mcmc_run.print_summary()
         samples = mcmc_run.get_samples(group_by_chain=True)
     elif "pca" in model_name:
-        svi_run = model.run_inference(num_steps=100000)
-        samples = svi_run.state
+        mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000)
+        mcmc_run.print_summary()
+        samples = mcmc_run.get_samples(group_by_chain=True)
     else:
         mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set})
         mcmc_run.print_summary()

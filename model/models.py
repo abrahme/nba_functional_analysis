@@ -1,11 +1,12 @@
 from abc import abstractmethod, ABC
 import jax 
+import numpy as np
 from numpyro import sample 
 from numpyro import deterministic
 from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial
-from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO
+from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, initialization
 from numpyro.infer.autoguide import AutoDelta
-from optax import linear_onecycle_schedule
+from optax import linear_onecycle_schedule, adam
 import jax.numpy as jnp
 from .hsgp import approx_se_ncp
 
@@ -214,11 +215,15 @@ class NBAMixedOutputProbabilisticPCA(ProbabilisticPCA):
         self.outputs = output_name ### ex: [gaussian, gaussian, poisson, ...]
         self.features = feature_name ## ex: [obpm, minutes, stl, ...]
         self.num_gaussian = 0
-        self.gaussian_indices = jnp.zeros_like(self.X)
+        self.gaussian_variance_indices = np.zeros_like(self.X, dtype=int)
         for i, output_type in enumerate(self.outputs):
             if output_type == "gaussian":
                 self.num_gaussian += 1
-                self.gaussian_indices[:, i*self.T: (i+1)*self.T] = self.num_gaussian - 1
+                self.gaussian_variance_indices[:, i*self.T: (i+1)*self.T] = self.num_gaussian - 1
+        self.gaussian_variance_indices = jnp.array(self.gaussian_variance_indices)
+        self.gaussian_indices = (self.output == 1) & self.missing
+        self.poisson_indices = (self.output == 2) & self.missing
+        self.binomial_indices = (self.output == 3) & self.missing
     
     def initialize_priors(self) -> None:
         ### initialize sigma
@@ -242,20 +247,26 @@ class NBAMixedOutputProbabilisticPCA(ProbabilisticPCA):
         W = sample("W", self.prior["W"], sample_shape=(self.n, self.r))
         sigma = sample("sigma", self.prior["sigma"], sample_shape=(self.num_gaussian,))
         y = jnp.matmul(W, beta) + jnp.outer(jnp.ones((self.n,)), alpha)
-        y_normal = sample("likelihood_normal", Normal(loc = y[(self.missing & (self.output == 1))].flatten(), 
-                                                      scale=sigma[self.gaussian_indices[(self.missing & (self.output == 1))].flatten()]/self.exposure[(self.missing & (self.output == 1))].flatten()), 
-                          obs = self.X[(self.missing & (self.output == 1))].flatten())
-        y_poisson = sample("likelihood_poisson", Poisson(rate = jnp.exp(y[(self.missing & (self.output == 2))].flatten() + self.exposure[(self.missing & (self.output == 2))].flatten())), 
-                           obs=self.X[(self.missing & (self.output == 2))].flatten())
-        y_binomial = sample("likelihood_binomial", Binomial(total_count=self.exposure[(self.missing & (self.output == 3))].flatten(), 
-                                                            logits = y[(self.missing & (self.output == 3))].flatten()), 
-                                                            obs=self.X[(self.missing & (self.output == 3))].flatten())
+        y_normal = sample("likelihood_normal", Normal(loc = y[self.gaussian_indices].flatten(), 
+                                                      scale=sigma[self.gaussian_variance_indices[self.gaussian_indices].flatten()]/self.exposure[self.gaussian_indices].flatten()), 
+                          obs = self.X[self.gaussian_indices].flatten())
+        y_poisson = sample("likelihood_poisson", Poisson(rate = jnp.exp(y[self.poisson_indices].flatten() + self.exposure[self.poisson_indices].flatten())), 
+                           obs=self.X[self.poisson_indices].flatten())
+        y_binomial = sample("likelihood_binomial", Binomial(total_count=self.exposure[self.binomial_indices].flatten(), 
+                                                            logits = y[self.binomial_indices].flatten()), 
+                                                            obs=self.X[self.binomial_indices].flatten())
 
-    def run_inference(self, num_steps):
-        svi = SVI(self.model_fn, guide=AutoDelta, loss=Trace_ELBO(), optim=linear_onecycle_schedule(10, .05))
-        svi.run(jax.random.PRNGKey(0), num_steps=num_steps)
-        return svi
-
+    def run_inference(self, num_warmup, num_samples, num_chains):
+        mcmc = MCMC(
+        NUTS(self.model_fn, init_strategy=init_to_median),
+        num_warmup=num_warmup,
+        num_samples=num_samples,
+        num_chains=num_chains,
+        progress_bar=True,
+        chain_method="parallel"
+    )
+        mcmc.run(jax.random.PRNGKey(0))
+        return mcmc
         
 
 
@@ -263,8 +274,3 @@ class NBAMixedOutputProbabilisticPCA(ProbabilisticPCA):
 
 
         
-
-        
-
-    
-
