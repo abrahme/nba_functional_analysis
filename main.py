@@ -49,8 +49,8 @@ if __name__ == "__main__":
         mcmc_run.print_summary()
         samples = mcmc_run.get_samples(group_by_chain=True)
     elif "pca" in model_name:
-        mcmc_run = model.run_inference(num_steps=1000000)
-        samples = mcmc_run.get_samples(group_by_chain=True)
+        svi_run = model.run_inference(num_steps=1000000)
+        samples = svi_run.params
     else:
         mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set})
         mcmc_run.print_summary()
