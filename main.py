@@ -4,8 +4,8 @@ import argparse
 import pickle
 import numpyro
 
-from data.data_utils import create_fda_data, create_pca_data
-from model.models import NBAFDAModel, NBAFDAREModel, NBAFDALatentModel, NBAMixedOutputProbabilisticPCA
+from data.data_utils import create_fda_data, create_pca_data, create_cp_data
+from model.models import NBAFDAModel, NBAFDAREModel, NBAFDALatentModel, NBAMixedOutputProbabilisticPCA, NBAMixedOutputProbabilisticCPDecomposition
 
 
 
@@ -39,6 +39,9 @@ if __name__ == "__main__":
     elif model_name == "exponential_pca":
         exposures, masks, X, outputs = create_pca_data(data, metric_output, exposure_list, metrics)
         model = NBAMixedOutputProbabilisticPCA(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
+    elif model_name == "exponential_cp":
+        exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics)
+        model = NBAMixedOutputProbabilisticCPDecomposition(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
     else:
         raise ValueError("Wrong model name")
     
@@ -49,6 +52,9 @@ if __name__ == "__main__":
         mcmc_run.print_summary()
         samples = mcmc_run.get_samples(group_by_chain=True)
     elif "pca" in model_name:
+        svi_run = model.run_inference(num_steps=1000000)
+        samples = svi_run.params
+    elif "cp" in model_name:
         svi_run = model.run_inference(num_steps=1000000)
         samples = svi_run.params
     else:

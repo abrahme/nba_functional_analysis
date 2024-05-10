@@ -51,6 +51,30 @@ def create_pca_data(df, metric_output, exposure_list, metrics):
 
     return jnp.hstack(exposures), jnp.hstack(masks), jnp.hstack(data), jnp.hstack(outputs)
 
+def create_cp_data(df, metric_output, exposure_list, metrics):
+    """
+    metric_output: list of [poisson, gaussian, binomial]
+    exposure_list: list indicating which column to use as an exposure
+    metrics: list of metric names 
+    """
+    exposures = []
+    masks = []
+    data = []
+    outputs = []
+    for output, metric, exposure_val in zip(metric_output, metrics, exposure_list):
+        exposure, Y, _ = process_data(df, metric, exposure_val, output, [])
+        data.append(Y)
+        masks.append(jnp.isfinite(exposure))
+        exposures.append(exposure)
+        if output == "gaussian":
+            outputs.append(jnp.ones_like(Y, dtype=int))
+        elif output == "poisson":
+            outputs.append(2 * jnp.ones_like(Y, dtype=int))
+        elif output == "binomial":
+            outputs.append(3 * jnp.ones_like(Y, dtype=int))
+
+    return jnp.stack(exposures, axis = -1), jnp.stack(masks, axis = -1), jnp.stack(data, axis = -1), jnp.stack(outputs, axis = -1)
+
 def create_basis(data, dims):
     agg_dict = {"obpm":"mean", "dbpm":"mean", "bpm":"mean", 
             "minutes":"sum", "dreb": "sum", "fta":"sum", "ftm":"sum", "oreb":"sum",

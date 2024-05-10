@@ -3,7 +3,7 @@ import jax
 import numpy as np
 from numpyro import sample 
 from numpyro import deterministic
-from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial
+from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, initialization
 from numpyro.infer.autoguide import AutoDelta
 from optax import linear_onecycle_schedule, adam
@@ -262,6 +262,94 @@ class NBAMixedOutputProbabilisticPCA(ProbabilisticPCA):
         return result
         
 
+class ProbabilisticCPDecomposition(ABC):
+    """
+    model for probabilistic cp decomposition with normal output 
+    """
+    def __init__(self, X, rank: int, *args, **kwargs) -> None:
+        self.X = X 
+        self.r = rank 
+        self.n, self.t, self.k = self.X.shape
+        self.prior = {}
+    
+    @abstractmethod
+    def initialize_priors(self, *args, **kwargs) -> None:
+        raise NotImplementedError
+    
+    @abstractmethod
+    def model_fn(self, *args, **kwargs) -> None:
+        raise NotImplementedError 
+
+    @abstractmethod
+    def run_inference(self, *args, **kwargs):
+        raise NotImplementedError
+
+
+class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
+
+    def __init__(self, X, rank: int, M, E, O, output_name: list, feature_name: list) -> None:
+        super().__init__(X, rank)
+        assert (self.X.shape == E.shape) & (self.X.shape == M.shape) & (self.X.shape == O.shape) ### have to have same shape
+        self.exposure = E ### exposure for each element in X
+        self.output = O ### type of output for each element in X (1 gaussian, 2 poisson, 3 binomial)
+        self.missing = M ### matrix of 1 / 0 indicating missing or not
+        self.outputs = output_name ### ex: [gaussian, gaussian, poisson, ...]
+        self.features = feature_name ## ex: [obpm, minutes, stl, ...]
+        self.num_gaussian = 0
+        self.gaussian_variance_indices = np.zeros_like(self.X, dtype=int)
+        for i, output_type in enumerate(self.outputs):
+            if output_type == "gaussian":
+                self.num_gaussian += 1
+                self.gaussian_variance_indices[:,:,i] = self.num_gaussian - 1
+        self.gaussian_variance_indices = jnp.array(self.gaussian_variance_indices)
+        self.gaussian_indices = (self.output == 1) & self.missing
+        self.poisson_indices = (self.output == 2) & self.missing
+        self.binomial_indices = (self.output == 3) & self.missing
+
+    
+    def initialize_priors(self) -> None:
+        ### initialize sigma
+        self.prior["sigma"] = InverseGamma(10.0, 2.0)
+        ### initialize U
+        self.prior["U"] = Normal()
+        ### initialize V
+        self.prior["V"] = Normal()
+        ### initialize W
+        self.prior["W"] = Normal()
+        ### initialize lambda
+        self.prior["lambda"] = Dirichlet(concentration=jnp.ones(shape=(self.r,)) / self.r)
+        ### initialize alpha
+        self.prior["alpha"] = Normal()
+
+    def model_fn(self) -> None:
+        alpha = sample("alpha", self.prior["alpha"], sample_shape=(self.t, self.k)) ### mean across the time points and the metrics
+        V = sample("V", self.prior["V"], sample_shape=(self.t, self.r))
+        U = sample("U", self.prior["U"], sample_shape=(self.n, self.r ))
+        W = sample("W", self.prior["W"], sample_shape=(self.k, self.r))
+        sigma = sample("sigma", self.prior["sigma"], sample_shape=(self.num_gaussian,))
+        weights = sample("lambda", self.prior["lambda"])
+        core = jnp.einsum("ntr, kr->ntkr", jnp.einsum("nr, tr -> ntr", U, V), W)
+        y = jnp.einsum("ntkr, r -> ntk", core, weights) + alpha
+        y_normal = sample("likelihood_normal", Normal(loc = y[self.gaussian_indices].flatten(), 
+                                                      scale=sigma[self.gaussian_variance_indices[self.gaussian_indices].flatten()]/self.exposure[self.gaussian_indices].flatten()), 
+                          obs = self.X[self.gaussian_indices].flatten())
+        y_poisson = sample("likelihood_poisson", Poisson(rate = jnp.exp(y[self.poisson_indices].flatten() + self.exposure[self.poisson_indices].flatten())), 
+                           obs=self.X[self.poisson_indices].flatten())
+        y_binomial = sample("likelihood_binomial", Binomial(total_count=self.exposure[self.binomial_indices].flatten(), 
+                                                            logits = y[self.binomial_indices].flatten()), 
+                                                            obs=self.X[self.binomial_indices].flatten())
+
+    def run_inference(self, num_steps):
+        svi = SVI(self.model_fn, AutoDelta(self.model_fn), optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO())
+        result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps)
+        return result
+    
+
+    
+
+
+
+    
 
 
 
