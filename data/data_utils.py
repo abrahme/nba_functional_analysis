@@ -9,13 +9,15 @@ def process_data(df, output_metric, exposure, model, input_metrics):
     df["ft_pct"] = df["ftm"] / df["fta"]
     df["three_pct"] = df["fg3m"] / df["fg3a"]
     df["two_pct"] = df["fg2m"] / df["fg2a"]
-    X = df[input_metrics + ["id"]].groupby("id").agg(agg_dict).reset_index()[input_metrics]
+    if input_metrics:
+        X = df[input_metrics + ["id"]].groupby("id").agg(agg_dict).reset_index()[input_metrics]
+    else:
+        X = None
     metric_df = df[[output_metric, "id", "age"]]
     exposure_df = df[["id", "age", exposure]]
-    games_df = df[["id", "age", "games"]]
     metric_df  = metric_df.pivot(columns="age",values=output_metric,index="id")
     if model == "poisson":
-        offset = jnp.log(exposure_df.pivot(columns="age", values=exposure,index="id").to_numpy()) + jnp.log(games_df.pivot(columns="age", values = "games", index = "id").to_numpy())
+        offset = jnp.log(exposure_df.pivot(columns="age", values=exposure,index="id").to_numpy())
         return offset, jnp.array(metric_df.to_numpy()), X
     elif model == "binomial":
         trials = jnp.array(exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy())
@@ -24,6 +26,54 @@ def process_data(df, output_metric, exposure, model, input_metrics):
         variance_scale = jnp.sqrt(exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy())
         return variance_scale, jnp.array(metric_df.to_numpy()), X
     return ValueError
+
+def create_pca_data(df, metric_output, exposure_list, metrics):
+    """
+    metric_output: list of [poisson, gaussian, binomial]
+    exposure_list: list indicating which column to use as an exposure
+    metrics: list of metric names 
+    """
+    exposures = []
+    masks = []
+    data = []
+    outputs = []
+    for output, metric, exposure_val in zip(metric_output, metrics, exposure_list):
+        exposure, Y, _ = process_data(df, metric, exposure_val, output, [])
+        data.append(Y)
+        masks.append(jnp.isfinite(exposure))
+        exposures.append(exposure)
+        if output == "gaussian":
+            outputs.append(jnp.ones_like(Y, dtype=int))
+        elif output == "poisson":
+            outputs.append(2 * jnp.ones_like(Y, dtype=int))
+        elif output == "binomial":
+            outputs.append(3 * jnp.ones_like(Y, dtype=int))
+
+    return jnp.hstack(exposures), jnp.hstack(masks), jnp.hstack(data), jnp.hstack(outputs)
+
+def create_cp_data(df, metric_output, exposure_list, metrics):
+    """
+    metric_output: list of [poisson, gaussian, binomial]
+    exposure_list: list indicating which column to use as an exposure
+    metrics: list of metric names 
+    """
+    exposures = []
+    masks = []
+    data = []
+    outputs = []
+    for output, metric, exposure_val in zip(metric_output, metrics, exposure_list):
+        exposure, Y, _ = process_data(df, metric, exposure_val, output, [])
+        data.append(Y)
+        masks.append(jnp.isfinite(exposure))
+        exposures.append(exposure)
+        if output == "gaussian":
+            outputs.append(jnp.ones_like(Y, dtype=int))
+        elif output == "poisson":
+            outputs.append(2 * jnp.ones_like(Y, dtype=int))
+        elif output == "binomial":
+            outputs.append(3 * jnp.ones_like(Y, dtype=int))
+
+    return jnp.stack(exposures, axis = -1), jnp.stack(masks, axis = -1), jnp.stack(data, axis = -1), jnp.stack(outputs, axis = -1)
 
 def create_basis(data, dims):
     agg_dict = {"obpm":"mean", "dbpm":"mean", "bpm":"mean", 
@@ -50,3 +100,14 @@ def create_basis(data, dims):
     return covariate_X
 
 
+def create_fda_data(data, basis_dims, metric_output, metrics, exposure_list):
+    covariate_X = create_basis(data, basis_dims)
+    data_set = []
+    for output,metric,exposure_val in zip(metric_output, metrics, exposure_list):
+        exposure, Y, _ = process_data(data, metric, exposure_val, output, ["position_group"])
+        data_dict = {"metric":metric, "output": output, "exposure_data": exposure, "output_data": Y, "mask": jnp.isfinite(exposure)}
+        data_set.append(data_dict)
+
+    basis = jnp.arange(18,39)
+
+    return covariate_X, data_set, basis
