@@ -143,12 +143,18 @@ class NBAFDALatentModel(NBAFDAModel):
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
         return super().run_inference(num_warmup, num_samples, num_chains, model_args)
     
+    def _stabilize_x(self, X):
+        """Fix the rotation according to the SVD.
+        """
+        U, _, _ = jnp.linalg.svd(X, full_matrices=False)
+        L       = jnp.linalg.cholesky(jnp.cov(U.T) + 1e-6 * jnp.eye(self.latent_dim[1])).T
+        aligned_X  = jnp.linalg.solve(L, U.T).T
+        return aligned_X / jnp.std(X, axis=0)
+
     def sample_latent(self):
-        ### samples  from uniform distribution on steifel 
-        X = sample("latent_raw", Normal(0, 1), sample_shape=self.latent_dim)
-        XtX = jnp.matmul(X.T, X)
-        U, L, V = jnp.linalg.svd(XtX, full_matrices = False)
-        return jnp.matmul(X, jnp.matmul(U * jnp.power(L, -.5), V))
+        ### samples  from distribution on steifel 
+        X = sample("latent_raw", Normal(), sample_shape=self.latent_dim)
+        return self._stabilize_x(X)
 
     def model_fn(self, data_set) -> None:
         covariate_dim = self.latent_dim[1]
@@ -345,7 +351,73 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
         return result
     
 
+class RFLVM(ABC):
+    """ 
+    HMC implementation of 
+    https://arxiv.org/pdf/2006.11145
+    """
+    def __init__(self, Y, E, M, latent_rank: int, rff_dim: int, output: str) -> None:
+        assert (Y.shape == E.shape) & (self.X.shape == M.shape)
+        self.Y = Y
+        self.missing = M
+        self.exposure = E
+        self.output = output
+        self.r = latent_rank 
+        self.m = rff_dim
+        self.n, self.j = self.Y.shape
+        self.prior = {}
     
+    @abstractmethod
+    def initialize_priors(self, *args, **kwargs) -> None:
+        self.prior["W"] = Normal()
+        self.prior["Beta"] = Normal()
+        self.prior["X"] = Normal()
+        if self.output == "gaussian":
+            self.prior["sigma"] = InverseGamma(10.0, 2.0)
+    
+    def _stabilize_x(self, X):
+        """Fix the rotation according to the SVD.
+        """
+        U, _, _ = jnp.linalg.svd(X, full_matrices=False)
+        L       = jnp.linalg.cholesky(jnp.cov(U.T) + 1e-6 * jnp.eye(self.r)).T
+        aligned_X  = jnp.linalg.solve(L, U.T).T
+        return aligned_X / jnp.std(X, axis=0)
+
+    @abstractmethod
+    def model_fn(self, *args, **kwargs) -> None:
+        W = sample("W", self.prior["W"], sample_shape=(self.m, self.r))
+        beta = sample("beta", self.prior["beta"], sample_shape=(2 * self.m, self.j))
+        X_raw = sample("X_raw", self.prior["X"], sample_shape=(self.n, self.r))
+        X = deterministic("X", self._stabilize_x(X_raw))
+        wTx = jnp.einsum("nr,mr -> nm", X, W )
+        phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
+        mu = jnp.einsum("nm,mj -> nj", phi, beta)
+        exposure_ = self.exposure[self.missing].flatten() ### non missing values
+        Y_ = self.Y[self.missing].flatten() ### non missing values
+        if self.output == "gaussian":
+            sigma = sample("sigma", self.prior["sigma"])
+            y = sample("likelihood", Normal( mu[self.missing].flatten() , sigma/exposure_), obs=Y_)
+        elif self.output == "poisson":
+            y = sample("likelihood", Poisson( jnp.exp(mu[self.missing.flatten()] + exposure_) ), obs=Y_)
+        elif self.output == "binomial":
+            y = sample("likelihood", Binomial(logits=mu[self.missing].flatten(), total_count=exposure_), obs = Y_)
+            
+    @abstractmethod
+    def run_inference(self, num_warmup, num_samples, num_chains, model_args):
+        mcmc = MCMC(
+        NUTS(self.model_fn, init_strategy=init_to_median),
+        num_warmup=num_warmup,
+        num_samples=num_samples,
+        num_chains=num_chains,
+        progress_bar=True,
+        chain_method="parallel"
+    )
+        mcmc.run(jax.random.PRNGKey(0), **model_args)
+        return mcmc
+
+
+
+
 
 
 
