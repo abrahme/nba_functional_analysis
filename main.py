@@ -5,7 +5,7 @@ import pickle
 import numpyro
 
 from data.data_utils import create_fda_data, create_pca_data, create_cp_data
-from model.models import NBAFDAModel, NBAFDAREModel, NBAFDALatentModel, NBAMixedOutputProbabilisticPCA, NBAMixedOutputProbabilisticCPDecomposition
+from model.models import NBAFDAModel, NBAFDAREModel, NBAFDALatentModel, NBAMixedOutputProbabilisticPCA, NBAMixedOutputProbabilisticCPDecomposition, RFLVM, TVRFLVM
 
 
 
@@ -27,7 +27,6 @@ if __name__ == "__main__":
     
 
     if model_name == "nba_fda_model":
-
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
         model = NBAFDAModel(basis, output_size=len(metric_output), M=10)
     elif model_name == "nba_fda_re_model":
@@ -42,12 +41,17 @@ if __name__ == "__main__":
     elif model_name == "exponential_cp":
         exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics)
         model = NBAMixedOutputProbabilisticCPDecomposition(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
+    elif model_name =="nba_rflvm":
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
+        model = RFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(covariate_X.shape[0], len(basis)))
+    elif model_name =="nba_tvrflvm":
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
+        model = TVRFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
     else:
         raise ValueError("Wrong model name")
     
     model.initialize_priors()
     if model_name in ["nba_fda_model", "nba_fda_re_model"]:
-
         mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"covariate_X": covariate_X, "data_set": data_set})
         mcmc_run.print_summary()
         samples = mcmc_run.get_samples(group_by_chain=True)

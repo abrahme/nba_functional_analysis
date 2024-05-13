@@ -3,7 +3,7 @@ import jax
 import numpy as np
 from numpyro import sample 
 from numpyro import deterministic
-from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet
+from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, initialization
 from numpyro.infer.autoguide import AutoDelta
 from optax import linear_onecycle_schedule, adam
@@ -351,29 +351,23 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
         return result
     
 
-class RFLVM(ABC):
+class RFLVMBase(ABC):
     """ 
     HMC implementation of 
     https://arxiv.org/pdf/2006.11145
     """
-    def __init__(self, Y, E, M, latent_rank: int, rff_dim: int, output: str) -> None:
-        assert (Y.shape == E.shape) & (self.X.shape == M.shape)
-        self.Y = Y
-        self.missing = M
-        self.exposure = E
-        self.output = output
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple) -> None:
         self.r = latent_rank 
         self.m = rff_dim
-        self.n, self.j = self.Y.shape
+        self.n, self.j = output_shape
         self.prior = {}
     
     @abstractmethod
     def initialize_priors(self, *args, **kwargs) -> None:
         self.prior["W"] = Normal()
-        self.prior["Beta"] = Normal()
+        self.prior["beta"] = Normal()
         self.prior["X"] = Normal()
-        if self.output == "gaussian":
-            self.prior["sigma"] = InverseGamma(10.0, 2.0)
+        self.prior["sigma"] = InverseGamma(10.0, 2.0)
     
     def _stabilize_x(self, X):
         """Fix the rotation according to the SVD.
@@ -384,23 +378,29 @@ class RFLVM(ABC):
         return aligned_X / jnp.std(X, axis=0)
 
     @abstractmethod
-    def model_fn(self, *args, **kwargs) -> None:
+    def model_fn(self, data_set) -> None:
         W = sample("W", self.prior["W"], sample_shape=(self.m, self.r))
-        beta = sample("beta", self.prior["beta"], sample_shape=(2 * self.m, self.j))
         X_raw = sample("X_raw", self.prior["X"], sample_shape=(self.n, self.r))
-        X = deterministic("X", self._stabilize_x(X_raw))
-        wTx = jnp.einsum("nr,mr -> nm", X, W )
+        X = self._stabilize_x(X_raw)
+        wTx = jnp.einsum("nr,mr -> nm", X, W)
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
-        mu = jnp.einsum("nm,mj -> nj", phi, beta)
-        exposure_ = self.exposure[self.missing].flatten() ### non missing values
-        Y_ = self.Y[self.missing].flatten() ### non missing values
-        if self.output == "gaussian":
-            sigma = sample("sigma", self.prior["sigma"])
-            y = sample("likelihood", Normal( mu[self.missing].flatten() , sigma/exposure_), obs=Y_)
-        elif self.output == "poisson":
-            y = sample("likelihood", Poisson( jnp.exp(mu[self.missing.flatten()] + exposure_) ), obs=Y_)
-        elif self.output == "binomial":
-            y = sample("likelihood", Binomial(logits=mu[self.missing].flatten(), total_count=exposure_), obs = Y_)
+        beta = sample(f"beta", self.prior["beta"], sample_shape=(len(data_set), 2 * self.m, self.j))
+        mu = jnp.einsum("nm,kmj -> knj", phi, beta)
+        for index, data_entity in enumerate(data_set):
+            output = data_entity["output"]
+            metric = data_entity["metric"]
+            mask = data_entity["mask"]
+            exposure_data = data_entity["exposure_data"]
+            output_data = data_entity["output_data"]
+            exposure_ =  exposure_data[mask].flatten()
+            Y_ = output_data[mask].flatten() ### non missing values
+            if output == "gaussian":
+                sigma = sample(f"sigma_{metric}", self.prior["sigma"])
+                y = sample(f"likelihood_{metric}", Normal( mu[index,:,:][mask].flatten() , sigma/exposure_), obs=Y_)
+            elif output == "poisson":
+                y = sample(f"likelihood_{metric}", Poisson( jnp.exp(mu[index,:,:][mask].flatten() + exposure_) ), obs=Y_)
+            elif output == "binomial":
+                y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten(), total_count=exposure_), obs = Y_)
             
     @abstractmethod
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
@@ -417,13 +417,70 @@ class RFLVM(ABC):
 
 
 
+class RFLVM(RFLVMBase):
 
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape)
+    
+    def initialize_priors(self, *args, **kwargs) -> None:
+        return super().initialize_priors(*args, **kwargs)
+    
+    def model_fn(self, data_set) -> None:
+        return super().model_fn(data_set)
+    
+    def run_inference(self, num_warmup, num_samples, num_chains, model_args):
+        return super().run_inference(num_warmup, num_samples, num_chains, model_args)
 
 
 
     
+class TVRFLVM(RFLVM):
+    """
+    model for time varying functional 
+    """
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape)
+        self.basis = basis ### basis for time dimension
+    
+
+    def make_kernel(self, jitter = 1e-6):
+        deltaXsq = jnp.power((self.basis[:, None] - self.basis), 2.0)
+        k = jnp.exp(-0.5 * deltaXsq) + jitter * jnp.eye(self.basis.shape[0])
+        return k
+
+    def initialize_priors(self, *args, **kwargs) -> None:
+        super().initialize_priors(*args, **kwargs)
+        kernel = self.make_kernel()
+        self.prior["beta"] = MultivariateNormal(loc=jnp.zeros_like(self.basis), covariance_matrix=kernel) ### basic gp prior on the time 
 
 
+    def model_fn(self, data_set) -> None:
+        W = sample("W", self.prior["W"], sample_shape=(self.m, self.r))
+        X_raw = sample("X_raw", self.prior["X"], sample_shape=(self.n, self.r))
+        X = self._stabilize_x(X_raw)
+        wTx = jnp.einsum("nr,mr -> nm", X, W)
+        phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
+        beta = sample(f"beta", self.prior["beta"], sample_shape=(len(data_set), 2 * self.m)) ### don't need extra dimension
+        mu = jnp.einsum("nm,kmj -> knj", phi, beta)
+        for index, data_entity in enumerate(data_set):
+            output = data_entity["output"]
+            metric = data_entity["metric"]
+            mask = data_entity["mask"]
+            exposure_data = data_entity["exposure_data"]
+            output_data = data_entity["output_data"]
+            exposure_ =  exposure_data[mask].flatten()
+
+            Y_ = output_data[mask].flatten() ### non missing values
+            if output == "gaussian":
+                sigma = sample(f"sigma_{metric}", self.prior["sigma"])
+                y = sample(f"likelihood_{metric}", Normal( mu[index,:,:][mask].flatten() , sigma/exposure_), obs=Y_)
+            elif output == "poisson":
+                y = sample(f"likelihood_{metric}", Poisson( jnp.exp(mu[index,:,:][mask].flatten() + exposure_) ), obs=Y_)
+            elif output == "binomial":
+                y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten(), total_count=exposure_), obs = Y_)
+    
+    def run_inference(self, num_warmup, num_samples, num_chains, model_args):
+        return super().run_inference(num_warmup, num_samples, num_chains, model_args)
 
 
         
