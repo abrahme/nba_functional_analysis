@@ -403,17 +403,21 @@ class RFLVMBase(ABC):
                 y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten(), total_count=exposure_), obs = Y_)
             
     @abstractmethod
-    def run_inference(self, num_warmup, num_samples, num_chains, model_args):
-        mcmc = MCMC(
-        NUTS(self.model_fn, init_strategy=init_to_median),
-        num_warmup=num_warmup,
-        num_samples=num_samples,
-        num_chains=num_chains,
-        progress_bar=True,
-        chain_method="parallel"
-    )
-        mcmc.run(jax.random.PRNGKey(0), **model_args)
-        return mcmc
+    def run_inference(self, num_steps, model_args):
+        svi = SVI(self.model_fn, AutoDelta(self.model_fn), optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO())
+        result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps, **model_args)
+        return result
+    # def run_inference(self, num_warmup, num_samples, num_chains, model_args):
+    #     mcmc = MCMC(
+    #     NUTS(self.model_fn, init_strategy=init_to_median),
+    #     num_warmup=num_warmup,
+    #     num_samples=num_samples,
+    #     num_chains=num_chains,
+    #     progress_bar=True,
+    #     chain_method="vectorized"
+    # )
+    #     mcmc.run(jax.random.PRNGKey(0), **model_args)
+    #     return mcmc
 
 
 
@@ -427,9 +431,9 @@ class RFLVM(RFLVMBase):
     
     def model_fn(self, data_set) -> None:
         return super().model_fn(data_set)
-    
-    def run_inference(self, num_warmup, num_samples, num_chains, model_args):
-        return super().run_inference(num_warmup, num_samples, num_chains, model_args)
+    def run_inference(self, num_steps, model_args):
+        return super().run_inference(num_steps, model_args)
+
 
 
 
@@ -479,8 +483,9 @@ class TVRFLVM(RFLVM):
             elif output == "binomial":
                 y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten(), total_count=exposure_), obs = Y_)
     
-    def run_inference(self, num_warmup, num_samples, num_chains, model_args):
-        return super().run_inference(num_warmup, num_samples, num_chains, model_args)
+    def run_inference(self, num_steps, model_args):
+        return super().run_inference(num_steps, model_args)
+
 
 
         

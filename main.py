@@ -61,6 +61,9 @@ if __name__ == "__main__":
     elif "cp" in model_name:
         svi_run = model.run_inference(num_steps=1000000)
         samples = svi_run.params
+    elif "rflvm" in model_name:
+        svi_run = model.run_inference(num_steps=1000000, model_args={"data_set": data_set})
+        samples = svi_run.params
     else:
         mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set})
         mcmc_run.print_summary()
