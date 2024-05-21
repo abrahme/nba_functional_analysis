@@ -306,7 +306,7 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
         for i, output_type in enumerate(self.outputs):
             if output_type == "gaussian":
                 self.num_gaussian += 1
-                self.gaussian_variance_indices[:,:,i] = self.num_gaussian - 1
+                self.gaussian_variance_indices[..., i] = self.num_gaussian - 1
         self.gaussian_variance_indices = jnp.array(self.gaussian_variance_indices)
         self.gaussian_indices = (self.output == 1) & self.missing
         self.poisson_indices = (self.output == 2) & self.missing
@@ -350,6 +350,70 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
         result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps)
         return result
     
+
+
+class NBAMixedOutputProbabilisticCPDecompositionMultiWay(ProbabilisticCPDecomposition):
+
+    def __init__(self, X, rank: int, M, E, O, output_name: list, feature_name: list) -> None:
+        self.X = X 
+        self.r = rank 
+        self.n, self.y, self.t, self.k = self.X.shape
+        self.prior = {}
+        assert (self.X.shape == E.shape) & (self.X.shape == M.shape) & (self.X.shape == O.shape) ### have to have same shape
+        self.exposure = E ### exposure for each element in X
+        self.output = O ### type of output for each element in X (1 gaussian, 2 poisson, 3 binomial)
+        self.missing = M ### matrix of 1 / 0 indicating missing or not
+        self.outputs = output_name ### ex: [gaussian, gaussian, poisson, ...]
+        self.features = feature_name ## ex: [obpm, minutes, stl, ...]
+        self.num_gaussian = 0
+        self.gaussian_variance_indices = np.zeros_like(self.X, dtype=int)
+        for i, output_type in enumerate(self.outputs):
+            if output_type == "gaussian":
+                self.num_gaussian += 1
+                self.gaussian_variance_indices[..., i] = self.num_gaussian - 1
+        self.gaussian_variance_indices = jnp.array(self.gaussian_variance_indices)
+        self.gaussian_indices = (self.output == 1) & self.missing
+        self.poisson_indices = (self.output == 2) & self.missing
+        self.binomial_indices = (self.output == 3) & self.missing
+
+    
+    def initialize_priors(self) -> None:
+        ### initialize sigma
+        self.prior["sigma"] = InverseGamma(10.0, 2.0)
+        ### initialize U (latent players)
+        self.prior["U"] = Normal()
+        ### initialize V (latent age trend )
+        self.prior["V"] = Normal()
+        ### initialize W  (latent metric trend)
+        self.prior["W"] = Normal()
+        ### initialize Z (latent year trend)
+        self.prior["Z"] = Normal()
+        ### initialize lambda
+        self.prior["lambda"] = Dirichlet(concentration=jnp.ones(shape=(self.r,)) / self.r)
+
+    def model_fn(self) -> None:
+        Z = sample("Z", self.prior["Z"], sample_shape=(self.y, self.r))
+        V = sample("V", self.prior["V"], sample_shape=(self.t, self.r))
+        U = sample("U", self.prior["U"], sample_shape=(self.n, self.r ))
+        W = sample("W", self.prior["W"], sample_shape=(self.k, self.r))
+        sigma = sample("sigma", self.prior["sigma"], sample_shape=(self.num_gaussian,))
+        weights = sample("lambda", self.prior["lambda"])
+        core = jnp.einsum("yr,ntkr ->nytkr", Z, jnp.einsum("ntr, kr->ntkr", jnp.einsum("nr, tr -> ntr", U, V), W))
+        y = jnp.einsum("nytkr, r -> nytk", core, weights) 
+        y_normal = sample("likelihood_normal", Normal(loc = y[self.gaussian_indices].flatten(), 
+                                                      scale=sigma[self.gaussian_variance_indices[self.gaussian_indices].flatten()]/self.exposure[self.gaussian_indices].flatten()), 
+                          obs = self.X[self.gaussian_indices].flatten())
+        y_poisson = sample("likelihood_poisson", Poisson(rate = jnp.exp(y[self.poisson_indices].flatten() + self.exposure[self.poisson_indices].flatten())), 
+                           obs=self.X[self.poisson_indices].flatten())
+        y_binomial = sample("likelihood_binomial", Binomial(total_count=self.exposure[self.binomial_indices].flatten(), 
+                                                            logits = y[self.binomial_indices].flatten()), 
+                                                            obs=self.X[self.binomial_indices].flatten())
+
+    def run_inference(self, num_steps):
+        svi = SVI(self.model_fn, AutoDelta(self.model_fn), optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO())
+        result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps)
+        return result
+
 
 class RFLVMBase(ABC):
     """ 
@@ -488,4 +552,109 @@ class TVRFLVM(RFLVM):
 
 
 
-        
+class DriftRFLVM(RFLVMBase):
+
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, drift_basis) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape)
+        self.drift_basis = drift_basis 
+        self.L =  jnp.max(jnp.abs(drift_basis), axis=0)*1.5
+    
+    def initialize_priors(self, *args, **kwargs) -> None:
+        super().initialize_priors(*args, **kwargs)
+        self.prior["alpha"] = HalfNormal()
+        self.prior["length"] = InverseGamma(10.0, 2.0)
+
+    def sample_basis(self, dim):
+        alpha = sample("alpha", self.prior["alpha"], sample_shape=(dim,))
+        length = sample("length", self.prior["length"], sample_shape=(dim,))
+        return deterministic("drift_basis", jnp.vstack([approx_se_ncp(self.drift_basis, alpha=alpha[i], length=length[i], M = self.m, output_size=1,
+                             L =  self.L, name= f"drift_{i}") for i in range(dim)] ))
+
+    def model_fn(self, data_set) -> None:
+        W = sample("W", self.prior["W"], sample_shape=(self.m, self.r))
+        X_raw = sample("X_raw", self.prior["X"], sample_shape=(self.n, self.r))
+        X = self._stabilize_x(X_raw)
+        wTx = jnp.einsum("nr,mr -> nm", X, W)
+        phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
+        beta = sample(f"beta", self.prior["beta"], sample_shape=(len(data_set), 2 * self.m, self.j))
+        drift = self.sample_basis(len(data_set))
+        mu = jnp.einsum("nm,kmj -> knj", phi, beta)
+        for index, data_entity in enumerate(data_set):
+            output = data_entity["output"]
+            metric = data_entity["metric"]
+            mask = data_entity["mask"]
+            time = data_entity["time"]
+            exposure_data = data_entity["exposure_data"]
+            output_data = data_entity["output_data"]
+            exposure_ =  exposure_data[mask].flatten()
+            Y_ = output_data[mask].flatten() ### non missing values
+            if output == "gaussian":
+                sigma = sample(f"sigma_{metric}", self.prior["sigma"])
+                y = sample(f"likelihood_{metric}", Normal( mu[index,:,:][mask].flatten() + drift[..., index][time[mask].flatten()], sigma/exposure_), obs=Y_)
+            elif output == "poisson":
+                y = sample(f"likelihood_{metric}", Poisson( jnp.exp(mu[index,:,:][mask].flatten() + exposure_ + drift[..., index][time[mask].flatten()])) , obs=Y_)
+            elif output == "binomial":
+                y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten() + drift[..., index][time[mask].flatten()], total_count=exposure_), obs = Y_)
+            
+    def run_inference(self, num_steps, model_args):
+        return super().run_inference(num_steps, model_args)
+    
+
+
+class DriftTVRFLVM(RFLVMBase):
+
+
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis, drift_basis) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape)
+        self.basis = basis ### basis for time dimension
+        self.drift_basis = drift_basis 
+        self.L =  jnp.max(jnp.abs(drift_basis), axis=0)*1.5
+    
+
+    def make_kernel(self, jitter = 1e-6):
+        deltaXsq = jnp.power((self.basis[:, None] - self.basis), 2.0)
+        k = jnp.exp(-0.5 * deltaXsq) + jitter * jnp.eye(self.basis.shape[0])
+        return k
+
+    def initialize_priors(self, *args, **kwargs) -> None:
+        super().initialize_priors(*args, **kwargs)
+        kernel = self.make_kernel()
+        self.prior["beta"] = MultivariateNormal(loc=jnp.zeros_like(self.basis), covariance_matrix=kernel) ### basic gp prior on the time
+        self.prior["alpha"] = HalfNormal()
+        self.prior["length"] = InverseGamma(10.0, 2.0)
+
+
+    def sample_basis(self, dim):
+        alpha = sample("alpha", self.prior["alpha"], sample_shape=(dim,))
+        length = sample("length", self.prior["length"], sample_shape=(dim,))
+        return deterministic("drift_basis", jnp.vstack([approx_se_ncp(self.drift_basis, alpha=alpha[i], length=length[i], M = self.m, output_size=1,
+                             L =  self.L, name= f"drift_{i}") for i in range(dim)] ))
+
+    def model_fn(self, data_set) -> None:
+        W = sample("W", self.prior["W"], sample_shape=(self.m, self.r))
+        X_raw = sample("X_raw", self.prior["X"], sample_shape=(self.n, self.r))
+        X = self._stabilize_x(X_raw)
+        wTx = jnp.einsum("nr,mr -> nm", X, W)
+        phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
+        beta = sample(f"beta", self.prior["beta"], sample_shape=(len(data_set), 2 * self.m))
+        drift = self.sample_basis(len(data_set))
+        mu = jnp.einsum("nm,kmj -> knj", phi, beta)
+        for index, data_entity in enumerate(data_set):
+            output = data_entity["output"]
+            metric = data_entity["metric"]
+            mask = data_entity["mask"]
+            time = data_entity["time"]
+            exposure_data = data_entity["exposure_data"]
+            output_data = data_entity["output_data"]
+            exposure_ =  exposure_data[mask].flatten()
+            Y_ = output_data[mask].flatten() ### non missing values
+            if output == "gaussian":
+                sigma = sample(f"sigma_{metric}", self.prior["sigma"])
+                y = sample(f"likelihood_{metric}", Normal( mu[index,:,:][mask].flatten() + drift[..., index][time[mask].flatten()], sigma/exposure_), obs=Y_)
+            elif output == "poisson":
+                y = sample(f"likelihood_{metric}", Poisson( jnp.exp(mu[index,:,:][mask].flatten() + exposure_ + drift[..., index][time[mask].flatten()])) , obs=Y_)
+            elif output == "binomial":
+                y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten() + drift[..., index][time[mask].flatten()], total_count=exposure_), obs = Y_)
+            
+    def run_inference(self, num_steps, model_args):
+        return super().run_inference(num_steps, model_args)
