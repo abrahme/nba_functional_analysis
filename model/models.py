@@ -561,13 +561,9 @@ class DriftRFLVM(RFLVMBase):
     
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
-        self.prior["alpha"] = HalfNormal()
-        self.prior["length"] = InverseGamma(10.0, 2.0)
 
     def sample_basis(self, dim):
-        alpha = sample("alpha", self.prior["alpha"], sample_shape=(dim,))
-        length = sample("length", self.prior["length"], sample_shape=(dim,))
-        return deterministic("drift_basis", jnp.vstack([approx_se_ncp(self.drift_basis, alpha=alpha[i], length=length[i], M = self.m, output_size=1,
+        return deterministic("drift_basis", jnp.vstack([approx_se_ncp(self.drift_basis, alpha=1.0, length=1.0, M = self.m, output_size=1,
                              L =  self.L, name= f"drift_{i}") for i in range(dim)] ))
 
     def model_fn(self, data_set) -> None:
@@ -620,14 +616,10 @@ class DriftTVRFLVM(RFLVMBase):
         super().initialize_priors(*args, **kwargs)
         kernel = self.make_kernel()
         self.prior["beta"] = MultivariateNormal(loc=jnp.zeros_like(self.basis), covariance_matrix=kernel) ### basic gp prior on the time
-        self.prior["alpha"] = HalfNormal()
-        self.prior["length"] = InverseGamma(10.0, 2.0)
 
 
     def sample_basis(self, dim):
-        alpha = sample("alpha", self.prior["alpha"], sample_shape=(dim,))
-        length = sample("length", self.prior["length"], sample_shape=(dim,))
-        return deterministic("drift_basis", jnp.vstack([approx_se_ncp(self.drift_basis, alpha=alpha[i], length=length[i], M = self.m, output_size=1,
+        return deterministic("drift_basis", jnp.vstack([approx_se_ncp(self.drift_basis, alpha=1.0, length=1.0, M = self.m, output_size=1,
                              L =  self.L, name= f"drift_{i}") for i in range(dim)] ))
 
     def model_fn(self, data_set) -> None:
