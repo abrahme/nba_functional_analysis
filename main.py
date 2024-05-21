@@ -4,8 +4,8 @@ import argparse
 import pickle
 import numpyro
 
-from data.data_utils import create_fda_data, create_pca_data, create_cp_data
-from model.models import NBAFDAModel, NBAFDAREModel, NBAFDALatentModel, NBAMixedOutputProbabilisticPCA, NBAMixedOutputProbabilisticCPDecomposition, RFLVM, TVRFLVM
+from data.data_utils import create_fda_data, create_pca_data, create_cp_data, create_cp_data_multi_way, create_fda_data_time
+from model.models import NBAFDAModel, NBAFDAREModel, NBAFDALatentModel, NBAMixedOutputProbabilisticPCA, NBAMixedOutputProbabilisticCPDecomposition, NBAMixedOutputProbabilisticCPDecompositionMultiWay, RFLVM, TVRFLVM, DriftRFLVM, DriftTVRFLVM
 
 
 
@@ -38,15 +38,28 @@ if __name__ == "__main__":
     elif model_name == "exponential_pca":
         exposures, masks, X, outputs = create_pca_data(data, metric_output, exposure_list, metrics)
         model = NBAMixedOutputProbabilisticPCA(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
-    elif model_name == "exponential_cp":
-        exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics)
-        model = NBAMixedOutputProbabilisticCPDecomposition(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
-    elif model_name =="nba_rflvm":
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
-        model = RFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(covariate_X.shape[0], len(basis)))
-    elif model_name =="nba_tvrflvm":
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
-        model = TVRFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+    elif model_name.startswith("exponential_cp"):
+        if "multi" in model_name:
+            exposures, masks, X, outputs  = create_cp_data_multi_way(data, metric_output, exposure_list, metrics)
+            model = NBAMixedOutputProbabilisticCPDecompositionMultiWay(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
+        else:
+            exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics)
+            model = NBAMixedOutputProbabilisticCPDecomposition(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
+
+    elif "nba_rflvm" in model_name:
+        if "drift" in model_name:
+            covariate_X, data_set, basis, time_basis = create_fda_data_time(data, basis_dims, metric_output, metrics, exposure_list)
+            model = DriftRFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(covariate_X.shape[0], len(basis)), drift_basis=time_basis)
+        else:
+            covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
+            model = RFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(covariate_X.shape[0], len(basis)))
+    elif "nba_tvrflvm" in model_name:
+        if "drift" in model_name:
+            covariate_X, data_set, basis, time_basis = create_fda_data_time(data, basis_dims, metric_output, metrics, exposure_list)
+            model = DriftTVRFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(covariate_X.shape[0], len(basis)), basis=basis, drift_basis=time_basis)
+        else:
+            covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
+            model = TVRFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
     else:
         raise ValueError("Wrong model name")
     
