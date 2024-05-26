@@ -71,20 +71,30 @@ Bin(N_{pit}, logit^{-1}(f_{pi}(t))) \text{ if } i \in \mathcal{B}\\
 \end{align}
 
 # Modeling Assumptions (contd.)
-
-(random feature latent variable model description)
-
+1. Space of players live in low dimensional latent space $X \in \mathbb{R} ^{N x D}$
+2. For a given time $t$, and metric $k$, $f_{tk} \sim \mathcal{GP}(0, K_x)$
+    - Approximation of $f_{tk}$ is given by Random Fourier Features such that $f_{tk} \approx \phi(X)^T\beta_{tk}$ [@gundersen2020latent]
+    - Inducing correlation across time $t$ and metric $k$ comes from inducing correlation amongst linear weights $\beta_{tk}$. 
+    - Separable covariance structure for time, metric, and player. 
 
 # Challenges 
 
 1. MCMC Convergence (multi-modal posterior)
     - show example posterior chains
 2. Identifiability (rotational invariance of model)
+3. Modeling temporal and within-metric correlation
+4. Missing Not At Random (MNAR) due to selection bias
 
-# Methods 
-1. Initialize latent space with fixed MAP estimate
-2. HMC for functional bases.
-3. Fix functional bases, HMC for latent space
+# Methods
+
+In order to address identifiability issues and MCMC convergence, we propose an alternating scheme to estimate the latent space $X$ and functional bases $\beta_{tk}$. 
+
+1. Initialize $X$ 
+    - Exponential PPCA, Probabilistic Tensor Decomposition, Standard PCA, etc.
+    - Make note of how different methods yielded "better" clustering / initialization in the latent space (i.e probabilistic methods accounted for sampling variance / outlier shrinkage, and make note of how each of these methods affected results)
+2. Using $X$ from above, conduct inference on $\beta_{tk}$ using Hamiltonian Monte Carlo techniques
+3. Fixing $\beta_{tk}$ from above, conduct inference on $X$ using HMC techniques. 
+
 
 # Current Results 
 
@@ -96,7 +106,7 @@ Bin(N_{pit}, logit^{-1}(f_{pi}(t))) \text{ if } i \in \mathcal{B}\\
 
 # Future Direction
 
-1. Use model for causal effect of types of injuries across varying types of players. 
+1. Use model to identify causal effect of types of injuries across varying types of players. 
 2. Address selection bias issue. 
 
 # References
