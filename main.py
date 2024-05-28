@@ -47,8 +47,6 @@ if __name__ == "__main__":
         L       = jnp.linalg.cholesky(np.cov(U.T) + 1e-6 * np.eye(basis_dims)).T
         aligned_X  = np.linalg.solve(L, U.T).T
         X_tvrflvm_aligned = aligned_X / jnp.std(X_rflvm, axis=0)
-        wTx = jnp.einsum("nr,mr -> nm", X_tvrflvm_aligned, W)
-        phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(10))
         model = FixedRFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(X_rflvm.shape[0], len(basis)))
     elif model_name == "fixed_nba_tvrflvm":
         _, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
@@ -61,8 +59,6 @@ if __name__ == "__main__":
         L       = jnp.linalg.cholesky(np.cov(U.T) + 1e-6 * np.eye(basis_dims)).T
         aligned_X  = np.linalg.solve(L, U.T).T
         X_tvrflvm_aligned = aligned_X / jnp.std(X_rflvm, axis=0)
-        wTx = jnp.einsum("nr,mr -> nm", X_tvrflvm_aligned, W)
-        phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(10))
         model = FixedTVRFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(X_rflvm.shape[0], len(basis)), basis=basis)
     elif model_name == "exponential_pca":
         exposures, masks, X, outputs = create_pca_data(data, metric_output, exposure_list, metrics)
@@ -105,7 +101,7 @@ if __name__ == "__main__":
         samples = svi_run.params
     elif "rflvm" in model_name:
         if "fixed" in model_name:
-            mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set, "phi": phi})
+            mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set, "X": X_tvrflvm_aligned})
             mcmc_run.print_summary()
             samples = mcmc_run.get_samples(group_by_chain=True)
         else:

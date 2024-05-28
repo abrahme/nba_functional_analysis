@@ -669,9 +669,13 @@ class FixedRFLVMBase(ABC):
     def initialize_priors(self, *args, **kwargs) -> None:
         self.prior["beta"] = Normal()
         self.prior["sigma"] = InverseGamma(10.0, 2.0)
+        self.prior["W"] = Normal()
 
     @abstractmethod
-    def model_fn(self, data_set, phi) -> None:
+    def model_fn(self, data_set, X) -> None:
+        W = sample("W", self.prior["W"], sample_shape=(self.m, self.r))
+        wTx = jnp.einsum("nr,mr -> nm", X, W)
+        phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
         beta = sample(f"beta", self.prior["beta"], sample_shape=(len(data_set), 2 * self.m, self.j))
         mu = jnp.einsum("nm,kmj -> knj", phi, beta)
         for index, data_entity in enumerate(data_set):
@@ -709,8 +713,8 @@ class FixedRFLVM(FixedRFLVMBase):
     
     def initialize_priors(self, *args, **kwargs) -> None:
         return super().initialize_priors(*args, **kwargs)
-    def model_fn(self, data_set, phi) -> None:
-        return super().model_fn(data_set, phi)
+    def model_fn(self, data_set, X) -> None:
+        return super().model_fn(data_set, X)
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
         return super().run_inference(num_warmup, num_samples, num_chains, model_args)
 
@@ -729,7 +733,10 @@ class FixedTVRFLVM(FixedRFLVM):
         kernel = self.make_kernel()
         self.prior["beta"] = MultivariateNormal(loc=jnp.zeros_like(self.basis), covariance_matrix=kernel) ### basic gp prior on the time 
     
-    def model_fn(self, data_set, phi) -> None:
+    def model_fn(self, data_set, X) -> None:
+        W = sample("W", self.prior["W"], sample_shape=(self.m, self.r))
+        wTx = jnp.einsum("nr,mr -> nm", X, W)
+        phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
         beta = sample(f"beta", self.prior["beta"], sample_shape=(len(data_set), 2 * self.m)) ### don't need extra dimension
         mu = jnp.einsum("nm,kmj -> knj", phi, beta)
         for index, data_entity in enumerate(data_set):
