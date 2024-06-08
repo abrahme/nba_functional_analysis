@@ -677,7 +677,7 @@ class FixedRFLVMBase(ABC):
         wTx = jnp.einsum("nr,mr -> nm", X, W)
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
         beta = sample(f"beta", self.prior["beta"], sample_shape=(len(data_set), 2 * self.m, self.j))
-        mu = jnp.einsum("nm,kmj -> knj", phi, beta)
+        mu = deterministic("mu", jnp.einsum("nm,kmj -> knj", phi, beta))
         for index, data_entity in enumerate(data_set):
             output = data_entity["output"]
             metric = data_entity["metric"]
