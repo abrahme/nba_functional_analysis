@@ -4,7 +4,7 @@ import numpy as np
 from numpyro import sample 
 from numpyro import deterministic
 from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal
-from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, initialization
+from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive
 from numpyro.infer.autoguide import AutoDelta
 from optax import linear_onecycle_schedule, adam
 import jax.numpy as jnp
@@ -27,7 +27,6 @@ class HilbertSpaceFunctionalRegression(ABC):
     @abstractmethod
     def model_fn(self, *args, **kwargs) -> None:
         raise NotImplementedError 
-
     @abstractmethod
     def sample_basis(self, *args, **kwargs):
         alpha = sample("alpha", self.prior["alpha"])
@@ -36,6 +35,10 @@ class HilbertSpaceFunctionalRegression(ABC):
                              L =  self.L, name = "beta")
     @abstractmethod
     def run_inference(self, *args, **kwargs):
+        raise NotImplementedError
+    
+    @abstractmethod
+    def predict(self, *args, **kwargs):
         raise NotImplementedError
 
 class NBAFDAModel(HilbertSpaceFunctionalRegression):
@@ -89,6 +92,10 @@ class NBAFDAModel(HilbertSpaceFunctionalRegression):
         mcmc.run(jax.random.PRNGKey(0), **model_args)
         return mcmc
 
+    def predict(self, posterior_samples: dict, model_args):
+        predictive = Predictive(self.model_fn, posterior_samples, **model_args)
+        return predictive(jax.random.PRNGKey(0))["obs"]
+
 
 class NBAFDAREModel(NBAFDAModel):
     def __init__(self, basis, output_size: int = 1, M: int = 10) -> None:
@@ -128,6 +135,9 @@ class NBAFDAREModel(NBAFDAModel):
 
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
         return super().run_inference(num_warmup, num_samples, num_chains, model_args)
+    
+    def predict(self, posterior_samples: dict, model_args):
+        return super().predict(posterior_samples, model_args)
     
 class NBAFDALatentModel(NBAFDAModel):
     def __init__(self, basis, output_size: int = 1, M: int = 10, latent_dim1: int = 100, latent_dim2: int = 2) -> None:
@@ -181,7 +191,8 @@ class NBAFDALatentModel(NBAFDAModel):
             elif output == "binomial":
                 y = sample(f"likelihood_{metric}", Binomial(logits =  mu[:,:,index][mask].flatten(), total_count = exposure), obs=output_data[mask].flatten())
 
-
+    def predict(self, posterior_samples: dict, model_args):
+        return super().predict(posterior_samples, model_args)
 
 class ProbabilisticPCA(ABC):
     """
@@ -205,6 +216,9 @@ class ProbabilisticPCA(ABC):
     def run_inference(self, *args, **kwargs):
         raise NotImplementedError
 
+    @abstractmethod
+    def predict(self, *args, **kwargs):
+        raise NotImplementedError
 
 class NBAMixedOutputProbabilisticPCA(ProbabilisticPCA):
     """
@@ -266,7 +280,10 @@ class NBAMixedOutputProbabilisticPCA(ProbabilisticPCA):
         svi = SVI(self.model_fn, AutoDelta(self.model_fn), optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO())
         result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps)
         return result
-        
+    
+    def predict(self, posterior_samples: dict, model_args):
+        predictive = Predictive(self.model_fn, posterior_samples, **model_args)
+        return predictive(jax.random.PRNGKey(0))["obs"]
 
 class ProbabilisticCPDecomposition(ABC):
     """
@@ -289,7 +306,10 @@ class ProbabilisticCPDecomposition(ABC):
     @abstractmethod
     def run_inference(self, *args, **kwargs):
         raise NotImplementedError
-
+    
+    @abstractmethod
+    def predict(self, *args, **kwargs):
+        raise NotImplementedError
 
 class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
 
@@ -349,6 +369,10 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
         svi = SVI(self.model_fn, AutoDelta(self.model_fn), optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO())
         result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps)
         return result
+
+    def predict(self, posterior_samples: dict, model_args):
+        predictive = Predictive(self.model_fn, posterior_samples, **model_args)
+        return predictive(jax.random.PRNGKey(0))["obs"]
     
 
 
@@ -413,6 +437,9 @@ class NBAMixedOutputProbabilisticCPDecompositionMultiWay(ProbabilisticCPDecompos
         svi = SVI(self.model_fn, AutoDelta(self.model_fn), optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO())
         result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps)
         return result
+
+    def predict(self, *args, **kwargs):
+        return super().predict(*args, **kwargs)
 
 
 class RFLVMBase(ABC):
@@ -483,6 +510,11 @@ class RFLVMBase(ABC):
     #     mcmc.run(jax.random.PRNGKey(0), **model_args)
     #     return mcmc
 
+    @abstractmethod
+    def predict(self, posterior_samples: dict, model_args):
+        predictive = Predictive(self.model_fn, posterior_samples, **model_args)
+        return predictive(jax.random.PRNGKey(0))["obs"]
+
 
 
 class RFLVM(RFLVMBase):
@@ -497,7 +529,8 @@ class RFLVM(RFLVMBase):
         return super().model_fn(data_set)
     def run_inference(self, num_steps, model_args):
         return super().run_inference(num_steps, model_args)
-
+    def predict(self, posterior_samples: dict, model_args):
+        return super().predict(posterior_samples, model_args)
 
 
 
@@ -550,6 +583,8 @@ class TVRFLVM(RFLVM):
     def run_inference(self, num_steps, model_args):
         return super().run_inference(num_steps, model_args)
 
+    def predict(self, posterior_samples: dict, model_args):
+        return super().predict(posterior_samples, model_args)
 
 
 class DriftRFLVM(RFLVMBase):
@@ -595,6 +630,8 @@ class DriftRFLVM(RFLVMBase):
     def run_inference(self, num_steps, model_args):
         return super().run_inference(num_steps, model_args)
     
+    def predict(self, posterior_samples: dict, model_args):
+        return super().predict(posterior_samples, model_args)
 
 
 class DriftTVRFLVM(RFLVMBase):
@@ -651,7 +688,8 @@ class DriftTVRFLVM(RFLVMBase):
     def run_inference(self, num_steps, model_args):
         return super().run_inference(num_steps, model_args)
     
-
+    def predict(self, posterior_samples: dict, model_args):
+        return super().predict(posterior_samples, model_args)
 
 
 class FixedRFLVMBase(ABC):
@@ -706,6 +744,11 @@ class FixedRFLVMBase(ABC):
     )
         mcmc.run(jax.random.PRNGKey(0), **model_args)
         return mcmc
+    
+    @abstractmethod
+    def predict(self, posterior_samples: dict, model_args):
+        predictive = Predictive(self.model_fn, posterior_samples, **model_args)
+        return predictive(jax.random.PRNGKey(0))["obs"]
 
 class FixedRFLVM(FixedRFLVMBase):
     def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple) -> None:
@@ -717,6 +760,8 @@ class FixedRFLVM(FixedRFLVMBase):
         return super().model_fn(data_set, X)
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
         return super().run_inference(num_warmup, num_samples, num_chains, model_args)
+    def predict(self, posterior_samples: dict, model_args):
+        return super().predict(posterior_samples, model_args)
 
 class FixedTVRFLVM(FixedRFLVM):
     def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis) -> None:
@@ -758,3 +803,6 @@ class FixedTVRFLVM(FixedRFLVM):
     
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
         return super().run_inference(num_warmup, num_samples, num_chains, model_args)
+    
+    def predict(self, posterior_samples: dict, model_args):
+        return super().predict(posterior_samples, model_args)
