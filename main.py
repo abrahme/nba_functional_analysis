@@ -14,8 +14,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Description of your program')
     parser.add_argument('--model_name', help='which model to fit', required=True)
     parser.add_argument("--basis_dims", help="size of the basis", required=True, type=int)
-    numpyro.set_platform("cpu")
-    numpyro.set_host_device_count(4)
+    numpyro.set_platform("gpu")
+    numpyro.set_host_device_count(2)
     args = vars(parser.parse_args())
     model_name = args["model_name"]
     basis_dims = args["basis_dims"]

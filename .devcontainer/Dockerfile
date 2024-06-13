@@ -54,9 +54,12 @@ RUN pip install \
         ### Example (note the backslash after name): ###
         ### scikit-ntk \                             ###
         ################################################
-        "jax[cuda12]" \
+        "jax[cuda12]==0.4.27" \
+        numpyro \ 
+        optax \
         && \
-    jupyter labextension enable nbgitpuller numpyro optax
+    jupyter labextension enable nbgitpuller 
+    
 
 ### GitHub CLI Installation
 RUN wget https://github.com/cli/cli/releases/download/v${GITHUB_CLI_VERSION}/gh_${GITHUB_CLI_VERSION}_linux_amd64.tar.gz -O - | \
