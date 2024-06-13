@@ -41,8 +41,7 @@ if __name__ == "__main__":
         with open("model_output/nba_rflvm.pkl", "rb") as f:
             results = pickle.load(f)
         f.close()
-        X_rflvm = results["X_raw_auto_loc"]
-        W = results["W_auto_loc"]
+        X_rflvm = results["X_raw"].mean(axis = 0)
         U, _, _ = jnp.linalg.svd(X_rflvm, full_matrices=False)
         L       = jnp.linalg.cholesky(np.cov(U.T) + 1e-6 * np.eye(basis_dims)).T
         aligned_X  = np.linalg.solve(L, U.T).T
