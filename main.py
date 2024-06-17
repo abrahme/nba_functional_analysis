@@ -14,8 +14,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Description of your program')
     parser.add_argument('--model_name', help='which model to fit', required=True)
     parser.add_argument("--basis_dims", help="size of the basis", required=True, type=int)
-    numpyro.set_platform("gpu")
-    numpyro.set_host_device_count(2)
+    numpyro.set_platform("cpu")
+    numpyro.set_host_device_count(4)
     args = vars(parser.parse_args())
     model_name = args["model_name"]
     basis_dims = args["basis_dims"]
@@ -38,27 +38,26 @@ if __name__ == "__main__":
         model = NBAFDALatentModel(basis, output_size=len(metric_output), M = 10, latent_dim1=covariate_X.shape[0], latent_dim2=basis_dims)
     elif model_name == "fixed_nba_rflvm":
         _, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
-        with open("model_output/nba_rflvm.pkl", "rb") as f:
+        with open("model_output/exponential_cp.pkl", "rb") as f:
             results = pickle.load(f)
         f.close()
-        X_rflvm = results["X_raw"].mean(axis = 0)
+        X_rflvm = results["U_auto_loc"]
         U, _, _ = jnp.linalg.svd(X_rflvm, full_matrices=False)
         L       = jnp.linalg.cholesky(np.cov(U.T) + 1e-6 * np.eye(basis_dims)).T
         aligned_X  = np.linalg.solve(L, U.T).T
         X_tvrflvm_aligned = aligned_X / jnp.std(X_rflvm, axis=0)
-        model = FixedRFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(X_rflvm.shape[0], len(basis)))
+        model = FixedRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(X_rflvm.shape[0], len(basis)))
     elif model_name == "fixed_nba_tvrflvm":
         _, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
-        with open("model_output/nba_tvrflvm.pkl", "rb") as f:
+        with open("model_output/exponential_cp.pkl", "rb") as f:
             results = pickle.load(f)
         f.close()
-        X_rflvm = results["X_raw_auto_loc"]
-        W = results["W_auto_loc"]
+        X_rflvm = results["U_auto_loc"]
         U, _, _ = jnp.linalg.svd(X_rflvm, full_matrices=False)
         L       = jnp.linalg.cholesky(np.cov(U.T) + 1e-6 * np.eye(basis_dims)).T
         aligned_X  = np.linalg.solve(L, U.T).T
         X_tvrflvm_aligned = aligned_X / jnp.std(X_rflvm, axis=0)
-        model = FixedTVRFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(X_rflvm.shape[0], len(basis)), basis=basis)
+        model = FixedTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(X_rflvm.shape[0], len(basis)), basis=basis)
     elif model_name == "exponential_pca":
         exposures, masks, X, outputs = create_pca_data(data, metric_output, exposure_list, metrics)
         model = NBAMixedOutputProbabilisticPCA(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
