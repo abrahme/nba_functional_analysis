@@ -22,9 +22,12 @@ if __name__ == "__main__":
     data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
-    metric_output = (["gaussian"] * 3) + (["poisson"] * 9) + (["binomial"] * 3)
-    metrics = ["log_min", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
-    exposure_list = ["simple_exposure"] + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
+    # metric_output = (["gaussian"] * 3) + (["poisson"] * 9) + (["binomial"] * 3)
+    metric_output = ["gaussian", "poisson", "binomial"]
+    # metrics = ["log_min", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
+    metrics = ["obpm", "stl", "fg3m"]
+    # exposure_list = ["simple_exposure"] + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
+    exposure_list = ["simple_exposure"] + ["minutes"] + ["fg3a"]
     
 
     if model_name == "nba_fda_model":
@@ -46,7 +49,7 @@ if __name__ == "__main__":
         L       = jnp.linalg.cholesky(np.cov(U.T) + 1e-6 * np.eye(basis_dims)).T
         aligned_X  = np.linalg.solve(L, U.T).T
         X_tvrflvm_aligned = aligned_X / jnp.std(X_rflvm, axis=0)
-        model = FixedRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(X_rflvm.shape[0], len(basis)))
+        model = FixedRFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(X_rflvm.shape[0], len(basis)))
     elif model_name == "fixed_nba_tvrflvm":
         _, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
         with open("model_output/exponential_cp.pkl", "rb") as f:
