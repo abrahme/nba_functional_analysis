@@ -5,7 +5,7 @@ from numpyro import sample
 from numpyro import deterministic
 from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive
-from numpyro.infer.autoguide import AutoDelta
+from numpyro.infer.autoguide import AutoDelta, AutoLaplaceApproximation
 from optax import linear_onecycle_schedule, adam
 import jax.numpy as jnp
 from .hsgp import approx_se_ncp
@@ -458,7 +458,7 @@ class RFLVMBase(ABC):
         self.prior["W"] = Normal()
         self.prior["beta"] = Normal()
         self.prior["X"] = Normal()
-        self.prior["sigma"] = InverseGamma(10.0, 2.0)
+        self.prior["sigma"] = InverseGamma(1, 1)
     
     def _stabilize_x(self, X):
         """Fix the rotation according to the SVD.
@@ -495,20 +495,9 @@ class RFLVMBase(ABC):
             
     @abstractmethod
     def run_inference(self, num_steps, model_args):
-        svi = SVI(self.model_fn, AutoDelta(self.model_fn), optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO())
+        svi = SVI(self.model_fn, AutoLaplaceApproximation(self.model_fn), optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO())
         result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps, **model_args)
         return result
-    # def run_inference(self, num_warmup, num_samples, num_chains, model_args):
-    #     mcmc = MCMC(
-    #     NUTS(self.model_fn, init_strategy=init_to_median),
-    #     num_warmup=num_warmup,
-    #     num_samples=num_samples,
-    #     num_chains=num_chains,
-    #     progress_bar=True,
-    #     chain_method="vectorized"
-    # )
-    #     mcmc.run(jax.random.PRNGKey(0), **model_args)
-    #     return mcmc
 
     @abstractmethod
     def predict(self, posterior_samples: dict, model_args):
@@ -706,7 +695,7 @@ class FixedRFLVMBase(ABC):
     @abstractmethod
     def initialize_priors(self, *args, **kwargs) -> None:
         self.prior["beta"] = Normal()
-        self.prior["sigma"] = InverseGamma(10.0, 2.0)
+        self.prior["sigma"] = InverseGamma(1.0, 1.0)
         self.prior["W"] = Normal()
 
     @abstractmethod
@@ -715,7 +704,7 @@ class FixedRFLVMBase(ABC):
         wTx = jnp.einsum("nr,mr -> nm", X, W)
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
         beta = sample(f"beta", self.prior["beta"], sample_shape=(len(data_set), 2 * self.m, self.j))
-        mu = deterministic("mu", jnp.einsum("nm,kmj -> knj", phi, beta))
+        mu = jnp.einsum("nm,kmj -> knj", phi, beta)
         for index, data_entity in enumerate(data_set):
             output = data_entity["output"]
             metric = data_entity["metric"]
