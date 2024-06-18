@@ -1,67 +1,70 @@
-# Use the [Choice] comment to indicate option arguments that should appear in VS Code UX. Use a comma separated list.
-#
-# [Choice] Debian OS version: bullseye, buster
-# ARG VARIANT="bullseye"
-# FROM buildpack-deps:${VARIANT}-curl
-FROM jupyter/datascience-notebook:r-4.3.1
+FROM quay.io/jupyter/pytorch-notebook:cuda12-latest
 
+### Environment variables
+ENV GITHUB_CLI_VERSION 2.30.0
+
+###########################
+### SYSTEM INSTALLATION ###
+###########################
 USER root
 
+### System dependencies. Feel free to add packages as necessary.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl lmodern && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends \
+        # Basic system usage
+        lmodern \
+        file \
+        curl \
+        g++ \
+        tmux \
+        ###################################################
+        ### Add your own system dependencies installed  ###
+        ### with `apt-get` as needed below this comment ###
+        ### Example (note the backslash after name):    ###
+        ### neofetch \                                  ###
+        ###################################################
+        && \
+    apt-get clean -y && \
+    rm -rf /var/lib/apt/lists/* /tmp/library-scripts
 
-ENV QUARTO_VERSION 1.3.450
-RUN curl --silent -L --fail \
-        https://github.com/quarto-dev/quarto-cli/releases/download/v${QUARTO_VERSION}/quarto-${QUARTO_VERSION}-linux-amd64.deb > /tmp/quarto.deb && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends /tmp/quarto.deb && \
-    rm -rf /tmp/quarto.deb /var/lib/apt/lists/* /tmp/library-script
-
+#########################
+### USER INSTALLATION ###
+#########################
 USER ${NB_USER}
 
-### R development
-RUN pip install radian && \
-    R -q -e 'install.packages(c("markdown", "languageserver", "httpgd"), repos="cloud.r-project.org")' &&\
-    R -q -e 'remotes::install_github("ManuelHentschel/vscDebugger")'
+### Anaconda (conda/mamba) packages
+RUN mamba install -y -c conda-forge --freeze-installed \
+        # Jupyter setup
+        jupyter-server-proxy=4.1.0 \
+        #######################################################
+        ### Add your own conda dependencies installed with  ###
+        ### `conda/mamba` as needed below this comment      ###
+        ### Example (note the backslash after name):        ###
+        ### scikit-learn \                                  ###
+        #######################################################
+        && \
+    mamba clean --all
+
+### PyPI (pip) packages
+RUN pip install \ 
+        nbgitpuller \
+        ################################################
+        ### Add your own PyPI dependencies installed ###
+        ### with `pip` as needed below this comment  ###
+        ### Example (note the backslash after name): ###
+        ### scikit-ntk \                             ###
+        ################################################
+        "jax[cuda12]==0.4.27" \
+        numpyro \ 
+        optax \
+        && \
+    jupyter labextension enable nbgitpuller 
+    
+
+### GitHub CLI Installation
+RUN wget https://github.com/cli/cli/releases/download/v${GITHUB_CLI_VERSION}/gh_${GITHUB_CLI_VERSION}_linux_amd64.tar.gz -O - | \
+    tar xvzf - -C /opt/conda/bin gh_${GITHUB_CLI_VERSION}_linux_amd64/bin/gh --strip-components=2
 
 ### Prints Jupyter server token when terminal is opened
 RUN echo "echo \"Jupyter server token: \$(jupyter server list 2>&1 | grep -oP '(?<=token=)[[:alnum:]]*')\"" > ${HOME}/.get-jupyter-url.sh && \
     echo "sh \${HOME}/.get-jupyter-url.sh" >> ${HOME}/.bashrc
-
-RUN pip install jupyterlab-quarto
-
-## Install cmdstanr and INLA-R
-RUN R -q -e 'install.packages("cmdstanr", repos = c("https://mc-stan.org/r-packages/", "https://cloud.r-project.org"))' && \
-    R -q -e 'cmdstanr::install_cmdstan()' &&\
-    R -q -e 'install.packages(c("bayesplot", "shinystan", "tidybayes"), repos = "http://cloud.r-project.org")'    
-
-## INSTALL INLA
-
-## INSTALL JAX and NUMPYRO
-USER ${NB_USER}
-
-RUN pip install pymc tensorly tensorly-viz
-RUN pip install pip install -U "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-RUN pip install numpyro[cuda] -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-RUN pip install blackjax
-
-USER root
-
-##    RUN apt-get update && \
-##        apt-get -y install libudunits2-dev
-RUN conda install -c conda-forge -y udunits2 gdal r-sf r-terra r-inlabru 
-
-## USER ${NB_USER}
-
-RUN R -q -e 'install.packages("fmesher", repos="cloud.r-project.org")' &&\
-    R -q -e 'install.packages("INLA", repos=c("https://inla.r-inla-download.org/R/stable"))'
-
-
-RUN R -q -e 'install.packages(c("doParallel", "kableExtra", "ggrepel"), repos = c("https://mc-stan.org/r-packages/", "https://cloud.r-project.org"))'
-
-RUN R -q -e 'install.packages(c("reticulate"), repos = c("https://mc-stan.org/r-packages/", "https://cloud.r-project.org"))'
-
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends tree && \
-    rm -rf /var/lib/apt/lists/*
