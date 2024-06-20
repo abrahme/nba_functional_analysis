@@ -23,8 +23,11 @@ if __name__ == "__main__":
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
     metric_output = (["gaussian"] * 3) + (["poisson"] * 9) + (["binomial"] * 3)
+    # metric_output = ["gaussian", "poisson", "binomial"]
     metrics = ["log_min", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
+    # metrics = ["obpm", "stl", "fg3m"]
     exposure_list = ["simple_exposure"] + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
+    # exposure_list = ["simple_exposure"] + ["minutes"] + ["fg3a"]
     
 
     if model_name == "nba_fda_model":
