@@ -81,12 +81,12 @@ with ui.nav_panel("Player Embeddings & Trajectories"):
     with ui.layout_column_wrap():
         @render_plotly
         def plot_latent_space():
-            return plot_scatter(df, agged_metrics[int(input.metric())], "Latent Embedding" )
+            return plot_scatter(df, agged_metrics[int(input.metric())], "Latent Embedding", int(input.player()) )
 
         
         @render_plotly
         def player_trajectory():
-            player_index = 0 if input.player() is None else int(input.player())
+            player_index = int(input.player())
             player_name = names[player_index]
             wTx = np.einsum("r,ijmr -> ijm", X_rflvm_aligned[player_index], W)
             phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))

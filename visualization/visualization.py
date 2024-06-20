@@ -148,9 +148,11 @@ def plot_correlation_dendrogram(X, labels, title = ""):
     
     return fig 
 
-def plot_scatter(df, color_col: str, title= ""):
-    fig = px.scatter_3d(df, x = "dim1", y = "dim2", z = "dim3", color = color_col, size = "minutes", opacity = .7, title=title,
+def plot_scatter(df, color_col: str, title= "", player_index:int = 0 ):
+    fig = px.scatter_3d(df[~df.index.isin([player_index])], x = "dim1", y = "dim2", z = "dim3", color = color_col, size = "minutes", opacity = .2, title=title,
                         hover_data = ["player_name", "minutes"] + [color_col])
+    fig.add_traces(px.scatter_3d(df[df.index.isin([player_index])], x = "dim1", y = "dim2", z = "dim3", color = color_col, size = "minutes", opacity = .9, title=title,
+                        hover_data = ["player_name", "minutes"] + [color_col]).data)
     return fig
 
 
