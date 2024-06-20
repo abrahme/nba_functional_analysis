@@ -1,9 +1,7 @@
-import matplotlib.pyplot as plt
 import plotly.figure_factory as ff
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.express as px
-from scipy.spatial.distance import pdist, squareform
 import numpy as np
 import arviz as az
 from model.inference_utils import create_metric_trajectory

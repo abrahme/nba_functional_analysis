@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 import arviz as az
-from shiny import reactive, render, req, App
+from shiny import render
 from shinywidgets import render_plotly
 from shiny.express import input, ui
 from visualization.visualization import plot_correlation_dendrogram, plot_mcmc_diagnostics, plot_posterior_predictive_career_trajectory, plot_scatter
