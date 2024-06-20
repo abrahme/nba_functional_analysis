@@ -58,6 +58,9 @@ RUN pip install \
         numpyro \ 
         optax \
         shiny \
+        plotly \
+        shinywidgets \
+        Jinja2 \
         && \
     jupyter labextension enable nbgitpuller 
     

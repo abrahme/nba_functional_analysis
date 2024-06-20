@@ -8,7 +8,7 @@ import numpy as np
 import arviz as az
 from model.inference_utils import create_metric_trajectory
 
-def plot_posterior_predictive_career_trajectory(player_name, player_index, metrics: list[str], metric_outputs: list[str], posterior_mean_samples, observations, exposures, posterior_variance_samples):
+def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str], metric_outputs: list[str], posterior_mean_samples, observations, exposures, posterior_variance_samples):
     """
     plots the posterior predictive career trajectory 
     """
@@ -56,17 +56,22 @@ def plot_posterior_predictive_career_trajectory(player_name, player_index, metri
 
     fig.update_layout({'width':650, 'height': 650,
                             'showlegend':False, 'hovermode': 'closest',
-                            "title": player_name})
+                            })
     
     return fig
 
 
-def plot_mcmc_diagnostics(inference_data, variable_name, coords = None):
-    trace_plot = az.plot_trace(inference_data, var_names=variable_name, coords=coords)
-    post_plot = az.plot_posterior(inference_data, var_names = variable_name, coords = coords)
-    autocorr_plot = az.plot_autocorr(inference_data, var_names = variable_name, coords=coords)
-    summary = az.summary(inference_data, var_names = variable_name, coords=coords)
-    return trace_plot, post_plot, autocorr_plot, summary
+def plot_mcmc_diagnostics(inference_data, variable_name, plot = "trace"):
+    if plot == "trace":
+        trace_plot = az.plot_trace(inference_data, var_names = variable_name)
+        return trace_plot[0,1]
+    elif plot == "post":
+        return az.plot_posterior(inference_data, var_names = variable_name)[0,1]
+    elif plot == "autocorr":
+        return az.plot_autocorr(inference_data, var_names = variable_name)[0,1]
+    elif plot == "summary":
+        return az.summary(inference_data, var_names = variable_name)
+
 
 def plot_correlation_dendrogram(X, labels, title = ""):
     # Initialize figure by creating upper dendrogram
@@ -86,8 +91,7 @@ def plot_correlation_dendrogram(X, labels, title = ""):
     # Create Heatmap
     dendro_leaves = dendro_side['layout']['yaxis']['ticktext']
     dendro_leaves = list(map(int, dendro_leaves))
-    data_dist = pdist(X)
-    heat_data = squareform(data_dist)
+    heat_data = np.corrcoef(X)
     heat_data = heat_data[dendro_leaves,:]
     heat_data = heat_data[:,dendro_leaves]
 
@@ -96,7 +100,9 @@ def plot_correlation_dendrogram(X, labels, title = ""):
             x = dendro_leaves,
             y = dendro_leaves,
             z = heat_data,
-            colorscale = 'Blues'
+            colorscale="ice",
+            reversescale=True
+            
         )
     ]
 
@@ -148,11 +154,11 @@ def plot_correlation_dendrogram(X, labels, title = ""):
     
     return fig 
 
-def plot_scatter(df, color_col: str, title= "", player_index:int = 0 ):
-    fig = px.scatter_3d(df[~df.index.isin([player_index])], x = "dim1", y = "dim2", z = "dim3", color = color_col, size = "minutes", opacity = .2, title=title,
-                        hover_data = ["player_name", "minutes"] + [color_col])
-    fig.add_traces(px.scatter_3d(df[df.index.isin([player_index])], x = "dim1", y = "dim2", z = "dim3", color = color_col, size = "minutes", opacity = .9, title=title,
-                        hover_data = ["player_name", "minutes"] + [color_col]).data)
+def plot_scatter(df, title= "", player_index:int = 0 ):
+    fig = px.scatter_3d(df[~df.index.isin([player_index])], x = "dim1", y = "dim2", z = "dim3", color = "position_group", size = "minutes", opacity = .2, title=title,
+                        hover_data = ["player_name", "minutes", "position_group"])
+    fig.add_traces(px.scatter_3d(df[df.index.isin([player_index])], x = "dim1", y = "dim2", z = "dim3", size = "minutes", opacity = .9, title=title,
+                        hover_data = ["player_name", "minutes", "position_group"]).data)
     return fig
 
 
