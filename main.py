@@ -96,7 +96,7 @@ if __name__ == "__main__":
         svi_run = model.run_inference(num_steps=1000000)
         samples = svi_run.params
     elif "cp" in model_name:
-        svi_run = model.run_inference(num_steps=1000000)
+        svi_run = model.run_inference(num_steps=100000)
         samples = svi_run.params
     elif "rflvm" in model_name:
         if "fixed" in model_name:

@@ -709,6 +709,7 @@ class FixedRFLVMBase(ABC):
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
         beta = sample(f"beta", self.prior["beta"], sample_shape=(len(data_set), 2 * self.m, self.j))
         mu = jnp.einsum("nm,kmj -> knj", phi, beta)
+        gate_index = [index for index, data_entity in enumerate(data_set) if data_entity["metric"] == "retirement"][0]
         for index, data_entity in enumerate(data_set):
             output = data_entity["output"]
             metric = data_entity["metric"]
@@ -721,7 +722,8 @@ class FixedRFLVMBase(ABC):
                 sigma = sample(f"sigma_{metric}", self.prior["sigma"])
                 y = sample(f"likelihood_{metric}", Normal( mu[index,:,:][mask].flatten() , sigma/exposure_), obs=Y_)
             elif output == "poisson":
-                y = sample(f"likelihood_{metric}", Poisson( jnp.exp(mu[index,:,:][mask].flatten() + exposure_) ), obs=Y_)
+                y = sample(f"likelihood_{metric}", ZeroInflatedPoisson(rate = jnp.exp(mu[index,:,:][mask].flatten() + exposure_),
+                                                                       gate = jsc.special.expit(mu[gate_index,:, :][mask].flatten()) ), obs=Y_)
             elif output == "binomial":
                 y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten(), total_count=exposure_), obs = Y_)
             
