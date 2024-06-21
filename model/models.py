@@ -3,11 +3,12 @@ import jax
 import numpy as np
 from numpyro import sample 
 from numpyro import deterministic
-from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal
+from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, ZeroInflatedPoisson
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive
 from numpyro.infer.autoguide import AutoDelta, AutoLaplaceApproximation
 from optax import linear_onecycle_schedule, adam
 import jax.numpy as jnp
+import jax.scipy as jsc
 from .hsgp import approx_se_ncp
 
 
@@ -327,6 +328,7 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
             if output_type == "gaussian":
                 self.num_gaussian += 1
                 self.gaussian_variance_indices[..., i] = self.num_gaussian - 1
+        self.gate_index = feature_name.index("retirement")
         self.gaussian_variance_indices = jnp.array(self.gaussian_variance_indices)
         self.gaussian_indices = (self.output == 1) & self.missing
         self.poisson_indices = (self.output == 2) & self.missing
@@ -356,10 +358,12 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
         weights = sample("lambda", self.prior["lambda"])
         core = jnp.einsum("ntr, kr->ntkr", jnp.einsum("nr, tr -> ntr", U, V), W)
         y = jnp.einsum("ntkr, r -> ntk", core, weights) + alpha
+        gate_index_rep = jnp.repeat(y[..., self.gate_index][..., None], len(self.features), axis = -1)
         y_normal = sample("likelihood_normal", Normal(loc = y[self.gaussian_indices].flatten(), 
                                                       scale=sigma[self.gaussian_variance_indices[self.gaussian_indices].flatten()]/self.exposure[self.gaussian_indices].flatten()), 
                           obs = self.X[self.gaussian_indices].flatten())
-        y_poisson = sample("likelihood_poisson", Poisson(rate = jnp.exp(y[self.poisson_indices].flatten() + self.exposure[self.poisson_indices].flatten())), 
+        y_poisson = sample("likelihood_poisson", ZeroInflatedPoisson(rate = jnp.exp(y[self.poisson_indices].flatten() + self.exposure[self.poisson_indices].flatten()),
+                                                                     gate = jsc.special.expit(gate_index_rep[self.poisson_indices].flatten())), 
                            obs=self.X[self.poisson_indices].flatten())
         y_binomial = sample("likelihood_binomial", Binomial(total_count=self.exposure[self.binomial_indices].flatten(), 
                                                             logits = y[self.binomial_indices].flatten()), 

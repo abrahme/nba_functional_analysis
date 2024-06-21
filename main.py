@@ -22,12 +22,10 @@ if __name__ == "__main__":
     data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
-    metric_output = (["gaussian"] * 3) + (["poisson"] * 9) + (["binomial"] * 3)
-    # metric_output = ["gaussian", "poisson", "binomial"]
-    metrics = ["log_min", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
-    # metrics = ["obpm", "stl", "fg3m"]
-    exposure_list = ["simple_exposure"] + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
-    # exposure_list = ["simple_exposure"] + ["minutes"] + ["fg3a"]
+    data["retirement"] = 1
+    metric_output = ["binomial", "poisson"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+    metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
+    exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
     
 
     if model_name == "nba_fda_model":
@@ -41,7 +39,7 @@ if __name__ == "__main__":
         model = NBAFDALatentModel(basis, output_size=len(metric_output), M = 10, latent_dim1=covariate_X.shape[0], latent_dim2=basis_dims)
     elif model_name == "fixed_nba_rflvm":
         _, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
-        with open("model_output/exponential_cp.pkl", "rb") as f:
+        with open("model_output/exponential_cp_test.pkl", "rb") as f:
             results = pickle.load(f)
         f.close()
         X_rflvm = results["U_auto_loc"]
@@ -113,7 +111,7 @@ if __name__ == "__main__":
         mcmc_run.print_summary()
         samples = mcmc_run.get_samples(group_by_chain=True)
 
-    with open(f"model_output/{model_name}.pkl", "wb") as f:
+    with open(f"model_output/{model_name}_test.pkl", "wb") as f:
         pickle.dump(samples, f)
     f.close()
     
