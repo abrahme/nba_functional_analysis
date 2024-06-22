@@ -1,6 +1,7 @@
 import plotly.figure_factory as ff
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import jax.numpy as jnp
 import plotly.express as px
 import numpy as np
 import arviz as az
@@ -13,7 +14,7 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
     fig = make_subplots(rows = 3, cols=5,  subplot_titles=metrics)
     
     observation_dict, posterior_dict = create_metric_trajectory(posterior_mean_samples, player_index,  observations, exposures, 
-                                                                metric_outputs=metric_outputs, posterior_variance_samples=posterior_variance_samples)
+                                                                metric_outputs=metric_outputs, metrics = metrics, posterior_variance_samples=posterior_variance_samples)
 
  
     obs = observation_dict["y"]
@@ -28,9 +29,9 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
             metric += " per 36 min"
         fig.add_trace(go.Scatter(x = x, y = obs[..., index], mode = "lines", 
                                  name = "Observed", line_color = "blue", showlegend=False), row = row, col=col)
-        fig.add_trace(go.Scatter(x = x, y = posterior[..., index].mean(axis = (0,1)), mode = "lines", name = "Posterior Mean", line_color = "red", showlegend=False), row = row, col = col)
-        lb = np.percentile(posterior[..., index], q = 5, axis = (0,1))
-        ub = np.percentile(posterior[..., index], q = 95, axis = (0,1))
+        fig.add_trace(go.Scatter(x = x, y = jnp.nanmean(posterior[..., index], axis = (0,1)), mode = "lines", name = "Posterior Mean", line_color = "red", showlegend=False), row = row, col = col)
+        lb = np.nanpercentile(posterior[..., index], q = 5, axis = (0,1))
+        ub = np.nanpercentile(posterior[..., index], q = 95, axis = (0,1))
         fig.add_trace(go.Scatter(
         name='Upper Bound',
         x=x,
