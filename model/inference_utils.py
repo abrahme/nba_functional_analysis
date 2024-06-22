@@ -59,32 +59,55 @@ def match_align(Phi):
     return Phi_star
 
 
-def create_metric_trajectory(posterior_mean_samples, player_index, observations, exposures, metric_outputs: list[str], posterior_variance_samples = None):
+def create_metric_trajectory(posterior_mean_samples, player_index, observations, exposures, metric_outputs: list[str], metrics: list[str], posterior_variance_samples = None):
     key = jax.random.key(0)
-    gaussian_index = 0
-    posteriors = []
-    obs_normalized = []
+    gaussian_index = 1
 
+    fg2a_index = metrics.index("fg2a")
+    fg3a_index = metrics.index("fg3a")
+    fta_index = metrics.index("fta")
+
+
+    fg2m_index = metrics.index("fg2m")
+    fg3m_index = metrics.index("fg3m")
+    ftm_index = metrics.index("ftm")
+    minutes_index = metrics.index("log_min")
+
+    #### first sample minutes 
+    scale = jnp.einsum("cs,t -> cst", posterior_variance_samples[0],  1.0 / jnp.ones((21, ))) 
+    dist = Normal()
+    post_log_min = posterior_mean_samples[..., minutes_index, :]
+    posterior_predictions_log_min = (dist.sample(key = key, sample_shape=post_log_min.shape) * scale + post_log_min)
+    obs_log_min = observations[player_index, minutes_index, :]
+    posteriors = [posterior_predictions_log_min]
+    obs_normalized = [obs_log_min]
+    ### sample all the poisson metrics using posterior predictions log min as exposure, and sample obpm / dbpm using sqrt(minutes) as exposure
     for metric_index, metric_output in enumerate(metric_outputs):
-        exposure = exposures[metric_index, ...]
+        if metric_index == minutes_index:
+            continue 
+        exposure  = exposures[metric_index, ...]
         obs = observations[player_index, metric_index, :]
         post = posterior_mean_samples[..., metric_index, :]
-        inds = jnp.where(jnp.isnan(exposure))
-        exposure = exposure.at[inds].set(np.take(np.nanmean(exposure, axis = 0), inds[1]))
-
         if metric_output == "gaussian":
-            scale = jnp.einsum("cs,t -> cst", posterior_variance_samples[gaussian_index],  1.0 / exposure[player_index, :])
+            scale = posterior_variance_samples[gaussian_index][..., None] / jnp.sqrt(jnp.exp(posterior_predictions_log_min))
             dist = Normal()
             posterior_predictions = (dist.sample(key = key, sample_shape=post.shape) * scale + post)
             obs_normal = obs
             gaussian_index += 1
         elif metric_output == "poisson":
-            dist = Poisson(rate = jnp.exp(post + exposure[player_index, :]))
-            posterior_predictions = 36.0 * (dist.sample(key = key) / jnp.exp(exposure[player_index, :])) ### per 36 min statistics
+            dist = Poisson(rate = jnp.exp(post + posterior_predictions_log_min))
+            posterior_predictions = 36.0 * (dist.sample(key = key) / jnp.exp(posterior_predictions_log_min)) ### per 36 min statistics
             obs_normal = 36.0 * (obs / jnp.exp(exposure[player_index, :]))
         elif metric_output == "binomial":
-            dist = Binomial(total_count = jnp.round(exposure[player_index, :], decimals=0).astype(int), logits = post)
-            posterior_predictions = dist.sample(key = key) / jnp.round(exposure[player_index, :], decimals=0) ### per shot
+            if metric_index == ftm_index:
+                total_count = Poisson(rate = jnp.exp(posterior_mean_samples[..., fta_index, :] + posterior_predictions_log_min)).sample( key = key)
+            elif metric_index == fg3m_index:
+                total_count = Poisson(rate = jnp.exp(posterior_mean_samples[..., fg3a_index, :] + posterior_predictions_log_min)).sample( key = key)
+            elif metric_index == fg2m_index:
+                total_count = Poisson(rate = jnp.exp(posterior_mean_samples[..., fg2a_index, :] + posterior_predictions_log_min)).sample( key = key)
+
+            dist = Binomial(total_count = total_count, logits = post)
+            posterior_predictions = dist.sample(key = key) / total_count ### per shot
             obs_normal = obs / jnp.round(exposure[player_index, :], decimals=0) ### per shot
     
         posteriors.append(posterior_predictions)
