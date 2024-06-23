@@ -3,7 +3,7 @@ import jax
 import numpy as np
 from numpyro import sample 
 from numpyro import deterministic
-from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, ZeroInflatedPoisson
+from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, ZeroInflatedPoisson, Categorical, MixtureGeneral, Delta
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive
 from numpyro.infer.autoguide import AutoDelta, AutoLaplaceApproximation
 from optax import linear_onecycle_schedule, adam
@@ -333,6 +333,7 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
         self.gaussian_indices = (self.output == 1) & self.missing
         self.poisson_indices = (self.output == 2) & self.missing
         self.binomial_indices = (self.output == 3) & self.missing
+        self.exponential_indices = (self.output == 4) & self.missing
 
     
     def initialize_priors(self) -> None:
@@ -358,16 +359,15 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
         weights = sample("lambda", self.prior["lambda"])
         core = jnp.einsum("ntr, kr->ntkr", jnp.einsum("nr, tr -> ntr", U, V), W)
         y = jnp.einsum("ntkr, r -> ntk", core, weights) + alpha
-        gate_index_rep = jnp.repeat(y[..., self.gate_index][..., None], len(self.features), axis = -1)
         y_normal = sample("likelihood_normal", Normal(loc = y[self.gaussian_indices].flatten(), 
                                                       scale=sigma[self.gaussian_variance_indices[self.gaussian_indices].flatten()]/self.exposure[self.gaussian_indices].flatten()), 
                           obs = self.X[self.gaussian_indices].flatten())
-        y_poisson = sample("likelihood_poisson", ZeroInflatedPoisson(rate = jnp.exp(y[self.poisson_indices].flatten() + self.exposure[self.poisson_indices].flatten()),
-                                                                     gate = jsc.special.expit(gate_index_rep[self.poisson_indices].flatten())), 
+        y_poisson = sample("likelihood_poisson", Poisson(rate = jnp.exp(y[self.poisson_indices].flatten() + self.exposure[self.poisson_indices].flatten())), 
                            obs=self.X[self.poisson_indices].flatten())
         y_binomial = sample("likelihood_binomial", Binomial(total_count=self.exposure[self.binomial_indices].flatten(), 
                                                             logits = y[self.binomial_indices].flatten()), 
                                                             obs=self.X[self.binomial_indices].flatten())
+        y_exponential = sample("likelihood_exponential",Exponential(rate = jnp.exp(y[self.exponential_indices].flatten())), obs = self.X[self.exponential_indices].flatten())
 
     def run_inference(self, num_steps):
         svi = SVI(self.model_fn, AutoDelta(self.model_fn), optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO())
@@ -709,7 +709,6 @@ class FixedRFLVMBase(ABC):
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
         beta = sample(f"beta", self.prior["beta"], sample_shape=(len(data_set), 2 * self.m, self.j))
         mu = jnp.einsum("nm,kmj -> knj", phi, beta)
-        gate_index = [index for index, data_entity in enumerate(data_set) if data_entity["metric"] == "retirement"][0]
         for index, data_entity in enumerate(data_set):
             output = data_entity["output"]
             metric = data_entity["metric"]
@@ -722,10 +721,12 @@ class FixedRFLVMBase(ABC):
                 sigma = sample(f"sigma_{metric}", self.prior["sigma"])
                 y = sample(f"likelihood_{metric}", Normal( mu[index,:,:][mask].flatten() , sigma/exposure_), obs=Y_)
             elif output == "poisson":
-                y = sample(f"likelihood_{metric}", ZeroInflatedPoisson(rate = jnp.exp(mu[index,:,:][mask].flatten() + exposure_),
-                                                                       gate = jsc.special.expit(mu[gate_index,:, :][mask].flatten()) ), obs=Y_)
+                y = sample(f"likelihood_{metric}", Poisson(rate = jnp.exp(mu[index,:,:][mask].flatten() + exposure_) ), obs=Y_)
             elif output == "binomial":
                 y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten(), total_count=exposure_), obs = Y_)
+            elif output == "exponential":
+                y = sample(f"likelihood_{metric}", Exponential(rate = jnp.exp(mu[index,:,:][mask].flatten())), obs = Y_)
+
             
     @abstractmethod
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):

@@ -11,7 +11,7 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
     """
     plots the posterior predictive career trajectory 
     """
-    fig = make_subplots(rows = 3, cols=5,  subplot_titles=metrics)
+    fig = make_subplots(rows = 4, cols=4,  subplot_titles=metrics)
     
     observation_dict, posterior_dict = create_metric_trajectory(posterior_mean_samples, player_index,  observations, exposures, 
                                                                 metric_outputs=metric_outputs, metrics = metrics, posterior_variance_samples=posterior_variance_samples)
@@ -21,21 +21,21 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
     posterior = posterior_dict["y"]
     x = list(range(18,39))
     for index, metric in enumerate(metrics):
-        row = int(np.floor(index / 5)) + 1 
-        col = (index % 5) + 1
+        row = int(np.floor(index / 4)) + 1 
+        col = (index % 4) + 1
         metric_type = metric_outputs[index]
         metric = metric.upper()
         if metric_type == "poisson":
             metric += " per 36 min"
         fig.add_trace(go.Scatter(x = x, y = obs[..., index], mode = "lines", 
                                  name = "Observed", line_color = "blue", showlegend=False), row = row, col=col)
-        fig.add_trace(go.Scatter(x = x, y = jnp.nanmean(posterior[..., index], axis = (0,1)), mode = "lines", name = "Posterior Mean", line_color = "red", showlegend=False), row = row, col = col)
-        lb = np.nanpercentile(posterior[..., index], q = 5, axis = (0,1))
-        ub = np.nanpercentile(posterior[..., index], q = 95, axis = (0,1))
+        fig.add_trace(go.Scatter(x = x, y = jnp.nanmedian(posterior[..., index], axis = (0,1)), mode = "lines", name = "Posterior Mean", line_color = "red", showlegend=False), row = row, col = col)
+        hdi =  az.hdi(np.array(posterior[..., index]), hdi_prob = .95)
+
         fig.add_trace(go.Scatter(
         name='Upper Bound',
         x=x,
-        y=ub,
+        y=hdi[:,1],
         mode='lines',
         marker=dict(color="#444"),
         line=dict(width=0),
@@ -44,7 +44,7 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
         fig.add_trace(go.Scatter(
             name='Lower Bound',
             x=x,
-            y=lb,
+            y=hdi[:,0],
             marker=dict(color="#444"),
             line=dict(width=0),
             mode='lines',

@@ -3,7 +3,8 @@ from scipy.spatial.distance import cdist
 import numpy as np
 import jax
 import jax.numpy as jnp
-from numpyro.distributions import Normal, Poisson, Binomial
+import jax.scipy as jsc
+from numpyro.distributions import Normal, Poisson, Exponential, Bernoulli
 jax.config.update('jax_platform_name', 'cpu')
 
 def varimax(Phi, gamma = 1, q = 20):
@@ -61,54 +62,46 @@ def match_align(Phi):
 
 def create_metric_trajectory(posterior_mean_samples, player_index, observations, exposures, metric_outputs: list[str], metrics: list[str], posterior_variance_samples = None):
     key = jax.random.key(0)
-    gaussian_index = 1
+    gaussian_index = 0
+    minutes_index = metrics.index("minutes")
+    retirement_index = metrics.index("retirement")  ### 1 -> playing, 0 --> retired
 
-    fg2a_index = metrics.index("fg2a")
-    fg3a_index = metrics.index("fg3a")
-    fta_index = metrics.index("fta")
+    ### first sample retirement
+    post_retirement = posterior_mean_samples[..., retirement_index, :]
+    posterior_predictions_retirement = Bernoulli(logits=post_retirement).sample(key = key) 
+    obs_retirement = observations[player_index, retirement_index, :]
 
-
-    fg2m_index = metrics.index("fg2m")
-    fg3m_index = metrics.index("fg3m")
-    ftm_index = metrics.index("ftm")
-    minutes_index = metrics.index("log_min")
-
-    #### first sample minutes 
-    scale = jnp.einsum("cs,t -> cst", posterior_variance_samples[0],  1.0 / jnp.ones((21, ))) 
-    dist = Normal()
-    post_log_min = posterior_mean_samples[..., minutes_index, :]
-    posterior_predictions_log_min = (dist.sample(key = key, sample_shape=post_log_min.shape) * scale + post_log_min)
-    obs_log_min = observations[player_index, minutes_index, :]
-    posteriors = [posterior_predictions_log_min]
-    obs_normalized = [obs_log_min]
+    #### then sample minutes 
+    
+    post_min = posterior_mean_samples[..., minutes_index, :]
+    posterior_predictions_min = Exponential(rate = jnp.exp(post_min)).sample(key = key)
+    posterior_predictions_min = posterior_predictions_min.at[jnp.where(posterior_predictions_retirement == 0)].set(0) ## fix the minutes to sample from zero inflated process
+    obs_min = observations[player_index, minutes_index, :]
+    posteriors = [jsc.special.expit(post_retirement), posterior_predictions_min]
+    obs_normalized = [obs_retirement, obs_min]
     ### sample all the poisson metrics using posterior predictions log min as exposure, and sample obpm / dbpm using sqrt(minutes) as exposure
     for metric_index, metric_output in enumerate(metric_outputs):
-        if metric_index == minutes_index:
+        if (metric_index in [ minutes_index, retirement_index]) :
             continue 
-        exposure  = exposures[metric_index, ...]
+        exposure  = exposures[metric_index, player_index, ...]
         obs = observations[player_index, metric_index, :]
         post = posterior_mean_samples[..., metric_index, :]
         if metric_output == "gaussian":
-            scale = posterior_variance_samples[gaussian_index][..., None] / jnp.sqrt(jnp.exp(posterior_predictions_log_min))
+            scale = posterior_variance_samples[gaussian_index][..., None] / jnp.sqrt(posterior_predictions_min)
             dist = Normal()
             posterior_predictions = (dist.sample(key = key, sample_shape=post.shape) * scale + post)
+            posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_retirement == 0)].set(-2.0)
             obs_normal = obs
             gaussian_index += 1
         elif metric_output == "poisson":
-            dist = Poisson(rate = jnp.exp(post + posterior_predictions_log_min))
-            posterior_predictions = 36.0 * (dist.sample(key = key) / jnp.exp(posterior_predictions_log_min)) ### per 36 min statistics
-            obs_normal = 36.0 * (obs / jnp.exp(exposure[player_index, :]))
+            dist = Poisson(rate = jnp.exp(post + jnp.log(Exponential(rate = jnp.exp(post_min)).sample(key = key))))
+            posterior_predictions = 36.0 * (dist.sample(key = key) / posterior_predictions_min) ### per 36 min statistics
+            posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_retirement == 0)].set(0) ### set to 0 wherever 
+            obs_normal = 36.0 * (obs / jnp.exp(exposure))
+            obs_normal = obs_normal.at[jnp.where(obs_retirement == 0)].set(0)
         elif metric_output == "binomial":
-            if metric_index == ftm_index:
-                total_count = Poisson(rate = jnp.exp(posterior_mean_samples[..., fta_index, :] + posterior_predictions_log_min)).sample( key = key)
-            elif metric_index == fg3m_index:
-                total_count = Poisson(rate = jnp.exp(posterior_mean_samples[..., fg3a_index, :] + posterior_predictions_log_min)).sample( key = key)
-            elif metric_index == fg2m_index:
-                total_count = Poisson(rate = jnp.exp(posterior_mean_samples[..., fg2a_index, :] + posterior_predictions_log_min)).sample( key = key)
-
-            dist = Binomial(total_count = total_count, logits = post)
-            posterior_predictions = dist.sample(key = key) / total_count ### per shot
-            obs_normal = obs / jnp.round(exposure[player_index, :], decimals=0) ### per shot
+            posterior_predictions = jsc.special.expit(post)
+            obs_normal = obs / exposure ### per shot
     
         posteriors.append(posterior_predictions)
         obs_normalized.append(obs_normal)

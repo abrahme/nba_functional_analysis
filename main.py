@@ -23,7 +23,7 @@ if __name__ == "__main__":
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
     data["retirement"] = 1
-    metric_output = ["binomial", "poisson"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+    metric_output = ["binomial", "exponential"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
     metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
     exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
     
@@ -96,7 +96,7 @@ if __name__ == "__main__":
         svi_run = model.run_inference(num_steps=1000000)
         samples = svi_run.params
     elif "cp" in model_name:
-        svi_run = model.run_inference(num_steps=100000)
+        svi_run = model.run_inference(num_steps=1000000)
         samples = svi_run.params
     elif "rflvm" in model_name:
         if "fixed" in model_name:
