@@ -14,26 +14,26 @@ from data.data_utils import create_fda_data
 data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
 names = data.groupby("id")["name"].first().values
 
-metric_output = (["gaussian"] * 3) + (["poisson"] * 9) + (["binomial"] * 3)
+metric_output = ["binomial", "exponential"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
 
-metrics = ["log_min", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
-exposure_list = ["simple_exposure"] + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
+metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
+exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
 
-
+data["retirement"] = 1
 data["log_min"] = np.log(data["minutes"])
 data["simple_exposure"] = 1 
 _ , outputs, _ = create_fda_data(data, basis_dims=3, metric_output=metric_output, 
                                      metrics = metrics
 , exposure_list =  exposure_list)
 
-with open("model_output/fixed_nba_rflvm.pkl", "rb") as f:
+with open("model_output/fixed_nba_rflvm_test.pkl", "rb") as f:
     results = pickle.load(f)
 f.close()
 
 inf_data = az.from_dict(results)
 
 W = results["W"]
-with open("model_output/exponential_cp.pkl", "rb") as f:
+with open("model_output/exponential_cp_test.pkl", "rb") as f:
     results_embedding = pickle.load(f)
 f.close()
 
@@ -71,10 +71,6 @@ df = pd.concat([pd.DataFrame(X_rflvm_aligned, columns=[f"dim{i+1}" for i in rang
 df["player_name"] = names
 
 
-
-
-agged_metrics = ["obpm","minutes","dbpm"] + [col for col in df.columns if ("rate" in col) or ("pct" in col)]
-
 ui.page_opts(title="NBA Career Trajectories")
 
 with ui.nav_panel("Player Embeddings & Trajectories"):
@@ -99,7 +95,7 @@ with ui.nav_panel("Player Embeddings & Trajectories"):
                                                             posterior_mean_samples=mu,
                                                             observations=jnp.stack([output["output_data"] for output in outputs], axis = 1), 
                                                             exposures = jnp.stack([outputs[i]["exposure_data"] for i in range(len(metrics))],axis=0),
-                                                            posterior_variance_samples=jnp.stack([results["sigma_log_min"], results["sigma_obpm"], results["sigma_dbpm"]], axis = 0))
+                                                            posterior_variance_samples=jnp.stack([results["sigma_obpm"], results["sigma_dbpm"]], axis = 0))
 
 
 
@@ -137,7 +133,7 @@ with ui.nav_panel("MCMC Diagnostics"):
             return plot_mcmc_diagnostics(inf_data, "phi", plot = "summary")
     
     with ui.layout_column_wrap():
-        ui.input_select(id="metric_mcmc", label = "Select a metric", choices = {index : name for index, name in enumerate(agged_metrics)})
+        ui.input_select(id="metric_mcmc", label = "Select a metric", choices = {index : name for index, name in enumerate(metrics)})
         ui.input_select(id="age", label = "Select an age", choices = {index : name for index, name in enumerate(range(18,39))})
     with ui.layout_column_wrap():
         @render.plot
@@ -164,5 +160,5 @@ with ui.nav_panel("Metric Correlations"):
     ui.input_select(id="chain", label = "Select a chain", choices = {index : name for index, name in enumerate(range(1,5))})
     @render_plotly
     def plot_latent_space_dendrogram():
-        return plot_correlation_dendrogram(results["beta"][int(input.chain()), :, :, :, :].mean(axis = (0,3)), labels = agged_metrics, title = "Metric Correlation")
+        return plot_correlation_dendrogram(results["beta"][int(input.chain()), :, :, :, :].mean(axis = (0,3)), labels = metrics, title = "Metric Correlation")
 

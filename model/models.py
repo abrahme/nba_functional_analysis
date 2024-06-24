@@ -3,11 +3,12 @@ import jax
 import numpy as np
 from numpyro import sample 
 from numpyro import deterministic
-from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal
+from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, ZeroInflatedPoisson, Categorical, MixtureGeneral, Delta
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive
 from numpyro.infer.autoguide import AutoDelta, AutoLaplaceApproximation
 from optax import linear_onecycle_schedule, adam
 import jax.numpy as jnp
+import jax.scipy as jsc
 from .hsgp import approx_se_ncp
 
 
@@ -327,10 +328,12 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
             if output_type == "gaussian":
                 self.num_gaussian += 1
                 self.gaussian_variance_indices[..., i] = self.num_gaussian - 1
+        self.gate_index = feature_name.index("retirement")
         self.gaussian_variance_indices = jnp.array(self.gaussian_variance_indices)
         self.gaussian_indices = (self.output == 1) & self.missing
         self.poisson_indices = (self.output == 2) & self.missing
         self.binomial_indices = (self.output == 3) & self.missing
+        self.exponential_indices = (self.output == 4) & self.missing
 
     
     def initialize_priors(self) -> None:
@@ -364,6 +367,7 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
         y_binomial = sample("likelihood_binomial", Binomial(total_count=self.exposure[self.binomial_indices].flatten(), 
                                                             logits = y[self.binomial_indices].flatten()), 
                                                             obs=self.X[self.binomial_indices].flatten())
+        y_exponential = sample("likelihood_exponential",Exponential(rate = jnp.exp(y[self.exponential_indices].flatten())), obs = self.X[self.exponential_indices].flatten())
 
     def run_inference(self, num_steps):
         svi = SVI(self.model_fn, AutoDelta(self.model_fn), optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO())
@@ -717,9 +721,12 @@ class FixedRFLVMBase(ABC):
                 sigma = sample(f"sigma_{metric}", self.prior["sigma"])
                 y = sample(f"likelihood_{metric}", Normal( mu[index,:,:][mask].flatten() , sigma/exposure_), obs=Y_)
             elif output == "poisson":
-                y = sample(f"likelihood_{metric}", Poisson( jnp.exp(mu[index,:,:][mask].flatten() + exposure_) ), obs=Y_)
+                y = sample(f"likelihood_{metric}", Poisson(rate = jnp.exp(mu[index,:,:][mask].flatten() + exposure_) ), obs=Y_)
             elif output == "binomial":
                 y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten(), total_count=exposure_), obs = Y_)
+            elif output == "exponential":
+                y = sample(f"likelihood_{metric}", Exponential(rate = jnp.exp(mu[index,:,:][mask].flatten())), obs = Y_)
+
             
     @abstractmethod
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
