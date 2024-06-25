@@ -796,6 +796,8 @@ class FixedTVRFLVM(FixedRFLVM):
                 y = sample(f"likelihood_{metric}", Poisson( jnp.exp(mu[index,:,:][mask].flatten() + exposure_) ), obs=Y_)
             elif output == "binomial":
                 y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten(), total_count=exposure_), obs = Y_)
+            elif output == "exponential":
+                y = sample(f"likelihood_{metric}", Exponential(rate = jnp.exp(mu[index,:,:][mask].flatten())), obs = Y_)
     
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
         return super().run_inference(num_warmup, num_samples, num_chains, model_args)

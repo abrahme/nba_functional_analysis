@@ -50,7 +50,7 @@ if __name__ == "__main__":
         model = FixedRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(X_rflvm.shape[0], len(basis)))
     elif model_name == "fixed_nba_tvrflvm":
         _, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
-        with open("model_output/exponential_cp.pkl", "rb") as f:
+        with open("model_output/exponential_cp_test.pkl", "rb") as f:
             results = pickle.load(f)
         f.close()
         X_rflvm = results["U_auto_loc"]
