@@ -1,6 +1,8 @@
 import pickle
 import jax.numpy as jnp
 import numpy as np
+from sklearn.manifold import TSNE
+from sklearn.neighbors import NearestNeighbors
 import pandas as pd
 import arviz as az
 from shiny import render
@@ -39,11 +41,12 @@ f.close()
 
 X = results_embedding["U_auto_loc"]
 U, _, _ = np.linalg.svd(X, full_matrices=False)
-L       = np.linalg.cholesky(np.cov(U.T) + 1e-6 * np.eye(3)).T
+L       = np.linalg.cholesky(np.cov(U.T) + 1e-6 * np.eye(7)).T
 aligned_X  = np.linalg.solve(L, U.T).T
 X_rflvm_aligned = aligned_X / np.std(X, axis=0)
 
-
+X_tsne = TSNE(n_components=3).fit_transform(X_rflvm_aligned)
+knn = NearestNeighbors(n_neighbors=6).fit(X_tsne)
 
 
 parameters = list(results.keys()) + ["phi", "mu"]
@@ -67,7 +70,7 @@ agged_data["ft_rate"] = 36.0 * agged_data["fta"] / agged_data["minutes"]
 agged_data["fg2_rate"] = 36.0 * agged_data["fg2a"] / agged_data["minutes"]
 agged_data["fg3_rate"] = 36.0 * agged_data["fg3a"] / agged_data["minutes"]
 agged_data.fillna(0, inplace=True)
-df = pd.concat([pd.DataFrame(X_rflvm_aligned, columns=[f"dim{i+1}" for i in range(3)]), agged_data], axis = 1)
+df = pd.concat([pd.DataFrame(X_tsne, columns=[f"dim{i+1}" for i in range(3)]), agged_data], axis = 1)
 df["player_name"] = names
 
 
@@ -76,10 +79,18 @@ ui.page_opts(title="NBA Career Trajectories")
 with ui.nav_panel("Player Embeddings & Trajectories"):
     with ui.layout_column_wrap():
         ui.input_select(id="player", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
+        @render.data_frame
+        def produce_neighbors():
+            distances, neighbors = knn.kneighbors(X_tsne[int(input.player())][None,:], return_distance=True)
+            name_df = df.iloc[neighbors[0][1:]][["player_name"]]
+            name_df["distances"] = distances[0,1:]
+            return name_df
+        
     with ui.layout_column_wrap():
         @render_plotly
         def plot_latent_space():
             return plot_scatter(df,  "Latent Embedding", int(input.player()) )
+
 
         
         @render_plotly
