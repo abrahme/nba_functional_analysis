@@ -30,28 +30,28 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
         fig.add_trace(go.Scatter(x = x, y = obs[..., index], mode = "lines", 
                                  name = "Observed", line_color = "blue", showlegend=False), row = row, col=col)
         fig.add_trace(go.Scatter(x = x, y = jnp.nanmedian(posterior[..., index], axis = (0,1)), mode = "lines", name = "Posterior Mean", line_color = "red", showlegend=False), row = row, col = col)
-        hdi =  az.hdi(np.array(posterior[..., index]), hdi_prob = .95)
+        # hdi =  az.hdi(np.array(posterior[..., index]), hdi_prob = .95)
 
-        fig.add_trace(go.Scatter(
-        name='Upper Bound',
-        x=x,
-        y=hdi[:,1],
-        mode='lines',
-        marker=dict(color="#444"),
-        line=dict(width=0),
-        showlegend=False),row = row, col=col)
+        # fig.add_trace(go.Scatter(
+        # name='Upper Bound',
+        # x=x,
+        # y=hdi[:,1],
+        # mode='lines',
+        # marker=dict(color="#444"),
+        # line=dict(width=0),
+        # showlegend=False),row = row, col=col)
 
-        fig.add_trace(go.Scatter(
-            name='Lower Bound',
-            x=x,
-            y=hdi[:,0],
-            marker=dict(color="#444"),
-            line=dict(width=0),
-            mode='lines',
-            fillcolor='rgba(68, 68, 68, 0.3)',
-            fill='tonexty',
-            showlegend=False,
-        ), row = row, col=col)
+        # fig.add_trace(go.Scatter(
+        #     name='Lower Bound',
+        #     x=x,
+        #     y=hdi[:,0],
+        #     marker=dict(color="#444"),
+        #     line=dict(width=0),
+        #     mode='lines',
+        #     fillcolor='rgba(68, 68, 68, 0.3)',
+        #     fill='tonexty',
+        #     showlegend=False,
+        # ), row = row, col=col)
 
     fig.update_layout({'width':650, 'height': 650,
                             'showlegend':False, 'hovermode': 'closest',
