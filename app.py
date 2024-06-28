@@ -28,7 +28,7 @@ _ , outputs, _ = create_fda_data(data, basis_dims=3, metric_output=metric_output
                                      metrics = metrics
 , exposure_list =  exposure_list)
 
-with open("model_output/fixed_nba_rflvm_test.pkl", "rb") as f:
+with open("model_output/fixed_nba_tvrflvm_test.pkl", "rb") as f:
     results = pickle.load(f)
 f.close()
 

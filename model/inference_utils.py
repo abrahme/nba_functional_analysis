@@ -90,15 +90,15 @@ def create_metric_trajectory(posterior_mean_samples, player_index, observations,
             scale = posterior_variance_samples[gaussian_index][..., None] / jnp.sqrt(posterior_predictions_min)
             dist = Normal()
             posterior_predictions = (dist.sample(key = key, sample_shape=post.shape) * scale + post)
-            # posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_retirement == 0)].set(-2.0)
+            posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_retirement == 0)].set(-2.0)
             obs_normal = obs
             gaussian_index += 1
         elif metric_output == "poisson":
             dist = Poisson(rate = jnp.exp(post + jnp.log(Exponential(rate = jnp.exp(post_min)).sample(key = key))))
             posterior_predictions = 36.0 * (dist.sample(key = key) / posterior_predictions_min) ### per 36 min statistics
-            # posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_retirement == 0)].set(0) ### set to 0 wherever 
+            posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_retirement == 0)].set(0) ### set to 0 wherever 
             obs_normal = 36.0 * (obs / jnp.exp(exposure))
-            # obs_normal = obs_normal.at[jnp.where(obs_retirement == 0)].set(0)
+            obs_normal = obs_normal.at[jnp.where(obs_retirement == 0)].set(0)
         elif metric_output == "binomial":
             posterior_predictions = jsc.special.expit(post)
             obs_normal = obs / exposure ### per shot
