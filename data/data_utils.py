@@ -1,4 +1,5 @@
 import jax.numpy as jnp
+from scipy.special import logit
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
@@ -260,3 +261,64 @@ def create_fda_data_time(data, basis_dims, metric_output, metrics, exposure_list
 
     basis = jnp.arange(18,39)
     return covariate_X, data_set, basis, time_basis
+
+
+
+def create_time_trend_tensor(data, metric_output, metrics):
+    data["year"] = pd.Categorical(data.year).codes.astype(int)
+    year_array = data[["id", "age", "year"]].pivot(columns = "age", values = "year", index = "id").to_numpy()
+    season_array = data[["id", "age", "season"]].pivot(columns="age",values="season",index="id").to_numpy()
+    retirement_array = np.where((season_array == "2020-21").sum(axis = 1) == 0)[0] 
+    entrance_array = np.where((season_array == "1996-97").sum(axis = 1) == 0)[0]
+    max_season_array = (21 - np.argmax(np.flip(~np.isnan(year_array), axis = 1), axis = 1))
+    min_season_array = np.argmax(~np.isnan(year_array), axis = 1)
+    for player_index, ret_index in zip(retirement_array, max_season_array[retirement_array]):
+        index = ret_index
+        while (year_array[player_index, index - 1] < 24) and (index < year_array.shape[1]):
+            year_array[player_index, index] = year_array[player_index, index - 1] + 1
+            index += 1
+    for player_index, ent_index in zip (entrance_array, min_season_array[entrance_array]):
+        index = ent_index
+        while (year_array[player_index, index] > 0) and (index > 0):
+            year_array[player_index, index - 1] = year_array[player_index, index] - 1   
+            index -= 1
+
+    agg_dict = {"obpm":"mean", "dbpm":"mean", "bpm":"mean", "id": "count",
+            "minutes":"sum", "dreb": "sum", "fta":"sum", "ftm":"sum", "oreb":"sum",
+            "ast":"sum", "tov":"sum", "fg2m":"sum", "fg3m":"sum", "fg3a":"sum", "fg2a":"sum", "blk":"sum", "stl":"sum"}
+
+    agged_data = data.groupby("year").agg(agg_dict).reset_index()
+
+    agged_data["ftm"] = agged_data["ftm"] / agged_data["fta"]
+    agged_data["fg2m"] = agged_data["fg2m"] / agged_data["fg2a"]
+    agged_data["fg3m"] = agged_data["fg3m"] / agged_data["fg3a"]
+    agged_data["dreb"] = agged_data["dreb"] / agged_data["minutes"]
+    agged_data["oreb"] = agged_data["oreb"] / agged_data["minutes"]
+    agged_data["ast"] = agged_data["ast"] / agged_data["minutes"]
+    agged_data["tov"] = agged_data["tov"] / agged_data["minutes"]
+    agged_data["blk"] = agged_data["blk"] / agged_data["minutes"]
+    agged_data["stl"] = agged_data["stl"] / agged_data["minutes"]
+    agged_data["fg3a"] = agged_data["fg3a"] / agged_data["minutes"]
+    agged_data["fg2a"] = agged_data["fg2a"] / agged_data["minutes"]
+    agged_data["fta"] = agged_data["fta"] / agged_data["minutes"]
+    agged_data["minutes"] = agged_data["minutes"] / agged_data["id"]
+    agged_data["retirement"] = 0
+
+    link_dict = {"binomial": lambda x: logit(x), "poisson": lambda x: np.log(x), "gaussian": lambda x: x + 0, "exponential": lambda x: np.log(x)}
+    yearly_agg_data = agged_data[metrics]
+
+    for metric, metric_model in zip(metrics, metric_output):
+        if metric == "retirement":
+            continue 
+        yearly_agg_data[metric] = link_dict[metric_model](yearly_agg_data[metric])
+
+    metric_intercepts = yearly_agg_data[metrics].to_numpy().T
+    mask_nan = np.isnan(year_array) # Create a mask to keep track of original NaNs
+    valid_index = -1  # Choose a valid index
+    year_array_filled = np.where(mask_nan, valid_index, year_array).astype(int) 
+    results = []
+    for i in range(len(metrics)):
+        result = np.take(metric_intercepts[i], year_array_filled)
+                # Apply the mask to set positions corresponding to NaNs to np.nan
+        results.append(result)
+    return jnp.array(np.stack(results, axis = -1))

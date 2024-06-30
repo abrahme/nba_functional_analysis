@@ -5,7 +5,7 @@ import argparse
 import pickle
 import numpyro
 
-from data.data_utils import create_fda_data, create_pca_data, create_cp_data, create_cp_data_multi_way, create_fda_data_time
+from data.data_utils import create_fda_data, create_pca_data, create_cp_data, create_cp_data_multi_way, create_fda_data_time, create_time_trend_tensor
 from model.models import NBAFDAModel, NBAFDAREModel, NBAFDALatentModel, NBAMixedOutputProbabilisticPCA, NBAMixedOutputProbabilisticCPDecomposition, NBAMixedOutputProbabilisticCPDecompositionMultiWay, RFLVM, TVRFLVM, DriftRFLVM, DriftTVRFLVM, FixedRFLVM, FixedTVRFLVM
 
 
@@ -67,8 +67,9 @@ if __name__ == "__main__":
             exposures, masks, X, outputs  = create_cp_data_multi_way(data, metric_output, exposure_list, metrics)
             model = NBAMixedOutputProbabilisticCPDecompositionMultiWay(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
         else:
+            time_trend_tensor = create_time_trend_tensor(data, metric_output, metrics)
             exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics)
-            model = NBAMixedOutputProbabilisticCPDecomposition(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
+            model = NBAMixedOutputProbabilisticCPDecomposition(X, basis_dims, masks, exposures, outputs, metric_output, metrics, time_trend=time_trend_tensor)
 
     elif "nba_rflvm" in model_name:
         if "drift" in model_name:
@@ -111,7 +112,7 @@ if __name__ == "__main__":
         mcmc_run.print_summary()
         samples = mcmc_run.get_samples(group_by_chain=True)
 
-    with open(f"model_output/{model_name}_test.pkl", "wb") as f:
+    with open(f"model_output/{model_name}_test_time.pkl", "wb") as f:
         pickle.dump(samples, f)
     f.close()
     

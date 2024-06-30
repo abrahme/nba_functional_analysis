@@ -314,7 +314,7 @@ class ProbabilisticCPDecomposition(ABC):
 
 class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
 
-    def __init__(self, X, rank: int, M, E, O, output_name: list, feature_name: list) -> None:
+    def __init__(self, X, rank: int, M, E, O, output_name: list, feature_name: list, time_trend = None) -> None:
         super().__init__(X, rank)
         assert (self.X.shape == E.shape) & (self.X.shape == M.shape) & (self.X.shape == O.shape) ### have to have same shape
         self.exposure = E ### exposure for each element in X
@@ -328,12 +328,12 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
             if output_type == "gaussian":
                 self.num_gaussian += 1
                 self.gaussian_variance_indices[..., i] = self.num_gaussian - 1
-        self.gate_index = feature_name.index("retirement")
         self.gaussian_variance_indices = jnp.array(self.gaussian_variance_indices)
         self.gaussian_indices = (self.output == 1) & self.missing
         self.poisson_indices = (self.output == 2) & self.missing
         self.binomial_indices = (self.output == 3) & self.missing
         self.exponential_indices = (self.output == 4) & self.missing
+        self.time_trend = jnp.zeros_like(X) if time_trend is None else time_trend
 
     
     def initialize_priors(self) -> None:
@@ -359,15 +359,17 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
         weights = sample("lambda", self.prior["lambda"])
         core = jnp.einsum("ntr, kr->ntkr", jnp.einsum("nr, tr -> ntr", U, V), W)
         y = jnp.einsum("ntkr, r -> ntk", core, weights) + alpha
-        y_normal = sample("likelihood_normal", Normal(loc = y[self.gaussian_indices].flatten(), 
+
+
+        y_normal = sample("likelihood_normal", Normal(loc = y[self.gaussian_indices].flatten() + self.time_trend[self.gaussian_indices].flatten(), 
                                                       scale=sigma[self.gaussian_variance_indices[self.gaussian_indices].flatten()]/self.exposure[self.gaussian_indices].flatten()), 
                           obs = self.X[self.gaussian_indices].flatten())
-        y_poisson = sample("likelihood_poisson", Poisson(rate = jnp.exp(y[self.poisson_indices].flatten() + self.exposure[self.poisson_indices].flatten())), 
+        y_poisson = sample("likelihood_poisson", Poisson(rate = jnp.exp(y[self.poisson_indices].flatten() + self.exposure[self.poisson_indices].flatten()  + self.time_trend[self.poisson_indices].flatten())), 
                            obs=self.X[self.poisson_indices].flatten())
         y_binomial = sample("likelihood_binomial", Binomial(total_count=self.exposure[self.binomial_indices].flatten(), 
-                                                            logits = y[self.binomial_indices].flatten()), 
+                                                            logits = y[self.binomial_indices].flatten()  + self.time_trend[self.binomial_indices].flatten() ), 
                                                             obs=self.X[self.binomial_indices].flatten())
-        y_exponential = sample("likelihood_exponential",Exponential(rate = jnp.exp(y[self.exponential_indices].flatten())), obs = self.X[self.exponential_indices].flatten())
+        y_exponential = sample("likelihood_exponential",Exponential(rate = jnp.exp(y[self.exponential_indices].flatten()  + self.time_trend[self.exponential_indices].flatten())), obs = self.X[self.exponential_indices].flatten())
 
     def run_inference(self, num_steps):
         svi = SVI(self.model_fn, AutoDelta(self.model_fn), optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO())
