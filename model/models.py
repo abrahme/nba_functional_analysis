@@ -3,12 +3,11 @@ import jax
 import numpy as np
 from numpyro import sample 
 from numpyro import deterministic
-from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, ZeroInflatedPoisson, Categorical, MixtureGeneral, Delta
+from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive
 from numpyro.infer.autoguide import AutoDelta, AutoLaplaceApproximation
 from optax import linear_onecycle_schedule, adam
 import jax.numpy as jnp
-import jax.scipy as jsc
 from .hsgp import approx_se_ncp
 
 
@@ -360,7 +359,6 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
         core = jnp.einsum("ntr, kr->ntkr", jnp.einsum("nr, tr -> ntr", U, V), W)
         y = jnp.einsum("ntkr, r -> ntk", core, weights) + alpha
 
-
         y_normal = sample("likelihood_normal", Normal(loc = y[self.gaussian_indices].flatten() + self.time_trend[self.gaussian_indices].flatten(), 
                                                       scale=sigma[self.gaussian_variance_indices[self.gaussian_indices].flatten()]/self.exposure[self.gaussian_indices].flatten()), 
                           obs = self.X[self.gaussian_indices].flatten())
@@ -372,7 +370,7 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
         y_exponential = sample("likelihood_exponential",Exponential(rate = jnp.exp(y[self.exponential_indices].flatten()  + self.time_trend[self.exponential_indices].flatten())), obs = self.X[self.exponential_indices].flatten())
 
     def run_inference(self, num_steps):
-        svi = SVI(self.model_fn, AutoDelta(self.model_fn), optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO())
+        svi = SVI(self.model_fn, AutoDelta(self.model_fn), optim=adam(learning_rate=linear_onecycle_schedule(100, .1)), loss=Trace_ELBO())
         result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps)
         return result
 
@@ -705,7 +703,7 @@ class FixedRFLVMBase(ABC):
         self.prior["W"] = Normal()
 
     @abstractmethod
-    def model_fn(self, data_set, X) -> None:
+    def model_fn(self, data_set, X, offsets) -> None:
         W = sample("W", self.prior["W"], sample_shape=(self.m, self.r))
         wTx = jnp.einsum("nr,mr -> nm", X, W)
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
@@ -719,15 +717,16 @@ class FixedRFLVMBase(ABC):
             output_data = data_entity["output_data"]
             exposure_ =  exposure_data[mask].flatten()
             Y_ = output_data[mask].flatten() ### non missing values
+            offset = offsets[..., index][mask].flatten()
             if output == "gaussian":
                 sigma = sample(f"sigma_{metric}", self.prior["sigma"])
-                y = sample(f"likelihood_{metric}", Normal( mu[index,:,:][mask].flatten() , sigma/exposure_), obs=Y_)
+                y = sample(f"likelihood_{metric}", Normal( mu[index,:,:][mask].flatten() + offset , sigma/exposure_), obs=Y_)
             elif output == "poisson":
-                y = sample(f"likelihood_{metric}", Poisson(rate = jnp.exp(mu[index,:,:][mask].flatten() + exposure_) ), obs=Y_)
+                y = sample(f"likelihood_{metric}", Poisson(rate = jnp.exp(mu[index,:,:][mask].flatten() + exposure_ + offset) ), obs=Y_)
             elif output == "binomial":
-                y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten(), total_count=exposure_), obs = Y_)
+                y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten() + offset, total_count=exposure_), obs = Y_)
             elif output == "exponential":
-                y = sample(f"likelihood_{metric}", Exponential(rate = jnp.exp(mu[index,:,:][mask].flatten())), obs = Y_)
+                y = sample(f"likelihood_{metric}", Exponential(rate = jnp.exp(mu[index,:,:][mask].flatten() + offset)), obs = Y_)
 
             
     @abstractmethod
@@ -754,8 +753,8 @@ class FixedRFLVM(FixedRFLVMBase):
     
     def initialize_priors(self, *args, **kwargs) -> None:
         return super().initialize_priors(*args, **kwargs)
-    def model_fn(self, data_set, X) -> None:
-        return super().model_fn(data_set, X)
+    def model_fn(self, data_set, X, offsets) -> None:
+        return super().model_fn(data_set, X, offsets)
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
         return super().run_inference(num_warmup, num_samples, num_chains, model_args)
     def predict(self, posterior_samples: dict, model_args):

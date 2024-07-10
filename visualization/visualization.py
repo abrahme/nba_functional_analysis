@@ -27,8 +27,8 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
         metric = metric.upper()
         if metric_type == "poisson":
             metric += " per 36 min"
-        fig.add_trace(go.Scatter(x = x, y = obs[..., index], mode = "lines", 
-                                 name = "Observed", line_color = "blue", showlegend=False), row = row, col=col)
+        # fig.add_trace(go.Scatter(x = x, y = obs[..., index], mode = "lines", 
+        #                          name = "Observed", line_color = "blue", showlegend=False), row = row, col=col)
         fig.add_trace(go.Scatter(x = x, y = jnp.nanmean(posterior[..., index], axis = (0,1)), mode = "lines", name = "Posterior Mean", line_color = "red", showlegend=False), row = row, col = col)
         hdi =  az.hdi(np.array(posterior[..., index]), hdi_prob = .95)
 

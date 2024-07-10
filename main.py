@@ -39,7 +39,7 @@ if __name__ == "__main__":
         model = NBAFDALatentModel(basis, output_size=len(metric_output), M = 10, latent_dim1=covariate_X.shape[0], latent_dim2=basis_dims)
     elif model_name == "fixed_nba_rflvm":
         _, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
-        with open("model_output/exponential_cp_test.pkl", "rb") as f:
+        with open("model_output/exponential_cp_test_time.pkl", "rb") as f:
             results = pickle.load(f)
         f.close()
         X_rflvm = results["U_auto_loc"]
@@ -101,7 +101,8 @@ if __name__ == "__main__":
         samples = svi_run.params
     elif "rflvm" in model_name:
         if "fixed" in model_name:
-            mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set, "X": X_tvrflvm_aligned})
+            time_trend_tensor = create_time_trend_tensor(data, metric_output, metrics)
+            mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set, "X": X_tvrflvm_aligned, "offsets": time_trend_tensor})
             mcmc_run.print_summary()
             samples = mcmc_run.get_samples(group_by_chain=True)
         else:

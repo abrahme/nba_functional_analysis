@@ -28,14 +28,14 @@ _ , outputs, _ = create_fda_data(data, basis_dims=3, metric_output=metric_output
                                      metrics = metrics
 , exposure_list =  exposure_list)
 
-with open("model_output/fixed_nba_tvrflvm_test.pkl", "rb") as f:
+with open("model_output/fixed_nba_rflvm_test_time.pkl", "rb") as f:
     results = pickle.load(f)
 f.close()
 
 inf_data = az.from_dict(results)
 
 W = results["W"]
-with open("model_output/exponential_cp_test.pkl", "rb") as f:
+with open("model_output/exponential_cp_test_time.pkl", "rb") as f:
     results_embedding = pickle.load(f)
 f.close()
 
@@ -46,7 +46,7 @@ aligned_X  = np.linalg.solve(L, U.T).T
 X_rflvm_aligned = aligned_X / np.std(X, axis=0)
 
 X_tsne = TSNE(n_components=3).fit_transform(X_rflvm_aligned)
-knn = NearestNeighbors(n_neighbors=6).fit(X_tsne)
+knn = NearestNeighbors(n_neighbors=6).fit(X_rflvm_aligned)
 
 
 parameters = list(results.keys()) + ["phi", "mu"]
@@ -81,7 +81,7 @@ with ui.nav_panel("Player Embeddings & Trajectories"):
         ui.input_select(id="player", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
         @render.data_frame
         def produce_neighbors():
-            distances, neighbors = knn.kneighbors(X_tsne[int(input.player())][None,:], return_distance=True)
+            distances, neighbors = knn.kneighbors(X_rflvm_aligned[int(input.player())][None,:], return_distance=True)
             name_df = df.iloc[neighbors[0][1:]][["player_name"]]
             name_df["distances"] = distances[0,1:]
             return name_df
