@@ -46,7 +46,7 @@ aligned_X  = np.linalg.solve(L, U.T).T
 X_rflvm_aligned = aligned_X / np.std(X, axis=0)
 
 X_tsne = TSNE(n_components=3).fit_transform(X_rflvm_aligned)
-knn = NearestNeighbors(n_neighbors=6).fit(X_tsne)
+knn = NearestNeighbors(n_neighbors=6).fit(X_rflvm_aligned)
 
 
 parameters = list(results.keys()) + ["phi", "mu"]
@@ -81,7 +81,7 @@ with ui.nav_panel("Player Embeddings & Trajectories"):
         ui.input_select(id="player", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
         @render.data_frame
         def produce_neighbors():
-            distances, neighbors = knn.kneighbors(X_tsne[int(input.player())][None,:], return_distance=True)
+            distances, neighbors = knn.kneighbors(X_rflvm_aligned[int(input.player())][None,:], return_distance=True)
             name_df = df.iloc[neighbors[0][1:]][["player_name"]]
             name_df["distances"] = distances[0,1:]
             return name_df

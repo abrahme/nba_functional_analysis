@@ -4,7 +4,7 @@ author: Abhijit Brahme
 format: 
     beamer: 
         incremental: false
-date: 2024-08-10
+date: 2024-07-10
 bibliography: advancement.bib
 ---
 
@@ -35,6 +35,14 @@ interrupted by injuries, and include different amounts of playing time. As such,
     - Nearest Neighbor algorithm to characterize similarity between players [@natesilver538_2015]
     - Each player’s production curve is represented as a convex combination of curves from the same set of archetype [@vinue2015archetypoids]
 
+
+# Data Overview
+1. $\approx$ 2k NBA players from years 1997 - 2021, from the ages of 18 - 39
+2. Longitudinal mixed tensor valued data $\mathcal{Y}$ of size $N$ by $T$ by $K$
+where $N$ is the number of players, $T$ is the number of years in a player's career, and $K$ are the number of production metric curves with $\mathcal{Y}_{ntk}$ is missing if player $n$ is not observed for metric $k$ at age $t$. 
+    - Non-missing entries are observations from exponential families (i.e Binomial, Gaussian, Exponential, Poisson, etc.)
+3. $\Omega$ is binary tensor of same size as $\mathcal{Y}$ indicating missingness. 
+
 # Current Contribution
 In this work, we propose a model for jointly inferring how multiple of athleticism and skill co-evolve over a player’s career. Our model explicitly accounts for
 multiple sources of variability in the metrics by accounting for dependence across similar player types, dependence between metrics which measure
@@ -42,72 +50,152 @@ similar aspects of latent player ability and, of course, autocorrelation in time
 Further, unlike previous approaches, we give more careful consideration to the
 sampling distribution of observed metrics. 
 
-# Data Overview
-1. $\approx$ 2k NBA players from years 1997 - 2021, from the ages of 18 - 39
-2. Longitudinal mixed tensor valued data $\mathcal{X}$ of size $N$ by $T$ by $K$
-where $N$ is the number of players, $T$ is the number of years in a player's career, and $K$ are the number of production metric curves with $\mathcal{X}_{ntk}$ is missing if player $n$ is not observed for metric $k$ at age $t$. 
-3. $\Omega$ is binary tensor of same size as $\mathcal{X}$ indicating missingness. 
+
+
+
+
+
+
+
+# Modeling Assumptions
+1. Space of players live in low dimensional latent space $X \in \mathbb{R} ^{N \times D}$
+2. For a given time $t$, and metric $k$, $f_{tk} \sim \mathcal{GP}(0, K_X)$ is a vector of size $N$, with $K_X$ capturing correlation between players
+    - Approximation of $f_{tk}$ is given by Random Fourier Features such that $f_{tk} \approx Z(X)^T\beta_{tk}$ [@gundersen2020latent]
+    - Inducing correlation across time $t$ and metric $k$ comes from inducing correlation amongst linear weights $\beta_{tk}$. 
+    - We assume a separable covariance structure for time, metric, and player. 
+
+
+
+
+# Random Fourier Features  (TL;DR)
+
+1. Approximation of Gaussian Process can be turned into a linear operation, $f_{tk}(X) \approx Z(X)^T\beta_{tk}$
+2. Number of random features, $R$, determines how good the approximation is
+3. Choice of $p(\omega)$ determines covariance function of the Gaussian Process
+
+# Random Fourier Features 
+
+Attempt to approximate the inner product $k(x, y) = \langle \phi(x), \phi(y) \rangle$
+with a randomized map $z: \mathbb{R}^D \rightarrow \mathbb{R}^R$. Computational savings arise if $R << N$.
+
+In our case, we let $k(x,y) = k(x - y) = exp(\frac{-||x - y||^2}{2})$ be the standard radial basis kernel. 
+
+From Bochner's theorem, we have that 
+$k(x - y) = \int p(\omega)exp(i\omega(x - y))d \omega$, and it can be shown that to produce the radial basis kernel, $\omega \sim \mathcal{N}_D(0, I_d)$. 
+
+Thus the map is composed of $z_{\omega_r} = [cos(\omega_r ^T x), sin(\omega_r ^ T x)]^T$. 
+
+$Z(X) = \frac{1}{\sqrt{R}}[z_{\omega_1}, z_{\omega_2}, \dots, z_{\omega_R}]^T$
+
+
+
+
+
+# Model Parameters 
+1. $\sigma_{k} \sim IG(1, 1) \forall k \in \mathcal{G}$
+    - Variance term for normally distributed observations
+2. $\omega_r \sim \mathcal{N}_D(0, I_d)$
+    - random feature map approximation 
+    - $Z(X) \in \mathbb{R}^{N \times 2 \cdot D}$
+3. $\beta_{rtk} \sim \mathcal{GP}(0, I_{2D} \otimes I_K \otimes K_T)$
+    - $K_T$ is the covariance function capturing auto-correlation among time observations
+    - Separable covariance structure for time, metric
+4. $\mu = Z(X)^{pr} \beta^r_{tk}  \in \mathbb{R}^{N \times T \times K}$ is represented as a tensor contraction between $Z(X)$ and $\beta$ over the second index. 
 
 # Modeling Assumptions
 
-Let $\mathcal{B}$ be the set of metric indices $i$ associated
-with metrics reflecting the number of successes in $n$ attempts, i.e. Binomial
-metrics, $\mathcal{R}$ correspond to count metrics which occur at a given rate for each
-minute played, i.e. Poisson metrics, and $\mathcal{G}$ correspond to metrics which can be
-characterized as approximately Gaussian. 
+We include the following metrics and distribution families
 
-1. $\mathcal{R} =$ {FGA, FG3A, FTA, Blocks, OREB, DREB, TOV, AST, STL, Fouls}
-2. $\mathcal{B} =$ {FGM, FG3M, FTM}
-3. $\mathcal{N} =$ {FGA, FG3A, FTA}
-4. $\mathcal{G} =$ {DBPM, OBPM, log(Minutes)}.  
+1. Poisson
+    - $\mathcal{R} =$ {FG2A, FG3A, FTA, BLK, OREB, DREB, TOV, AST, STL}
+2. Gaussian
+    - $\mathcal{G} =$ {DBPM, OBPM}
+3. Binomial
+    - $\mathcal{B} =$ {FG2M, FG3M, FTM}
+     - $\mathcal{N} =$ {FG2A, FG3A, FTA}
+4. Exponential
+    - $\mathcal{M} =$ {Minutes}
+5. Bernoulli
+    - $\mathcal{K} =$ {Retirement}
+
+
+# Model Assumptions (contd.)
 
 \begin{align}
-Y_{pi}(t)  &\sim
+Y_{ptk}  &\sim
 \begin{cases}
-Pois(M_{pit}e^{f_{pi}(t)}) \text{ if  } i \in \mathcal{R}\\
-Bin(N_{pit}, logit^{-1}(f_{pi}(t))) \text{ if } i \in \mathcal{B}\\
-\mathcal{N}(f_{pi}(t), \frac{\sigma^2_i}{M_{pit}})  \text{ if } i \in \mathcal{G}
+Pois(Y_{ptm}e^{\mu_{ptk}}) \text{ if  } k \in \mathcal{R} \text{ , } \forall m \in \mathcal{M} \\
+Bin(Y_{ptj}, logit^{-1}(\mu_{ptk})) \text{ if } k \in \mathcal{B} \text{ , }  j \in \mathcal{N} \\
+\mathcal{N}(\mu_{ptk}, \frac{\sigma^2_k}{Y_{ptm}})  \text{ if } k \in \mathcal{G} \text{ , } \forall m \in \mathcal{M}\\
+Bern(logit^{-1}(\mu_{ptk})) \text{ if } k \in \mathcal{K}\\
+Exp(e^{\mu_{ptk}}) \text{ if  } k \in \mathcal{M}
 \end{cases}
 \end{align}
 
-# Modeling Assumptions (contd.)
-1. Space of players live in low dimensional latent space $X \in \mathbb{R} ^{N x D}$
-2. For a given time $t$, and metric $k$, $f_{tk} \sim \mathcal{GP}(0, K_x)$
-    - Approximation of $f_{tk}$ is given by Random Fourier Features such that $f_{tk} \approx \phi(X)^T\beta_{tk}$ [@gundersen2020latent]
-    - Inducing correlation across time $t$ and metric $k$ comes from inducing correlation amongst linear weights $\beta_{tk}$. 
-    - Separable covariance structure for time, metric, and player. 
 
 # Challenges 
 
 1. MCMC Convergence (multi-modal posterior)
-    - show example posterior chains
-2. Identifiability (rotational invariance of model)
+2. Identifiability (rotational / scale invariance of model)
 3. Modeling temporal and within-metric correlation
-4. Missing Not At Random (MNAR) due to selection bias
 
 # Methods
 
-In order to address identifiability issues and MCMC convergence, we propose an alternating scheme to estimate the latent space $X$ and functional bases $\beta_{tk}$. 
+In order to address identifiability issues and MCMC convergence, we propose an alternating scheme to estimate the latent space $X$ and functional coefficients $\beta_{rtk}$. 
 
 1. Initialize $X$ 
     - Exponential PPCA, Probabilistic Tensor Decomposition, Standard PCA, etc.
-    - Make note of how different methods yielded "better" clustering / initialization in the latent space (i.e probabilistic methods accounted for sampling variance / outlier shrinkage, and make note of how each of these methods affected results)
-2. Using $X$ from above, conduct inference on $\beta_{tk}$ using Hamiltonian Monte Carlo techniques
-3. Fixing $\beta_{tk}$ from above, conduct inference on $X$ using HMC techniques. 
+2. Using the fixed $X$ from above, conduct inference on $\beta_{rtk}, \sigma_k, \omega_r$ 
+3. Fixing $\beta_{rtk}$ from above, conduct inference on $X, \omega_r, \sigma_k$ to recover uncertainty in the latent space.  
+
+# Probabilistic Tensor Decomposition 
+
+This model seeks to factorize the  $N \times T \times K$ linear scale tensor $A$ using CP Decomposition. Since we have various outputs that are not normally distributed, this becomes a form of exponential family CP Decomposition.
+
+We seek to approximate the following:
+
+$A \approx \mu + \sum_{i=1}^{R} \lambda_i \cdot x_i \otimes v_i \otimes w_i$
+
+where, $\mu$, $x_i$, $v_i$, $w_i$ $\sim \mathcal{N}(0, I)$, $\lambda \sim Dirichlet(1/R)$
+
+$X \in \mathbb{R}^{N \times R}$
+
+$V \in \mathbb{R}^{T \times R}$
+
+$W \in \mathbb{R}^{K \times R}$
+
+$\mu \in \mathbb{R}^{T \times K}$. 
+
+Here $\mu$ is used to de-mean the data and act as an intercept term.  
+
+# Probabilistic Tensor Decomposition (contd.)
+
+Let $\tilde{A}_{pit} = g_{pit}^{-1}(A_{pit})$, where $g_{pit}$ is the appropriate link function transforming the linear scale parameter into the appropriate exponential family parameterization. Consequently, $X, V, W, \mu$ are estimated by maximizing the following loss function using gradient descent. 
+
+$\max_{X, V, W, \mu} \sum_{p, i, t} log( F_{pit}( Y_{pit} | \tilde{A}_{pit} )) \cdot \Omega_{pit}$
+
+where $F_{pit}$ is the appropriate distribution density function associated with entry $Y_{pit}$. 
+
+This offers the following benefits:
+
+1. Latent space $X$ is created while accounting for sampling variability 
+2. Latent space is created while also accounting for correlations across each mode of the tensor, which is representative of the final model. 
 
 
-# Current Results 
+# Current Progress
+1. Shiny App
 
-1. (plots of example player production curves)
-2. (plots of the different types of curves)
-3. Correlation matrix of latent curves of metrics
-4. Dendrogram of latent space
-5. Separation in latent space
 
-# Future Direction
 
-1. Use model to identify causal effect of types of injuries across varying types of players. 
-2. Address selection bias issue. 
+# Future Work
+
+1. Address trend in baseline rate of 3PA, etc over time
+2. Impose correlation across metrics 
+3. Look at hold-out coverage interval 
+4. Implement alternating scheme to recover uncertainty in player embeddings 
+5. Loosen separable covariance assumption 
+6. Address selection bias problem.
+7. Incorporate metrics for team context
 
 # References
 
