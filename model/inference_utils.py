@@ -75,7 +75,7 @@ def create_metric_trajectory(posterior_mean_samples, player_index, observations,
     
     post_min = posterior_mean_samples[..., minutes_index, :]
     posterior_predictions_min = Exponential(rate = jnp.exp(post_min)).sample(key = key)
-    # posterior_predictions_min = posterior_predictions_min.at[jnp.where(posterior_predictions_retirement == 0)].set(0) ## fix the minutes to sample from zero inflated process
+    posterior_predictions_min = posterior_predictions_min.at[jnp.where(posterior_predictions_retirement == 0)].set(0) ## fix the minutes to sample from zero inflated process
     obs_min = observations[player_index, minutes_index, :]
     posteriors = [jsc.special.expit(post_retirement), posterior_predictions_min]
     obs_normalized = [obs_retirement, obs_min]
