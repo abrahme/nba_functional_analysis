@@ -764,21 +764,23 @@ class FixedTVRFLVM(FixedRFLVM):
         super().__init__(latent_rank, rff_dim, output_shape)
         self.basis = basis
     
-    def make_kernel(self, jitter = 1e-6):
+    def make_kernel(self, lengthscale, jitter = 1e-6):
         deltaXsq = jnp.power((self.basis[:, None] - self.basis), 2.0)
-        k = jnp.exp(-0.5 * deltaXsq) + jitter * jnp.eye(self.basis.shape[0])
+        k = jnp.exp(-0.5 * deltaXsq / lengthscale) + jitter * jnp.eye(self.basis.shape[0])
         return k
     
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
-        kernel = self.make_kernel()
-        self.prior["beta"] = MultivariateNormal(loc=jnp.zeros_like(self.basis), covariance_matrix=kernel) ### basic gp prior on the time 
+        self.prior["lengthscale"] = InverseGamma(1.0, 1.0)
+        
     
     def model_fn(self, data_set, X) -> None:
         W = sample("W", self.prior["W"], sample_shape=(self.m, self.r))
         wTx = jnp.einsum("nr,mr -> nm", X, W)
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
-        beta = sample(f"beta", self.prior["beta"], sample_shape=(len(data_set), 2 * self.m)) ### don't need extra dimension
+        ls = sample("lengthscale", self.prior["lengthscale"])
+        kernel = self.make_kernel(ls)
+        beta = sample(f"beta",  MultivariateNormal(loc=jnp.zeros_like(self.basis), covariance_matrix=kernel), sample_shape=(len(data_set), 2 * self.m)) ### don't need extra dimension
         mu = jnp.einsum("nm,kmj -> knj", phi, beta)
         for index, data_entity in enumerate(data_set):
             output = data_entity["output"]

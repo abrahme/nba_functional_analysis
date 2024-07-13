@@ -111,7 +111,7 @@ with ui.nav_panel("Player Embeddings & Trajectories"):
 
 
 with ui.nav_panel("MCMC Diagnostics"):
-    ui.input_select(id="model", label = "Select a model parameter", choices={index : name for index, name in enumerate(parameters) if "sigma" in name})
+    ui.input_select(id="model", label = "Select a model parameter", choices={index : name for index, name in enumerate(parameters) if ("sigma" in name) or (name == "lengthscale")})
 
     with ui.layout_column_wrap():
         @render.plot
