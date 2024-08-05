@@ -6,7 +6,7 @@ import pickle
 import numpyro
 
 from data.data_utils import create_fda_data, create_pca_data, create_cp_data, create_cp_data_multi_way, create_fda_data_time
-from model.models import NBAFDAModel, NBAFDAREModel, NBAFDALatentModel, NBAMixedOutputProbabilisticPCA, NBAMixedOutputProbabilisticCPDecomposition, NBAMixedOutputProbabilisticCPDecompositionMultiWay, RFLVM, TVRFLVM, DriftRFLVM, DriftTVRFLVM, FixedRFLVM, FixedTVRFLVM
+from model.models import NBAFDAModel, NBAFDAREModel, NBAFDALatentModel, NBAMixedOutputProbabilisticPCA, NBAMixedOutputProbabilisticCPDecomposition, NBAMixedOutputProbabilisticCPDecompositionMultiWay, RFLVM, TVRFLVM, DriftRFLVM, DriftTVRFLVM, FixedRFLVM, FixedTVRFLVM, GibbsRFLVM, GibbsTVRFLVM
 
 
 
@@ -59,6 +59,12 @@ if __name__ == "__main__":
         aligned_X  = np.linalg.solve(L, U.T).T
         X_tvrflvm_aligned = aligned_X / jnp.std(X_rflvm, axis=0)
         model = FixedTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(X_rflvm.shape[0], len(basis)), basis=basis)
+    elif model_name == "gibbs_nba_rflvm":
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
+        model = GibbsRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
+    elif model_name == "gibbs_nba_tvrflvm":
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
+        model = GibbsTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
     elif model_name == "exponential_pca":
         exposures, masks, X, outputs = create_pca_data(data, metric_output, exposure_list, metrics)
         model = NBAMixedOutputProbabilisticPCA(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
@@ -101,6 +107,10 @@ if __name__ == "__main__":
     elif "rflvm" in model_name:
         if "fixed" in model_name:
             mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set, "X": X_tvrflvm_aligned})
+            mcmc_run.print_summary()
+            samples = mcmc_run.get_samples(group_by_chain=True)
+        elif "gibbs" in model_name:
+            mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set}, gibbs_sites=[["W","X"], ["beta","sigma_obpm", "sigma_dbpm"]])
             mcmc_run.print_summary()
             samples = mcmc_run.get_samples(group_by_chain=True)
         else:
