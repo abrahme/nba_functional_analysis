@@ -3,13 +3,13 @@ import jax
 import numpy as np
 from numpyro import sample 
 from numpyro import deterministic
-from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, ZeroInflatedPoisson, Categorical, MixtureGeneral, Delta
+from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive
-from numpyro.infer.autoguide import AutoDelta, AutoLaplaceApproximation
+from numpyro.infer.autoguide import AutoDelta
 from optax import linear_onecycle_schedule, adam
 import jax.numpy as jnp
-import jax.scipy as jsc
 from .hsgp import approx_se_ncp
+from .MultiHMCGibbs import MultiHMCGibbs
 
 
 
@@ -475,7 +475,7 @@ class RFLVMBase(ABC):
     @abstractmethod
     def model_fn(self, data_set) -> None:
         W = sample("W", self.prior["W"], sample_shape=(self.m, self.r))
-        X_raw = sample("X_raw", self.prior["X"], sample_shape=(self.n, self.r))
+        X_raw = sample("X", self.prior["X"], sample_shape=(self.n, self.r))
         X = self._stabilize_x(X_raw)
         wTx = jnp.einsum("nr,mr -> nm", X, W)
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
@@ -498,10 +498,18 @@ class RFLVMBase(ABC):
                 y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten(), total_count=exposure_), obs = Y_)
             
     @abstractmethod
-    def run_inference(self, num_steps, model_args):
-        svi = SVI(self.model_fn, AutoLaplaceApproximation(self.model_fn), optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO())
-        result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps, **model_args)
-        return result
+    def run_inference(self, num_warmup, num_samples, num_chains, model_args):
+        mcmc = MCMC(
+        NUTS(self.model_fn, init_strategy=init_to_median),
+        num_warmup=num_warmup,
+        num_samples=num_samples,
+        num_chains=num_chains,
+        progress_bar=True,
+        chain_method="parallel"
+    )
+        mcmc.run(jax.random.PRNGKey(0), **model_args)
+        return mcmc
+
 
     @abstractmethod
     def predict(self, posterior_samples: dict, model_args):
@@ -550,7 +558,7 @@ class TVRFLVM(RFLVM):
 
     def model_fn(self, data_set) -> None:
         W = sample("W", self.prior["W"], sample_shape=(self.m, self.r))
-        X_raw = sample("X_raw", self.prior["X"], sample_shape=(self.n, self.r))
+        X_raw = sample("X", self.prior["X"], sample_shape=(self.n, self.r))
         X = self._stabilize_x(X_raw)
         wTx = jnp.einsum("nr,mr -> nm", X, W)
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
@@ -806,3 +814,64 @@ class FixedTVRFLVM(FixedRFLVM):
     
     def predict(self, posterior_samples: dict, model_args):
         return super().predict(posterior_samples, model_args)
+    
+
+
+
+class GibbsRFLVM(RFLVMBase):
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape)
+    
+    def initialize_priors(self, *args, **kwargs) -> None:
+        return super().initialize_priors(*args, **kwargs)
+    
+    def model_fn(self, data_set) -> None:
+        return super().model_fn(data_set)
+    
+    def run_inference(self, num_warmup, num_samples, num_chains, model_args, gibbs_sites: list = []):
+
+        inner_kernels = [NUTS(self.model_fn) for _ in range(len(gibbs_sites))]
+        outer_kernel = MultiHMCGibbs(inner_kernels, gibbs_sites_list=gibbs_sites)
+        mcmc = MCMC(outer_kernel,
+        num_warmup=num_warmup,
+        num_samples=num_samples,
+        num_chains=num_chains,
+        progress_bar=True,
+        chain_method="parallel"
+    )
+        mcmc.run(jax.random.PRNGKey(0), **model_args)
+        return mcmc
+    
+    def predict(self, posterior_samples: dict, model_args):
+        return super().predict(posterior_samples, model_args)
+    
+
+class GibbsTVRFLVM(TVRFLVM):
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape, basis)
+
+    def initialize_priors(self, *args, **kwargs) -> None:
+        return super().initialize_priors(*args, **kwargs)
+    
+    def model_fn(self, data_set) -> None:
+        return super().model_fn(data_set)
+    
+    def run_inference(self, num_warmup, num_samples, num_chains, model_args, gibbs_sites: list = []):
+
+        inner_kernels = [NUTS(self.model_fn) for _ in range(len(gibbs_sites))]
+        outer_kernel = MultiHMCGibbs(inner_kernels, gibbs_sites_list=gibbs_sites)
+        mcmc = MCMC(outer_kernel,
+        num_warmup=num_warmup,
+        num_samples=num_samples,
+        num_chains=num_chains,
+        progress_bar=True,
+        chain_method="parallel"
+    )
+        mcmc.run(jax.random.PRNGKey(0), **model_args)
+        return mcmc
+    
+    def predict(self, posterior_samples: dict, model_args):
+        return super().predict(posterior_samples, model_args)
+    
+
+        
