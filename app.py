@@ -5,6 +5,7 @@ from sklearn.manifold import TSNE
 from sklearn.neighbors import NearestNeighbors
 import pandas as pd
 import arviz as az
+from jax import vmap
 from shiny import render
 from shinywidgets import render_plotly
 from shiny.express import input, ui
@@ -28,22 +29,21 @@ _ , outputs, _ = create_fda_data(data, basis_dims=3, metric_output=metric_output
                                      metrics = metrics
 , exposure_list =  exposure_list)
 
-with open("model_output/fixed_nba_tvrflvm_test.pkl", "rb") as f:
+with open("model_output/gibbs_nba_tvrflvm_test.pkl", "rb") as f:
     results = pickle.load(f)
 f.close()
 
 inf_data = az.from_dict(results)
 
 W = results["W"]
-with open("model_output/exponential_cp_test.pkl", "rb") as f:
-    results_embedding = pickle.load(f)
-f.close()
-
-X = results_embedding["U_auto_loc"]
+X = results["X"]
 U, _, _ = np.linalg.svd(X, full_matrices=False)
-L       = np.linalg.cholesky(np.cov(U.T) + 1e-6 * np.eye(7)).T
-aligned_X  = np.linalg.solve(L, U.T).T
-X_rflvm_aligned = aligned_X / np.std(X, axis=0)
+N = 7
+m1 = U - U.sum(-2,keepdims=True)/N
+y_out = np.einsum('...kj,...kl->...jl',m1,m1) /(N - 1)
+L       = y_out + 1e-6 * np.eye(7)[None, None, ...]
+aligned_X  = np.swapaxes(np.linalg.solve(L, np.swapaxes(U, 2, 3)), 2, 3)
+X_rflvm_aligned = aligned_X / np.std(X, axis=-2, keepdims = True)
 
 X_tsne = TSNE(n_components=3).fit_transform(X_rflvm_aligned)
 knn = NearestNeighbors(n_neighbors=6).fit(X_rflvm_aligned)
