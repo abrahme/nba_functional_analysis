@@ -1,10 +1,11 @@
 import pandas as pd
 import numpy as np
+import jax
 import jax.numpy as jnp
 import argparse
 import pickle
 import numpyro
-
+jax.config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, create_pca_data, create_cp_data, create_cp_data_multi_way, create_fda_data_time
 from model.models import NBAFDAModel, NBAFDAREModel, NBAFDALatentModel, NBAMixedOutputProbabilisticPCA, NBAMixedOutputProbabilisticCPDecomposition, NBAMixedOutputProbabilisticCPDecompositionMultiWay, RFLVM, TVRFLVM, DriftRFLVM, DriftTVRFLVM, FixedRFLVM, FixedTVRFLVM, GibbsRFLVM, GibbsTVRFLVM
 
@@ -14,8 +15,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Description of your program')
     parser.add_argument('--model_name', help='which model to fit', required=True)
     parser.add_argument("--basis_dims", help="size of the basis", required=True, type=int)
-    numpyro.set_platform("cpu")
-    numpyro.set_host_device_count(4)
+    numpyro.set_platform("cuda")
+    # numpyro.set_host_device_count(4)
     args = vars(parser.parse_args())
     model_name = args["model_name"]
     basis_dims = args["basis_dims"]

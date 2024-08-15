@@ -56,6 +56,7 @@ RUN pip install \
         ################################################
         "jax[cuda12]==0.4.27" \
         numpyro \ 
+        arviz \
         optax \
         shiny \
         plotly \
