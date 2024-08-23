@@ -476,8 +476,8 @@ class RFLVMBase(ABC):
     def model_fn(self, data_set) -> None:
         W = sample("W", self.prior["W"], sample_shape=(self.m, self.r))
         X_raw = sample("X", self.prior["X"], sample_shape=(self.n, self.r))
-        X = self._stabilize_x(X_raw)
-        wTx = jnp.einsum("nr,mr -> nm", X, W)
+        # X = self._stabilize_x(X_raw)
+        wTx = jnp.einsum("nr,mr -> nm", X_raw, W)
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
         beta = sample(f"beta", self.prior["beta"], sample_shape=(len(data_set), 2 * self.m, self.j))
         mu = jnp.einsum("nm,kmj -> knj", phi, beta)
@@ -496,7 +496,8 @@ class RFLVMBase(ABC):
                 y = sample(f"likelihood_{metric}", Poisson( jnp.exp(mu[index,:,:][mask].flatten() + exposure_) ), obs=Y_)
             elif output == "binomial":
                 y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten(), total_count=exposure_), obs = Y_)
-            
+            elif output == "exponential":
+                y = sample(f"likelihood_{metric}", Exponential(jnp.exp(mu[index,:,:][mask].flatten() + exposure_)), obs = Y_)
     @abstractmethod
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
         mcmc = MCMC(
@@ -545,24 +546,25 @@ class TVRFLVM(RFLVM):
         self.basis = basis ### basis for time dimension
     
 
-    def make_kernel(self, jitter = 1e-6):
+    def make_kernel(self, lengthscale, jitter = 1e-6):
         deltaXsq = jnp.power((self.basis[:, None] - self.basis), 2.0)
-        k = jnp.exp(-0.5 * deltaXsq) + jitter * jnp.eye(self.basis.shape[0])
+        k = jnp.exp(-0.5 * deltaXsq / lengthscale) + jitter * jnp.eye(self.basis.shape[0])
         return k
 
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
-        kernel = self.make_kernel()
-        self.prior["beta"] = MultivariateNormal(loc=jnp.zeros_like(self.basis), covariance_matrix=kernel) ### basic gp prior on the time 
+        self.prior["lengthscale"] = InverseGamma(1.0, 1.0)
 
 
     def model_fn(self, data_set) -> None:
         W = sample("W", self.prior["W"], sample_shape=(self.m, self.r))
         X_raw = sample("X", self.prior["X"], sample_shape=(self.n, self.r))
-        X = self._stabilize_x(X_raw)
-        wTx = jnp.einsum("nr,mr -> nm", X, W)
+        # X = self._stabilize_x(X_raw)
+        wTx = jnp.einsum("nr,mr -> nm", X_raw, W)
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
-        beta = sample(f"beta", self.prior["beta"], sample_shape=(len(data_set), 2 * self.m)) ### don't need extra dimension
+        ls = sample("lengthscale", self.prior["lengthscale"])
+        kernel = self.make_kernel(ls)
+        beta = sample(f"beta",  MultivariateNormal(loc=jnp.zeros_like(self.basis), covariance_matrix=kernel), sample_shape=(len(data_set), 2 * self.m)) ### don't need extra dimension
         mu = jnp.einsum("nm,kmj -> knj", phi, beta)
         for index, data_entity in enumerate(data_set):
             output = data_entity["output"]
@@ -577,9 +579,11 @@ class TVRFLVM(RFLVM):
                 sigma = sample(f"sigma_{metric}", self.prior["sigma"])
                 y = sample(f"likelihood_{metric}", Normal( mu[index,:,:][mask].flatten() , sigma/exposure_), obs=Y_)
             elif output == "poisson":
-                y = sample(f"likelihood_{metric}", Poisson( jnp.exp(mu[index,:,:][mask].flatten() + exposure_) ), obs=Y_)
+                y = sample(f"likelihood_{metric}", Poisson(jnp.exp(mu[index,:,:][mask].flatten() + exposure_) ), obs=Y_)
             elif output == "binomial":
                 y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten(), total_count=exposure_), obs = Y_)
+            elif output == "exponential":
+                y = sample(f"likelihood_{metric}", Exponential(jnp.exp(mu[index,:,:][mask].flatten() + exposure_)), obs = Y_)
     
     def run_inference(self, num_steps, model_args):
         return super().run_inference(num_steps, model_args)
@@ -818,7 +822,7 @@ class FixedTVRFLVM(FixedRFLVM):
 
 
 
-class GibbsRFLVM(RFLVMBase):
+class GibbsRFLVM(RFLVM):
     def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple) -> None:
         super().__init__(latent_rank, rff_dim, output_shape)
     

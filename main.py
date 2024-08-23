@@ -111,7 +111,7 @@ if __name__ == "__main__":
             mcmc_run.print_summary()
             samples = mcmc_run.get_samples(group_by_chain=True)
         elif "gibbs" in model_name:
-            mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set}, gibbs_sites=[["W","X"], ["beta","sigma_obpm", "sigma_dbpm"]])
+            mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set}, gibbs_sites=[["W","X","lengthscale"], ["beta","sigma_obpm", "sigma_dbpm"]])
             mcmc_run.print_summary()
             samples = mcmc_run.get_samples(group_by_chain=True)
         else:

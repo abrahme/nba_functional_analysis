@@ -5,12 +5,14 @@ from sklearn.manifold import TSNE
 from sklearn.neighbors import NearestNeighbors
 import pandas as pd
 import arviz as az
-from jax import vmap
-from shiny import render
+import jax
 from shinywidgets import render_plotly
-from shiny.express import input, ui
+from shiny.express import input, ui, render
 from visualization.visualization import plot_correlation_dendrogram, plot_mcmc_diagnostics, plot_posterior_predictive_career_trajectory, plot_scatter
 from data.data_utils import create_fda_data
+jax.config.update("jax_enable_x64", True)
+jax.config.update("jax_platform_name", "cuda")
+
 
 
 #### LOAD EVERYTHING 
@@ -44,9 +46,9 @@ y_out = np.einsum('...kj,...kl->...jl',m1,m1) /(N - 1)
 L       = y_out + 1e-6 * np.eye(7)[None, None, ...]
 aligned_X  = np.swapaxes(np.linalg.solve(L, np.swapaxes(U, 2, 3)), 2, 3)
 X_rflvm_aligned = aligned_X / np.std(X, axis=-2, keepdims = True)
-
-X_tsne = TSNE(n_components=3).fit_transform(X_rflvm_aligned)
-knn = NearestNeighbors(n_neighbors=6).fit(X_rflvm_aligned)
+X_rflvm_aligned_mean = X.mean(axis = (0, 1))
+X_tsne = TSNE(n_components=3).fit_transform(X_rflvm_aligned_mean)
+knn = NearestNeighbors(n_neighbors=6).fit(X_rflvm_aligned_mean)
 
 
 parameters = list(results.keys()) + ["phi", "mu"]
@@ -81,7 +83,7 @@ with ui.nav_panel("Player Embeddings & Trajectories"):
         ui.input_select(id="player", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
         @render.data_frame
         def produce_neighbors():
-            distances, neighbors = knn.kneighbors(X_rflvm_aligned[int(input.player())][None,:], return_distance=True)
+            distances, neighbors = knn.kneighbors(X_rflvm_aligned_mean[int(input.player())][None,:], return_distance=True)
             name_df = df.iloc[neighbors[0][1:]][["player_name"]]
             name_df["distances"] = distances[0,1:]
             return name_df
@@ -96,7 +98,7 @@ with ui.nav_panel("Player Embeddings & Trajectories"):
         @render_plotly
         def player_trajectory():
             player_index = int(input.player())
-            wTx = np.einsum("r,ijmr -> ijm", X_rflvm_aligned[player_index], W)
+            wTx = np.einsum("ijr,ijmr -> ijm", X_rflvm_aligned[:,:,player_index, :], W)
             phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
             mu = np.einsum("ijk,ijmkt -> ijmt", phi, results["beta"])
             return plot_posterior_predictive_career_trajectory(
@@ -128,7 +130,7 @@ with ui.nav_panel("MCMC Diagnostics"):
         @render.plot
         def plot_player_trace():
             player_index = int(input.player_model())
-            wTx = np.einsum("r,ijmr -> ijm", X_rflvm_aligned[player_index], W)
+            wTx = np.einsum("ijr,ijmr -> ijm", X_rflvm_aligned[:,:,player_index, :], W)
             phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
             results["phi"] = phi[..., -1]
             inf_data = az.from_dict(results)
@@ -137,7 +139,7 @@ with ui.nav_panel("MCMC Diagnostics"):
         @render.table
         def plot_player_summary():
             player_index = int(input.player_model())
-            wTx = np.einsum("r,ijmr -> ijm", X_rflvm_aligned[player_index], W)
+            wTx = np.einsum("ijr,ijmr -> ijm", X_rflvm_aligned[:,:,player_index,:], W)
             phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
             results["phi"] = phi[..., -1]
             inf_data = az.from_dict(results)
@@ -150,7 +152,7 @@ with ui.nav_panel("MCMC Diagnostics"):
         @render.plot
         def plot_player_trace_mu():
             player_index = int(input.player_model())
-            wTx = np.einsum("r,ijmr -> ijm", X_rflvm_aligned[player_index], W)
+            wTx = np.einsum("ijr,ijmr -> ijm", X_rflvm_aligned[:,:,player_index,:], W)
             phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
             mu = np.einsum("ijk,ijk -> ij", phi, results["beta"][:, :, int(input.metric_mcmc()), :, int(input.age())])
             results["mu"] = mu
@@ -160,7 +162,7 @@ with ui.nav_panel("MCMC Diagnostics"):
         @render.table
         def plot_player_summary_mu():
             player_index = int(input.player_model())
-            wTx = np.einsum("r,ijmr -> ijm", X_rflvm_aligned[player_index], W)
+            wTx = np.einsum("ijr,ijmr -> ijm", X_rflvm_aligned[:,:,player_index,:], W)
             phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
             mu = np.einsum("ijk,ijk -> ij", phi, results["beta"][:, :, int(input.metric_mcmc()), :, int(input.age())])
             results["mu"] = mu
