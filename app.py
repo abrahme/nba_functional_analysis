@@ -39,14 +39,8 @@ inf_data = az.from_dict(results)
 
 W = results["W"]
 X = results["X"]
-# U, _, _ = np.linalg.svd(X, full_matrices=False)
-# N = 7
-# m1 = U - U.sum(-2,keepdims=True)/N
-# y_out = np.einsum('...kj,...kl->...jl',m1,m1) /(N - 1)
-# L       = y_out + 1e-6 * np.eye(7)[None, None, ...]
-# aligned_X  = np.swapaxes(np.linalg.solve(L, np.swapaxes(U, 2, 3)), 2, 3)
-# X_rflvm_aligned_mean = (aligned_X / np.std(X, axis=-2, keepdims = True)).mean(axis = (0, 1))
-X_rflvm_aligned_mean = X[-1, -1, ...]
+
+X_rflvm_aligned_mean = X[-1, -1, ...] ### TODO: align 
 X_rflvm_aligned = X
 
 X_tsne = TSNE(n_components=3).fit_transform(X_rflvm_aligned_mean)
@@ -132,20 +126,18 @@ with ui.nav_panel("MCMC Diagnostics"):
         @render.plot
         def plot_player_trace():
             player_index = int(input.player_model())
-            wTx = np.einsum("ijr,ijmr -> ijm", X_rflvm_aligned[:,:,player_index, :], W)
-            phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
-            results["phi"] = phi[..., -1]
+            results["X"] = X_rflvm_aligned[:,:,player_index,:]
             inf_data = az.from_dict(results)
-            return plot_mcmc_diagnostics(inf_data, "phi", plot = "trace")
+            return plot_mcmc_diagnostics(inf_data, "X", plot = "trace")
         
         @render.table
         def plot_player_summary():
             player_index = int(input.player_model())
-            wTx = np.einsum("ijr,ijmr -> ijm", X_rflvm_aligned[:,:,player_index,:], W)
-            phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
-            results["phi"] = phi[..., -1]
+            results["X"] = X_rflvm_aligned[:,:,player_index,:]
             inf_data = az.from_dict(results)
-            return plot_mcmc_diagnostics(inf_data, "phi", plot = "summary")
+            return plot_mcmc_diagnostics(inf_data, "X", plot = "summary")
+        
+
     
     with ui.layout_column_wrap():
         ui.input_select(id="metric_mcmc", label = "Select a metric", choices = {index : name for index, name in enumerate(metrics)})
