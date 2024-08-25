@@ -451,17 +451,18 @@ class RFLVMBase(ABC):
     HMC implementation of 
     https://arxiv.org/pdf/2006.11145
     """
-    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple) -> None:
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, init_x = None) -> None:
         self.r = latent_rank 
         self.m = rff_dim
         self.n, self.j = output_shape
         self.prior = {}
+        self.init_x = init_x
     
     @abstractmethod
     def initialize_priors(self, *args, **kwargs) -> None:
         self.prior["W"] = Normal()
         self.prior["beta"] = Normal()
-        self.prior["X"] = Normal()
+        self.prior["X"] = Normal() if self.init_x is None else Normal(loc = self.init_x)
         self.prior["sigma"] = InverseGamma(1, 1)
     
     def _stabilize_x(self, X):
@@ -475,7 +476,7 @@ class RFLVMBase(ABC):
     @abstractmethod
     def model_fn(self, data_set) -> None:
         W = sample("W", self.prior["W"], sample_shape=(self.m, self.r))
-        X_raw = sample("X", self.prior["X"], sample_shape=(self.n, self.r))
+        X_raw = sample("X", self.prior["X"], sample_shape=(self.n, self.r)) if self.init_x is None else sample("X", self.prior["X"])
         # X = self._stabilize_x(X_raw)
         wTx = jnp.einsum("nr,mr -> nm", X_raw, W)
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
@@ -521,8 +522,8 @@ class RFLVMBase(ABC):
 
 class RFLVM(RFLVMBase):
 
-    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple) -> None:
-        super().__init__(latent_rank, rff_dim, output_shape)
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, init_x) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape, init_x)
     
     def initialize_priors(self, *args, **kwargs) -> None:
         return super().initialize_priors(*args, **kwargs)
@@ -541,8 +542,8 @@ class TVRFLVM(RFLVM):
     """
     model for time varying functional 
     """
-    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis) -> None:
-        super().__init__(latent_rank, rff_dim, output_shape)
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis, init_x) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape, init_x)
         self.basis = basis ### basis for time dimension
     
 
@@ -558,7 +559,7 @@ class TVRFLVM(RFLVM):
 
     def model_fn(self, data_set) -> None:
         W = sample("W", self.prior["W"], sample_shape=(self.m, self.r))
-        X_raw = sample("X", self.prior["X"], sample_shape=(self.n, self.r))
+        X_raw = sample("X", self.prior["X"], sample_shape=(self.n, self.r)) if self.init_x is None else sample("X", self.prior["X"])
         # X = self._stabilize_x(X_raw)
         wTx = jnp.einsum("nr,mr -> nm", X_raw, W)
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
@@ -823,11 +824,11 @@ class FixedTVRFLVM(FixedRFLVM):
 
 
 class GibbsRFLVM(RFLVM):
-    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple) -> None:
-        super().__init__(latent_rank, rff_dim, output_shape)
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, init_x) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape, init_x)
     
     def initialize_priors(self, *args, **kwargs) -> None:
-        return super().initialize_priors(*args, **kwargs)
+        super().initialize_priors(*args, **kwargs)
     
     def model_fn(self, data_set) -> None:
         return super().model_fn(data_set)
@@ -851,11 +852,11 @@ class GibbsRFLVM(RFLVM):
     
 
 class GibbsTVRFLVM(TVRFLVM):
-    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis) -> None:
-        super().__init__(latent_rank, rff_dim, output_shape, basis)
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis, init_x) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape, basis, init_x)
 
     def initialize_priors(self, *args, **kwargs) -> None:
-        return super().initialize_priors(*args, **kwargs)
+        super().initialize_priors(*args, **kwargs)
     
     def model_fn(self, data_set) -> None:
         return super().model_fn(data_set)
