@@ -3,7 +3,7 @@ import jax
 import numpy as np
 from numpyro import sample 
 from numpyro import deterministic
-from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal
+from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, MatrixNormal
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive
 from numpyro.infer.autoguide import AutoDelta
 from optax import linear_onecycle_schedule, adam
@@ -462,7 +462,14 @@ class RFLVMBase(ABC):
     def initialize_priors(self, *args, **kwargs) -> None:
         self.prior["W"] = Normal()
         self.prior["beta"] = Normal()
-        self.prior["X"] = Normal() if self.init_x is None else Normal(loc = self.init_x)
+        if self.init_x is None:
+            self.prior["X"] = Normal()
+        else:
+            cov_rows = jnp.cov(self.init_x) + jnp.eye(self.n) * (1e-6)
+            cholesky_rows = jnp.linalg.cholesky(cov_rows)
+            cov_cols = jnp.cov(self.init_x.T) + jnp.eye(self.r) * (1e-6)
+            cholesky_cols = jnp.linalg.cholesky(cov_cols)
+            self.prior["X"] = MatrixNormal(loc = self.init_x, scale_tril_column=cholesky_cols, scale_tril_row=cholesky_rows)
         self.prior["sigma"] = InverseGamma(1, 1)
     
     def _stabilize_x(self, X):

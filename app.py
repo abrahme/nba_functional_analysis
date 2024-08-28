@@ -40,11 +40,11 @@ inf_data = az.from_dict(results)
 W = results["W"]
 X = results["X"]
 
-X_rflvm_aligned_mean = X[-1, -1, ...] ### TODO: align 
+X_rflvm_aligned_mean = X[-1, -10, ...] ### TODO: align 
 X_rflvm_aligned = X
 
 X_tsne = TSNE(n_components=3).fit_transform(X_rflvm_aligned_mean)
-knn = NearestNeighbors(n_neighbors=6).fit(X_rflvm_aligned_mean)
+knn = NearestNeighbors(n_neighbors=6).fit(X_tsne)
 
 
 parameters = list(results.keys()) + ["phi", "mu"]
@@ -79,7 +79,7 @@ with ui.nav_panel("Player Embeddings & Trajectories"):
         ui.input_select(id="player", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
         @render.data_frame
         def produce_neighbors():
-            distances, neighbors = knn.kneighbors(X_rflvm_aligned_mean[int(input.player())][None,:], return_distance=True)
+            distances, neighbors = knn.kneighbors(X_tsne[int(input.player())][None,:], return_distance=True)
             name_df = df.iloc[neighbors[0][1:]][["player_name"]]
             name_df["distances"] = distances[0,1:]
             return name_df
