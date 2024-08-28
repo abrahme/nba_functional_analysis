@@ -5,11 +5,14 @@ from sklearn.manifold import TSNE
 from sklearn.neighbors import NearestNeighbors
 import pandas as pd
 import arviz as az
-from shiny import render
+import jax
 from shinywidgets import render_plotly
-from shiny.express import input, ui
+from shiny.express import input, ui, render
 from visualization.visualization import plot_correlation_dendrogram, plot_mcmc_diagnostics, plot_posterior_predictive_career_trajectory, plot_scatter
 from data.data_utils import create_fda_data
+jax.config.update("jax_enable_x64", True)
+jax.config.update("jax_platform_name", "cuda")
+
 
 
 #### LOAD EVERYTHING 
@@ -28,25 +31,20 @@ _ , outputs, _ = create_fda_data(data, basis_dims=3, metric_output=metric_output
                                      metrics = metrics
 , exposure_list =  exposure_list)
 
-with open("model_output/fixed_nba_tvrflvm_test.pkl", "rb") as f:
+with open("model_output/gibbs_nba_tvrflvm_test.pkl", "rb") as f:
     results = pickle.load(f)
 f.close()
 
 inf_data = az.from_dict(results)
 
 W = results["W"]
-with open("model_output/exponential_cp_test.pkl", "rb") as f:
-    results_embedding = pickle.load(f)
-f.close()
+X = results["X"]
 
-X = results_embedding["U_auto_loc"]
-U, _, _ = np.linalg.svd(X, full_matrices=False)
-L       = np.linalg.cholesky(np.cov(U.T) + 1e-6 * np.eye(7)).T
-aligned_X  = np.linalg.solve(L, U.T).T
-X_rflvm_aligned = aligned_X / np.std(X, axis=0)
+X_rflvm_aligned_mean = X[-1, -10, ...] ### TODO: align 
+X_rflvm_aligned = X
 
-X_tsne = TSNE(n_components=3).fit_transform(X_rflvm_aligned)
-knn = NearestNeighbors(n_neighbors=6).fit(X_rflvm_aligned)
+X_tsne = TSNE(n_components=3).fit_transform(X_rflvm_aligned_mean)
+knn = NearestNeighbors(n_neighbors=6).fit(X_tsne)
 
 
 parameters = list(results.keys()) + ["phi", "mu"]
@@ -81,7 +79,7 @@ with ui.nav_panel("Player Embeddings & Trajectories"):
         ui.input_select(id="player", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
         @render.data_frame
         def produce_neighbors():
-            distances, neighbors = knn.kneighbors(X_rflvm_aligned[int(input.player())][None,:], return_distance=True)
+            distances, neighbors = knn.kneighbors(X_tsne[int(input.player())][None,:], return_distance=True)
             name_df = df.iloc[neighbors[0][1:]][["player_name"]]
             name_df["distances"] = distances[0,1:]
             return name_df
@@ -96,7 +94,7 @@ with ui.nav_panel("Player Embeddings & Trajectories"):
         @render_plotly
         def player_trajectory():
             player_index = int(input.player())
-            wTx = np.einsum("r,ijmr -> ijm", X_rflvm_aligned[player_index], W)
+            wTx = np.einsum("ijr,ijmr -> ijm", X_rflvm_aligned[:,:,player_index, :], W)
             phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
             mu = np.einsum("ijk,ijmkt -> ijmt", phi, results["beta"])
             return plot_posterior_predictive_career_trajectory(
@@ -128,20 +126,18 @@ with ui.nav_panel("MCMC Diagnostics"):
         @render.plot
         def plot_player_trace():
             player_index = int(input.player_model())
-            wTx = np.einsum("r,ijmr -> ijm", X_rflvm_aligned[player_index], W)
-            phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
-            results["phi"] = phi[..., -1]
+            results["X"] = X_rflvm_aligned[:,:,player_index,:]
             inf_data = az.from_dict(results)
-            return plot_mcmc_diagnostics(inf_data, "phi", plot = "trace")
+            return plot_mcmc_diagnostics(inf_data, "X", plot = "trace")
         
         @render.table
         def plot_player_summary():
             player_index = int(input.player_model())
-            wTx = np.einsum("r,ijmr -> ijm", X_rflvm_aligned[player_index], W)
-            phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
-            results["phi"] = phi[..., -1]
+            results["X"] = X_rflvm_aligned[:,:,player_index,:]
             inf_data = az.from_dict(results)
-            return plot_mcmc_diagnostics(inf_data, "phi", plot = "summary")
+            return plot_mcmc_diagnostics(inf_data, "X", plot = "summary")
+        
+
     
     with ui.layout_column_wrap():
         ui.input_select(id="metric_mcmc", label = "Select a metric", choices = {index : name for index, name in enumerate(metrics)})
@@ -150,7 +146,7 @@ with ui.nav_panel("MCMC Diagnostics"):
         @render.plot
         def plot_player_trace_mu():
             player_index = int(input.player_model())
-            wTx = np.einsum("r,ijmr -> ijm", X_rflvm_aligned[player_index], W)
+            wTx = np.einsum("ijr,ijmr -> ijm", X_rflvm_aligned[:,:,player_index,:], W)
             phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
             mu = np.einsum("ijk,ijk -> ij", phi, results["beta"][:, :, int(input.metric_mcmc()), :, int(input.age())])
             results["mu"] = mu
@@ -160,7 +156,7 @@ with ui.nav_panel("MCMC Diagnostics"):
         @render.table
         def plot_player_summary_mu():
             player_index = int(input.player_model())
-            wTx = np.einsum("r,ijmr -> ijm", X_rflvm_aligned[player_index], W)
+            wTx = np.einsum("ijr,ijmr -> ijm", X_rflvm_aligned[:,:,player_index,:], W)
             phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
             mu = np.einsum("ijk,ijk -> ij", phi, results["beta"][:, :, int(input.metric_mcmc()), :, int(input.age())])
             results["mu"] = mu

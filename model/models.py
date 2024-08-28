@@ -3,7 +3,7 @@ import jax
 import numpy as np
 from numpyro import sample 
 from numpyro import deterministic
-from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal
+from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, MatrixNormal
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive
 from numpyro.infer.autoguide import AutoDelta
 from optax import linear_onecycle_schedule, adam
@@ -451,17 +451,25 @@ class RFLVMBase(ABC):
     HMC implementation of 
     https://arxiv.org/pdf/2006.11145
     """
-    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple) -> None:
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, init_x = None) -> None:
         self.r = latent_rank 
         self.m = rff_dim
         self.n, self.j = output_shape
         self.prior = {}
+        self.init_x = init_x
     
     @abstractmethod
     def initialize_priors(self, *args, **kwargs) -> None:
         self.prior["W"] = Normal()
         self.prior["beta"] = Normal()
-        self.prior["X"] = Normal()
+        if self.init_x is None:
+            self.prior["X"] = Normal()
+        else:
+            cov_rows = jnp.cov(self.init_x) + jnp.eye(self.n) * (1e-6)
+            cholesky_rows = jnp.linalg.cholesky(cov_rows)
+            cov_cols = jnp.cov(self.init_x.T) + jnp.eye(self.r) * (1e-6)
+            cholesky_cols = jnp.linalg.cholesky(cov_cols)
+            self.prior["X"] = MatrixNormal(loc = self.init_x, scale_tril_column=cholesky_cols, scale_tril_row=cholesky_rows)
         self.prior["sigma"] = InverseGamma(1, 1)
     
     def _stabilize_x(self, X):
@@ -475,9 +483,9 @@ class RFLVMBase(ABC):
     @abstractmethod
     def model_fn(self, data_set) -> None:
         W = sample("W", self.prior["W"], sample_shape=(self.m, self.r))
-        X_raw = sample("X", self.prior["X"], sample_shape=(self.n, self.r))
-        X = self._stabilize_x(X_raw)
-        wTx = jnp.einsum("nr,mr -> nm", X, W)
+        X_raw = sample("X", self.prior["X"], sample_shape=(self.n, self.r)) if self.init_x is None else sample("X", self.prior["X"])
+        # X = self._stabilize_x(X_raw)
+        wTx = jnp.einsum("nr,mr -> nm", X_raw, W)
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
         beta = sample(f"beta", self.prior["beta"], sample_shape=(len(data_set), 2 * self.m, self.j))
         mu = jnp.einsum("nm,kmj -> knj", phi, beta)
@@ -496,7 +504,8 @@ class RFLVMBase(ABC):
                 y = sample(f"likelihood_{metric}", Poisson( jnp.exp(mu[index,:,:][mask].flatten() + exposure_) ), obs=Y_)
             elif output == "binomial":
                 y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten(), total_count=exposure_), obs = Y_)
-            
+            elif output == "exponential":
+                y = sample(f"likelihood_{metric}", Exponential(jnp.exp(mu[index,:,:][mask].flatten() + exposure_)), obs = Y_)
     @abstractmethod
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
         mcmc = MCMC(
@@ -520,8 +529,8 @@ class RFLVMBase(ABC):
 
 class RFLVM(RFLVMBase):
 
-    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple) -> None:
-        super().__init__(latent_rank, rff_dim, output_shape)
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, init_x) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape, init_x)
     
     def initialize_priors(self, *args, **kwargs) -> None:
         return super().initialize_priors(*args, **kwargs)
@@ -540,29 +549,30 @@ class TVRFLVM(RFLVM):
     """
     model for time varying functional 
     """
-    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis) -> None:
-        super().__init__(latent_rank, rff_dim, output_shape)
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis, init_x) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape, init_x)
         self.basis = basis ### basis for time dimension
     
 
-    def make_kernel(self, jitter = 1e-6):
+    def make_kernel(self, lengthscale, jitter = 1e-6):
         deltaXsq = jnp.power((self.basis[:, None] - self.basis), 2.0)
-        k = jnp.exp(-0.5 * deltaXsq) + jitter * jnp.eye(self.basis.shape[0])
+        k = jnp.exp(-0.5 * deltaXsq / lengthscale) + jitter * jnp.eye(self.basis.shape[0])
         return k
 
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
-        kernel = self.make_kernel()
-        self.prior["beta"] = MultivariateNormal(loc=jnp.zeros_like(self.basis), covariance_matrix=kernel) ### basic gp prior on the time 
+        self.prior["lengthscale"] = InverseGamma(1.0, 1.0)
 
 
     def model_fn(self, data_set) -> None:
         W = sample("W", self.prior["W"], sample_shape=(self.m, self.r))
-        X_raw = sample("X", self.prior["X"], sample_shape=(self.n, self.r))
-        X = self._stabilize_x(X_raw)
-        wTx = jnp.einsum("nr,mr -> nm", X, W)
+        X_raw = sample("X", self.prior["X"], sample_shape=(self.n, self.r)) if self.init_x is None else sample("X", self.prior["X"])
+        # X = self._stabilize_x(X_raw)
+        wTx = jnp.einsum("nr,mr -> nm", X_raw, W)
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
-        beta = sample(f"beta", self.prior["beta"], sample_shape=(len(data_set), 2 * self.m)) ### don't need extra dimension
+        ls = sample("lengthscale", self.prior["lengthscale"])
+        kernel = self.make_kernel(ls)
+        beta = sample(f"beta",  MultivariateNormal(loc=jnp.zeros_like(self.basis), covariance_matrix=kernel), sample_shape=(len(data_set), 2 * self.m)) ### don't need extra dimension
         mu = jnp.einsum("nm,kmj -> knj", phi, beta)
         for index, data_entity in enumerate(data_set):
             output = data_entity["output"]
@@ -577,9 +587,11 @@ class TVRFLVM(RFLVM):
                 sigma = sample(f"sigma_{metric}", self.prior["sigma"])
                 y = sample(f"likelihood_{metric}", Normal( mu[index,:,:][mask].flatten() , sigma/exposure_), obs=Y_)
             elif output == "poisson":
-                y = sample(f"likelihood_{metric}", Poisson( jnp.exp(mu[index,:,:][mask].flatten() + exposure_) ), obs=Y_)
+                y = sample(f"likelihood_{metric}", Poisson(jnp.exp(mu[index,:,:][mask].flatten() + exposure_) ), obs=Y_)
             elif output == "binomial":
                 y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten(), total_count=exposure_), obs = Y_)
+            elif output == "exponential":
+                y = sample(f"likelihood_{metric}", Exponential(jnp.exp(mu[index,:,:][mask].flatten() + exposure_)), obs = Y_)
     
     def run_inference(self, num_steps, model_args):
         return super().run_inference(num_steps, model_args)
@@ -818,12 +830,12 @@ class FixedTVRFLVM(FixedRFLVM):
 
 
 
-class GibbsRFLVM(RFLVMBase):
-    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple) -> None:
-        super().__init__(latent_rank, rff_dim, output_shape)
+class GibbsRFLVM(RFLVM):
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, init_x) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape, init_x)
     
     def initialize_priors(self, *args, **kwargs) -> None:
-        return super().initialize_priors(*args, **kwargs)
+        super().initialize_priors(*args, **kwargs)
     
     def model_fn(self, data_set) -> None:
         return super().model_fn(data_set)
@@ -847,11 +859,11 @@ class GibbsRFLVM(RFLVMBase):
     
 
 class GibbsTVRFLVM(TVRFLVM):
-    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis) -> None:
-        super().__init__(latent_rank, rff_dim, output_shape, basis)
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis, init_x) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape, basis, init_x)
 
     def initialize_priors(self, *args, **kwargs) -> None:
-        return super().initialize_priors(*args, **kwargs)
+        super().initialize_priors(*args, **kwargs)
     
     def model_fn(self, data_set) -> None:
         return super().model_fn(data_set)

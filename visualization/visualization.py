@@ -31,7 +31,6 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
                                  name = "Observed", line_color = "blue", showlegend=False), row = row, col=col)
         fig.add_trace(go.Scatter(x = x, y = jnp.nanmean(posterior[..., index], axis = (0,1)), mode = "lines", name = "Posterior Mean", line_color = "red", showlegend=False), row = row, col = col)
         hdi =  az.hdi(np.array(posterior[..., index]), hdi_prob = .95)
-
         fig.add_trace(go.Scatter(
         name='Upper Bound',
         x=x,
