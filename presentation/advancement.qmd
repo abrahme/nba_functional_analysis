@@ -2,9 +2,9 @@
 title: "Modeling NBA Performance Curves"
 author: Abhijit Brahme
 format: 
-    beamer: 
+    html: 
         incremental: false
-date: 2024-07-10
+date: 2024-09-20
 bibliography: advancement.bib
 ---
 
@@ -65,42 +65,25 @@ sampling distribution of observed metrics.
     - We assume a separable covariance structure for time, metric, and player. 
 
 
-
-
 # Random Fourier Features  (TL;DR)
 
 1. Approximation of Gaussian Process can be turned into a linear operation, $f_{tk}(X) \approx Z(X)^T\beta_{tk}$
 2. Number of random features, $R$, determines how good the approximation is
 3. Choice of $p(\omega)$ determines covariance function of the Gaussian Process
 
-# Random Fourier Features 
-
-Attempt to approximate the inner product $k(x, y) = \langle \phi(x), \phi(y) \rangle$
-with a randomized map $z: \mathbb{R}^D \rightarrow \mathbb{R}^R$. Computational savings arise if $R << N$.
-
-In our case, we let $k(x,y) = k(x - y) = exp(\frac{-||x - y||^2}{2})$ be the standard radial basis kernel. 
-
-From Bochner's theorem, we have that 
-$k(x - y) = \int p(\omega)exp(i\omega(x - y))d \omega$, and it can be shown that to produce the radial basis kernel, $\omega \sim \mathcal{N}_D(0, I_d)$. 
-
-Thus the map is composed of $z_{\omega_r} = [cos(\omega_r ^T x), sin(\omega_r ^ T x)]^T$. 
-
-$Z(X) = \frac{1}{\sqrt{R}}[z_{\omega_1}, z_{\omega_2}, \dots, z_{\omega_R}]^T$
-
-
-
-
 
 # Model Parameters 
-1. $\sigma_{k} \sim IG(1, 1) \forall k \in \mathcal{G}$
+1. $X \sim \mathcal{N}(\mu_0, \Sigma_0)$
+2. $\sigma_{k} \sim IG(1, 1) \forall k \in \mathcal{G}$
     - Variance term for normally distributed observations
-2. $\omega_r \sim \mathcal{N}_D(0, I_d)$
+3. $\omega_r \sim \mathcal{N}_D(0, I_d)$
     - random feature map approximation 
     - $Z(X) \in \mathbb{R}^{N \times 2 \cdot D}$
-3. $\beta_{rtk} \sim \mathcal{GP}(0, I_{2D} \otimes I_K \otimes K_T)$
-    - $K_T$ is the covariance function capturing auto-correlation among time observations
+4. $\gamma \sim IG(1,1)$  represents the lengthscale of the subsequent GP
+5. $\beta_{rtk} \sim \mathcal{GP}(0, I_{2D} \otimes I_K \otimes K_T(\gamma))$
+    - $K_T(\gamma)$ is the covariance function capturing auto-correlation among time observations
     - Separable covariance structure for time, metric
-4. $\mu = Z(X)^{pr} \beta^r_{tk}  \in \mathbb{R}^{N \times T \times K}$ is represented as a tensor contraction between $Z(X)$ and $\beta$ over the second index. 
+6. $\mu = Z(X)^{pr} \beta^r_{tk}  \in \mathbb{R}^{N \times T \times K}$ is represented as a tensor contraction between $Z(X)$ and $\beta$ over the second index. 
 
 # Modeling Assumptions
 
@@ -139,16 +122,69 @@ Exp(e^{\mu_{ptk}}) \text{ if  } k \in \mathcal{M}
 2. Identifiability (rotational / scale invariance of model)
 3. Modeling temporal and within-metric correlation
 
-# Methods
+# Methods (Approach 1)
 
-In order to address identifiability issues and MCMC convergence, we propose an alternating scheme to estimate the latent space $X$ and functional coefficients $\beta_{rtk}$. 
+In order to address identifiability issues and MCMC convergence, we propose the following scheme to estimate the latent space $X$ and functional coefficients $\beta_{rtk}$. 
 
 1. Initialize $X$ 
     - Exponential PPCA, Probabilistic Tensor Decomposition, Standard PCA, etc.
 2. Using the fixed $X$ from above, conduct inference on $\beta_{rtk}, \sigma_k, \omega_r$ 
-3. Fixing $\beta_{rtk}$ from above, conduct inference on $X, \omega_r, \sigma_k$ to recover uncertainty in the latent space.  
 
-# Probabilistic Tensor Decomposition 
+# Methods (Approach 2)
+
+In order to address identifiability issues and MCMC convergence while also recovering sampling variability in the latent space, we propose an alternating scheme to estimate the latent space $X$ and functional coefficients $\beta_{rtk}$. 
+
+1. Let $X \sim \mathcal{N}(\mu_0, \Sigma_0)$ where $\mu_0$ and $\Sigma_0$ come from an initialized latent space $X_0$.
+    - Exponential PPCA, Probabilistic Tensor Decomposition, Standard PCA, etc. can be used to create $X_0$
+2. Using a hybrid Gibbs-HMC routine, perform the following updates:
+    - Sample $X$, $\gamma$ while holding all other parameters fixed using HMC proposal step
+    - Conditional on the sampled $X$ and $\gamma$, sample the remaining parameters using HMC proposal step
+
+# Methods (Approach 3)
+In order to address identifiability issues and MCMC convergence while also recovering sampling variability in the latent space, we propose an alternating scheme to estimate the latent space $X$ and functional coefficients $\beta_{rtk}$. 
+
+1. Let $X \sim \mathcal{N}(\mu_0, \Sigma_0)$ where $\mu_0$ and $\Sigma_0$ come from an initialzed latent space $X_0$.
+    - Exponential PPCA, Probabilistic Tensor Decomposition, Standard PCA, etc. can be used to create $X_0$
+2. Conditional on the fixed $X_0$, sample the remaining parameters using HMC until convergence.
+3. Taking the posterior mean of all parameters resulting from (2), sample $X$ using HMC until convergence. 
+
+
+# Current Progress
+1. Shiny App
+
+
+
+# Future Work
+
+1. Address trend in baseline rate of 3PA, etc over time
+2. Impose correlation across metrics 
+3. Look at hold-out coverage interval 
+4. Loosen separable covariance assumption 
+
+
+# References
+
+::: {#refs}
+:::
+
+
+# Appendix {.appendix}
+
+# Random Fourier Features {.appendix}
+
+Attempt to approximate the inner product $k(x, y) = \langle \phi(x), \phi(y) \rangle$
+with a randomized map $z: \mathbb{R}^D \rightarrow \mathbb{R}^R$. Computational savings arise if $R << N$.
+
+In our case, we let $k(x,y) = k(x - y) = exp(\frac{-||x - y||^2}{2})$ be the standard radial basis kernel. 
+
+From Bochner's theorem, we have that 
+$k(x - y) = \int p(\omega)exp(i\omega(x - y))d \omega$, and it can be shown that to produce the radial basis kernel, $\omega \sim \mathcal{N}_D(0, I_d)$. 
+
+Thus the map is composed of $z_{\omega_r} = [cos(\omega_r ^T x), sin(\omega_r ^ T x)]^T$. 
+
+$Z(X) = \frac{1}{\sqrt{R}}[z_{\omega_1}, z_{\omega_2}, \dots, z_{\omega_R}]^T$
+
+# Probabilistic Tensor Decomposition {.appendix}
 
 This model seeks to factorize the  $N \times T \times K$ linear scale tensor $A$ using CP Decomposition. Since we have various outputs that are not normally distributed, this becomes a form of exponential family CP Decomposition.
 
@@ -168,7 +204,7 @@ $\mu \in \mathbb{R}^{T \times K}$.
 
 Here $\mu$ is used to de-mean the data and act as an intercept term.  
 
-# Probabilistic Tensor Decomposition (contd.)
+# Probabilistic Tensor Decomposition (contd.) {.appendix}
 
 Let $\tilde{A}_{pit} = g_{pit}^{-1}(A_{pit})$, where $g_{pit}$ is the appropriate link function transforming the linear scale parameter into the appropriate exponential family parameterization. Consequently, $X, V, W, \mu$ are estimated by maximizing the following loss function using gradient descent. 
 
@@ -180,24 +216,3 @@ This offers the following benefits:
 
 1. Latent space $X$ is created while accounting for sampling variability 
 2. Latent space is created while also accounting for correlations across each mode of the tensor, which is representative of the final model. 
-
-
-# Current Progress
-1. Shiny App
-
-
-
-# Future Work
-
-1. Address trend in baseline rate of 3PA, etc over time
-2. Impose correlation across metrics 
-3. Look at hold-out coverage interval 
-4. Implement alternating scheme to recover uncertainty in player embeddings 
-5. Loosen separable covariance assumption 
-6. Address selection bias problem.
-7. Incorporate metrics for team context
-
-# References
-
-::: {#refs}
-:::
