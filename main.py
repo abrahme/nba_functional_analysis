@@ -5,6 +5,8 @@ import jax.numpy as jnp
 import argparse
 import pickle
 import numpyro
+from numpyro.distributions import MatrixNormal
+
 jax.config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, create_pca_data, create_cp_data, create_cp_data_multi_way, create_fda_data_time
 from model.models import NBAFDAModel, NBAFDAREModel, NBAFDALatentModel, NBAMixedOutputProbabilisticPCA, NBAMixedOutputProbabilisticCPDecomposition, NBAMixedOutputProbabilisticCPDecompositionMultiWay, RFLVM, TVRFLVM, DriftRFLVM, DriftTVRFLVM, FixedRFLVM, FixedTVRFLVM, GibbsRFLVM, GibbsTVRFLVM
@@ -15,11 +17,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Description of your program')
     parser.add_argument('--model_name', help='which model to fit', required=True)
     parser.add_argument("--basis_dims", help="size of the basis", required=True, type=int)
+    parser.add_argument("--fixed_param_path",help="where to read in the fixed params from", required=True, default="")
+    parser.add_argument("--prior_x_path", help="if there is a prior on x, where to get the required params", required=True, default="")
     numpyro.set_platform("cuda")
     # numpyro.set_host_device_count(4)
     args = vars(parser.parse_args())
     model_name = args["model_name"]
     basis_dims = args["basis_dims"]
+    param_path = args["fixed_param_path"]
+    prior_x_path = args["prior_x_path"]
     data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
@@ -38,50 +44,28 @@ if __name__ == "__main__":
     elif model_name == "nba_fda_latent_model":
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
         model = NBAFDALatentModel(basis, output_size=len(metric_output), M = 10, latent_dim1=covariate_X.shape[0], latent_dim2=basis_dims)
-    elif model_name == "fixed_nba_rflvm":
-        _, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
-        with open("model_output/exponential_cp_test.pkl", "rb") as f:
-            results = pickle.load(f)
-        f.close()
-        X_rflvm = results["U_auto_loc"]
-        U, _, _ = jnp.linalg.svd(X_rflvm, full_matrices=False)
-        L       = jnp.linalg.cholesky(np.cov(U.T) + 1e-6 * np.eye(basis_dims)).T
-        aligned_X  = np.linalg.solve(L, U.T).T
-        X_tvrflvm_aligned = aligned_X / jnp.std(X_rflvm, axis=0)
-        model = FixedRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(X_rflvm.shape[0], len(basis)))
-    elif model_name == "fixed_nba_tvrflvm":
-        _, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
-        with open("model_output/exponential_cp_test.pkl", "rb") as f:
-            results = pickle.load(f)
-        f.close()
-        X_rflvm = results["U_auto_loc"]
-        U, _, _ = jnp.linalg.svd(X_rflvm, full_matrices=False)
-        L       = jnp.linalg.cholesky(jnp.cov(U.T) + 1e-6 * jnp.eye(basis_dims)).T
-        aligned_X  = np.linalg.solve(L, U.T).T
-        X_tvrflvm_aligned = aligned_X / jnp.std(X_rflvm, axis=0)
-        model = FixedTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(X_rflvm.shape[0], len(basis)), basis=basis)
     elif model_name == "gibbs_nba_rflvm":
-        with open("model_output/exponential_cp_test.pkl", "rb") as f:
-            results = pickle.load(f)
-        f.close()
-        X_rflvm = results["U_auto_loc"]
-        U, _, _ = jnp.linalg.svd(X_rflvm, full_matrices=False)
-        L       = jnp.linalg.cholesky(jnp.cov(U.T) + 1e-6 * jnp.eye(basis_dims)).T
-        aligned_X  = np.linalg.solve(L, U.T).T
-        X_tvrflvm_aligned = aligned_X / jnp.std(X_rflvm, axis=0)
+        # with open("model_output/exponential_cp_test.pkl", "rb") as f:
+        #     results = pickle.load(f)
+        # f.close()
+        # X_rflvm = results["U_auto_loc"]
+        # U, _, _ = jnp.linalg.svd(X_rflvm, full_matrices=False)
+        # L       = jnp.linalg.cholesky(jnp.cov(U.T) + 1e-6 * jnp.eye(basis_dims)).T
+        # aligned_X  = np.linalg.solve(L, U.T).T
+        # X_tvrflvm_aligned = aligned_X / jnp.std(X_rflvm, axis=0)
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
-        model = GibbsRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), init_x=X_tvrflvm_aligned)
+        model = GibbsRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
     elif model_name == "gibbs_nba_tvrflvm":
-        with open("model_output/exponential_cp_test.pkl", "rb") as f:
-            results = pickle.load(f)
-        f.close()
-        X_rflvm = results["U_auto_loc"]
-        U, _, _ = jnp.linalg.svd(X_rflvm, full_matrices=False)
-        L       = jnp.linalg.cholesky(jnp.cov(U.T) + 1e-6 * jnp.eye(basis_dims)).T
-        aligned_X  = np.linalg.solve(L, U.T).T
-        X_tvrflvm_aligned = aligned_X / jnp.std(X_rflvm, axis=0)
+        # with open("model_output/exponential_cp_test.pkl", "rb") as f:
+        #     results = pickle.load(f)
+        # f.close()
+        # X_rflvm = results["U_auto_loc"]
+        # U, _, _ = jnp.linalg.svd(X_rflvm, full_matrices=False)
+        # L       = jnp.linalg.cholesky(jnp.cov(U.T) + 1e-6 * jnp.eye(basis_dims)).T
+        # aligned_X  = np.linalg.solve(L, U.T).T
+        # X_tvrflvm_aligned = aligned_X / jnp.std(X_rflvm, axis=0)
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
-        model = GibbsTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis, init_x=X_tvrflvm_aligned)
+        model = GibbsTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
     elif model_name == "exponential_pca":
         exposures, masks, X, outputs = create_pca_data(data, metric_output, exposure_list, metrics)
         model = NBAMixedOutputProbabilisticPCA(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
@@ -122,23 +106,42 @@ if __name__ == "__main__":
         svi_run = model.run_inference(num_steps=1000000)
         samples = svi_run.params
     elif "rflvm" in model_name:
-        if "fixed" in model_name:
-            mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set, "X": X_tvrflvm_aligned})
-            mcmc_run.print_summary()
-            samples = mcmc_run.get_samples(group_by_chain=True)
-        elif "gibbs" in model_name:
-            mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set}, gibbs_sites=[["X","lengthscale"], ["W","beta","sigma_obpm", "sigma_dbpm"]])
-            mcmc_run.print_summary()
-            samples = mcmc_run.get_samples(group_by_chain=True)
+        prior_dict = {}
+        if param_path:
+            with open(param_path, "rb") as f_param:
+                results_param = pickle.load(f_param)
+            f_param.close()
+            for param_name in results_param:
+                value = results_param[param_name]
+                prior_dict[param_name] = numpyro.deterministic(param_name, value)
+            if prior_x_path:
+                with open(prior_x_path, "rb") as f_prior:
+                    results_prior = pickle.load(f_prior)
+                f_prior.close()
+                X_rflvm = results_prior["U_auto_loc"]
+                U, _, _ = jnp.linalg.svd(X_rflvm, full_matrices=False)
+                L       = jnp.linalg.cholesky(jnp.cov(U.T) + 1e-6 * jnp.eye(basis_dims)).T
+                aligned_X  = np.linalg.solve(L, U.T).T
+                X = aligned_X / jnp.std(X_rflvm, axis=0) 
+                n, r = X.shape
+                cov_rows = jnp.cov(X) + jnp.eye(n) * (1e-6)
+                cholesky_rows = jnp.linalg.cholesky(cov_rows)
+                cov_cols = jnp.cov(X.T) + jnp.eye(r) * (1e-6)
+                cholesky_cols = jnp.linalg.cholesky(cov_cols)
+                prior_dict["X"] = MatrixNormal(loc = X, scale_tril_column=cholesky_cols, scale_tril_row=cholesky_rows)
+        model.prior.update(prior_dict)
+        if "gibbs" in model_name:
+            mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set}, gibbs_sites=[["X","lengthscale"], ["W","beta","sigma"]])      
         else:
-            svi_run = model.run_inference(num_steps=100000, model_args={"data_set": data_set})
-            samples = svi_run.params
+            mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set})
+        mcmc_run.print_summary()
+        samples = mcmc_run.get_samples(group_by_chain=True)
     else:
         mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set})
         mcmc_run.print_summary()
         samples = mcmc_run.get_samples(group_by_chain=True)
 
-    with open(f"model_output/{model_name}_test.pkl", "wb") as f:
+    with open(f"model_output/{model_name}.pkl", "wb") as f:
         pickle.dump(samples, f)
     f.close()
     
