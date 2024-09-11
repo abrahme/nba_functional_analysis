@@ -456,7 +456,6 @@ class RFLVMBase(ABC):
         self.m = rff_dim
         self.n, self.j = output_shape
         self.prior = {}
-        self.init_x = init_x
     
     @abstractmethod
     def initialize_priors(self, *args, **kwargs) -> None:
