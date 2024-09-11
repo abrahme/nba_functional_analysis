@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 import jax.scipy as jsc
 from numpyro.distributions import Normal, Poisson, Exponential, Bernoulli
-jax.config.update('jax_platform_name', 'cuda')
+# jax.config.update('jax_platform_name', 'cuda')
 
 def varimax(Phi, gamma = 1, q = 20):
     p,k = Phi.shape
@@ -59,6 +59,39 @@ def match_align(Phi):
 
     return Phi_star
 
+def create_metric_trajectory_observations(player_index, observations, exposures, metric_outputs: list[str], metrics: list[str]):
+    gaussian_index = 0
+    minutes_index = metrics.index("minutes")
+    retirement_index = metrics.index("retirement")  ### 1 -> playing, 0 --> retired
+
+    ### first get retirement
+    obs_retirement = observations[player_index, retirement_index, :]
+
+    #### then sample minutes 
+    
+    
+    obs_min = observations[player_index, minutes_index, :]
+    obs_normalized = [obs_retirement, obs_min]
+    ### sample all the poisson metrics using posterior predictions log min as exposure, and sample obpm / dbpm using sqrt(minutes) as exposure
+    for metric_index, metric_output in enumerate(metric_outputs):
+        if (metric_index in [ minutes_index, retirement_index]) :
+            continue 
+        exposure  = exposures[metric_index, player_index, ...]
+        obs = observations[player_index, metric_index, :]
+        if metric_output == "gaussian":
+            obs_normal = obs
+            gaussian_index += 1
+        elif metric_output == "poisson":
+            obs_normal = 36.0 * (obs / jnp.exp(exposure))
+            obs_normal = obs_normal.at[jnp.where(obs_retirement == 0)].set(0)
+        elif metric_output == "binomial":
+            obs_normal = obs / exposure ### per shot
+        obs_normalized.append(obs_normal)
+
+
+    obs_data = {"y": jnp.stack(obs_normalized, axis = -1)}  ### has shape (time, metrics)
+
+    return obs_data   
 
 def create_metric_trajectory(posterior_mean_samples, player_index, observations, exposures, metric_outputs: list[str], metrics: list[str], posterior_variance_samples = None):
     key = jax.random.key(0)

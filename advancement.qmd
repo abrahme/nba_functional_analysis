@@ -1,63 +1,108 @@
 ---
-title: "Modeling NBA Performance Curves"
+title: "A Latent Variable Model for Modeling Multivariate Exponential Family Time-Series"
+subtitle: With Applications to Sports Production Curve Modeling
 author: Abhijit Brahme
 format: 
-    html: 
+    revealjs: 
         incremental: false
+        smaller: true
+        scrollable: true
+        html-math-method: mathjax
+server: shiny
 date: 2024-09-20
 bibliography: advancement.bib
 ---
 
 
-# Motivation 
 
-A key goal of both sports teams and sports journalists is understanding how player ability evolves over time. Forecasting player ability is essential for teams considering player acquisition, either via the draft, free agency or trades as well as strategic planning. Often, production curves are used to describe similarities in production across related players.
-*As a result, analysis of production curves could provide useful insight into player archetypes, and how various archetypes change with age* .
 
-# Production Curves in Sports 
-Most commonly, in a production curve analysis,  a continuous measurement of aggregate skill (i.e. RAPM or VORP), denoted $Y_{pt}$ is considered for a particular
-player at time $t$, $Y_{pt} \approx f_p(t) + \epsilon_p(t)$, where $f_p(t)$ is the average production for
-player at any time $t$ and $\epsilon_p(t)$ represents the residual uncertainty about player
-production, typically assumed to be uncorrelated over time.
-Athletes not only exhibit different career trajectories, but their careers occur begin and end at different ages, can be
-interrupted by injuries, and include different amounts of playing time. As such, the statistical challenge in production curve analysis is to infer smooth trajectories $f_p(t)$ from sparse,  irregular observations of $Y_{pt}$ across players.
+```{python}
+#| context: setup
+#| include: false
+import pandas as pd
+import numpy as np
+from shiny.express import input, render, ui
+from shinywidgets import render_plotly
+```
 
-# Relevant Work
+```{python}
+#| context: setup
+#| include: false
+#| cache: true
+from data.data_utils import create_fda_data
+data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
+names = data.groupby("id")["name"].first().values
+metric_output = ["binomial", "exponential"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
+exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
+data["retirement"] = 1
+data["log_min"] = np.log(data["minutes"])
+data["simple_exposure"] = 1 
+_ , outputs, _ = create_fda_data(data, basis_dims=3, metric_output=metric_output, 
+                                     metrics = metrics
+, exposure_list =  exposure_list)
+observations = np.stack([output["output_data"] for output in outputs], axis = 1)
+exposures = np.stack([output["exposure_data"] for output in outputs], axis = 0)
+```
+
+## Research Interests 
+
+::: {layout-ncol=2}
+![](images/noun-deep-learning-1705425.png)
+
+![](images/noun-scatter-graph-4768711.png)
+:::
+
+## Current Work
+
+1. Metric / Manifold Estimation from Trajectory Valued Data 
+    - Prof. Nina Mialone (Dept. of Electrical Engineering)
+2. Approximate HMC Methods
+    - Prof. Andrew Holbrook (UCLA, Dept of Public Health)
+3. **A Latent Variable Model for Modeling Multi-Dimensional Exponential Family Time-Series**
+    - **Prof. Alex Franks (Dept. of Statistics)**
+
+## Motivation 
+
+```{python}
+
+from visualization.visualization import plot_career_trajectory_observations
+ui.input_select(id="player", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
+@render_plotly
+def plot_metric_arc():
+    return plot_career_trajectory_observations(int(input.player()), metrics, metric_output, observations, exposures )
+
+```
+
+## Goals
+
+1. Successfully forecast player performance, especially young players
+2. Gain insight into how different observable metrics may peak at varying timepoints for certain groups of players
+3. Quantify a level of uncertainty regarding players' future performance
+
+
+## Relevant Work
 
 1. Bayesian Hierarchical Framework
-    - Hierarchical aging model to compare player abilities across different eras in three sports: hockey, golf, and baseball [@berry1999bridging]
-    - Gaussian Process regressions to infer how production evolves across different basketball positions [@page2013effect]
-    - Parametric curves to describe trajectories before and after peak-performance [@vaci2019large]
+    - Hierarchical aging model applied to hockey, golf, and baseball [@berry1999bridging]
+    - Gaussian Process regressions by different basketball positions [@page2013effect]
+    - Parametric curves analyzing pre and post peak-performance [@vaci2019large]
 
 2. Functional Data Analysis
-    - Functional principal components metrics can be used in an unsupervised fashion to 
-        identify clusters of players with similar trajectories [@wakim2014functional]
+    - Functional principal components clustering [@wakim2014functional]
     - Nearest Neighbor algorithm to characterize similarity between players [@natesilver538_2015]
-    - Each player’s production curve is represented as a convex combination of curves from the same set of archetype [@vinue2015archetypoids]
+    - Production curves as a convex combination of curves from the same set of archetype [@vinue2015archetypoids]
 
 
-# Data Overview
+## Data Overview
 1. $\approx$ 2k NBA players from years 1997 - 2021, from the ages of 18 - 39
 2. Longitudinal mixed tensor valued data $\mathcal{Y}$ of size $N$ by $T$ by $K$
 where $N$ is the number of players, $T$ is the number of years in a player's career, and $K$ are the number of production metric curves with $\mathcal{Y}_{ntk}$ is missing if player $n$ is not observed for metric $k$ at age $t$. 
     - Non-missing entries are observations from exponential families (i.e Binomial, Gaussian, Exponential, Poisson, etc.)
 3. $\Omega$ is binary tensor of same size as $\mathcal{Y}$ indicating missingness. 
 
-# Current Contribution
-In this work, we propose a model for jointly inferring how multiple of athleticism and skill co-evolve over a player’s career. Our model explicitly accounts for
-multiple sources of variability in the metrics by accounting for dependence across similar player types, dependence between metrics which measure
-similar aspects of latent player ability and, of course, autocorrelation in time.
-Further, unlike previous approaches, we give more careful consideration to the
-sampling distribution of observed metrics. 
 
-
-
-
-
-
-
-
-# Modeling Assumptions
+## Modeling Assumptions
 1. Space of players live in low dimensional latent space $X \in \mathbb{R} ^{N \times D}$
 2. For a given time $t$, and metric $k$, $f_{tk} \sim \mathcal{GP}(0, K_X)$ is a vector of size $N$, with $K_X$ capturing correlation between players
     - Approximation of $f_{tk}$ is given by Random Fourier Features such that $f_{tk} \approx Z(X)^T\beta_{tk}$ [@gundersen2020latent]
@@ -65,27 +110,27 @@ sampling distribution of observed metrics.
     - We assume a separable covariance structure for time, metric, and player. 
 
 
-# Random Fourier Features  (TL;DR)
+## Random Fourier Features  (TL;DR)
 
 1. Approximation of Gaussian Process can be turned into a linear operation, $f_{tk}(X) \approx Z(X)^T\beta_{tk}$
 2. Number of random features, $R$, determines how good the approximation is
 3. Choice of $p(\omega)$ determines covariance function of the Gaussian Process
 
 
-# Model Parameters 
+## Model Parameters 
 1. $X \sim \mathcal{N}(\mu_0, \Sigma_0)$
-2. $\sigma_{k} \sim IG(1, 1) \forall k \in \mathcal{G}$
-    - Variance term for normally distributed observations
+<!-- 2. $\sigma_{k} \sim IG(1, 1) \forall k \in \mathcal{G}$
+    - Variance term for normally distributed observations -->
 3. $\omega_r \sim \mathcal{N}_D(0, I_d)$
     - random feature map approximation 
     - $Z(X) \in \mathbb{R}^{N \times 2 \cdot D}$
-4. $\gamma \sim IG(1,1)$  represents the lengthscale of the subsequent GP
+<!-- 4. $\gamma \sim IG(1,1)$  represents the lengthscale of the subsequent GP -->
 5. $\beta_{rtk} \sim \mathcal{GP}(0, I_{2D} \otimes I_K \otimes K_T(\gamma))$
     - $K_T(\gamma)$ is the covariance function capturing auto-correlation among time observations
     - Separable covariance structure for time, metric
 6. $\mu = Z(X)^{pr} \beta^r_{tk}  \in \mathbb{R}^{N \times T \times K}$ is represented as a tensor contraction between $Z(X)$ and $\beta$ over the second index. 
 
-# Modeling Assumptions
+## Modeling Assumptions
 
 We include the following metrics and distribution families
 
@@ -102,7 +147,7 @@ We include the following metrics and distribution families
     - $\mathcal{K} =$ {Retirement}
 
 
-# Model Assumptions (contd.)
+## Model Assumptions (contd.)
 
 \begin{align}
 Y_{ptk}  &\sim
@@ -116,13 +161,13 @@ Exp(e^{\mu_{ptk}}) \text{ if  } k \in \mathcal{M}
 \end{align}
 
 
-# Challenges 
+## Inferential Challenges 
 
 1. MCMC Convergence (multi-modal posterior)
 2. Identifiability (rotational / scale invariance of model)
 3. Modeling temporal and within-metric correlation
 
-# Methods (Approach 1)
+## Methods (Approach 1)
 
 In order to address identifiability issues and MCMC convergence, we propose the following scheme to estimate the latent space $X$ and functional coefficients $\beta_{rtk}$. 
 
@@ -130,7 +175,7 @@ In order to address identifiability issues and MCMC convergence, we propose the 
     - Exponential PPCA, Probabilistic Tensor Decomposition, Standard PCA, etc.
 2. Using the fixed $X$ from above, conduct inference on $\beta_{rtk}, \sigma_k, \omega_r$ 
 
-# Methods (Approach 2)
+## Methods (Approach 2)
 
 In order to address identifiability issues and MCMC convergence while also recovering sampling variability in the latent space, we propose an alternating scheme to estimate the latent space $X$ and functional coefficients $\beta_{rtk}$. 
 
@@ -140,7 +185,7 @@ In order to address identifiability issues and MCMC convergence while also recov
     - Sample $X$, $\gamma$ while holding all other parameters fixed using HMC proposal step
     - Conditional on the sampled $X$ and $\gamma$, sample the remaining parameters using HMC proposal step
 
-# Methods (Approach 3)
+## Methods (Approach 3)
 In order to address identifiability issues and MCMC convergence while also recovering sampling variability in the latent space, we propose an alternating scheme to estimate the latent space $X$ and functional coefficients $\beta_{rtk}$. 
 
 1. Let $X \sim \mathcal{N}(\mu_0, \Sigma_0)$ where $\mu_0$ and $\Sigma_0$ come from an initialzed latent space $X_0$.
@@ -149,12 +194,12 @@ In order to address identifiability issues and MCMC convergence while also recov
 3. Taking the posterior mean of all parameters resulting from (2), sample $X$ using HMC until convergence. 
 
 
-# Current Progress
+## Current Progress
 1. Shiny App
 
 
 
-# Future Work
+## Future Work
 
 1. Address trend in baseline rate of 3PA, etc over time
 2. Impose correlation across metrics 
@@ -170,7 +215,7 @@ In order to address identifiability issues and MCMC convergence while also recov
 
 # Appendix {.appendix}
 
-# Random Fourier Features {.appendix}
+## Random Fourier Features {.appendix}
 
 Attempt to approximate the inner product $k(x, y) = \langle \phi(x), \phi(y) \rangle$
 with a randomized map $z: \mathbb{R}^D \rightarrow \mathbb{R}^R$. Computational savings arise if $R << N$.
@@ -184,7 +229,7 @@ Thus the map is composed of $z_{\omega_r} = [cos(\omega_r ^T x), sin(\omega_r ^ 
 
 $Z(X) = \frac{1}{\sqrt{R}}[z_{\omega_1}, z_{\omega_2}, \dots, z_{\omega_R}]^T$
 
-# Probabilistic Tensor Decomposition {.appendix}
+## Probabilistic Tensor Decomposition {.appendix}
 
 This model seeks to factorize the  $N \times T \times K$ linear scale tensor $A$ using CP Decomposition. Since we have various outputs that are not normally distributed, this becomes a form of exponential family CP Decomposition.
 
@@ -204,7 +249,7 @@ $\mu \in \mathbb{R}^{T \times K}$.
 
 Here $\mu$ is used to de-mean the data and act as an intercept term.  
 
-# Probabilistic Tensor Decomposition (contd.) {.appendix}
+## Probabilistic Tensor Decomposition (contd.) {.appendix}
 
 Let $\tilde{A}_{pit} = g_{pit}^{-1}(A_{pit})$, where $g_{pit}$ is the appropriate link function transforming the linear scale parameter into the appropriate exponential family parameterization. Consequently, $X, V, W, \mu$ are estimated by maximizing the following loss function using gradient descent. 
 
