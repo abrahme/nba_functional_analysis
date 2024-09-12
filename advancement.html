@@ -397,8 +397,8 @@ Abhijit Brahme
 </section>
 <section id="motivation" class="slide level2">
 <h2>Motivation</h2>
-<div id="35b278fa" class="cell" data-execution_count="3">
-<div class="cell-output cell-output-display no-overflow-x" data-execution_count="15">
+<div id="a3ed7d03" class="cell" data-execution_count="4">
+<div class="cell-output cell-output-display no-overflow-x" data-execution_count="4">
 <div class="form-group shiny-input-container">
   <label class="control-label" id="player-label" for="player">Select a player</label>
   <div>
@@ -2776,6 +2776,14 @@ Abhijit Brahme
 </ul></li>
 <li><span class="math inline">\(\Omega\)</span> is binary tensor of same size as <span class="math inline">\(\mathcal{Y}\)</span> indicating missingness.</li>
 </ol>
+<div id="261ab9f1" class="cell" data-execution_count="5">
+<div class="cell-output cell-output-display">
+<div id="plot_data" class="shiny-ipywidget-output shiny-report-size shiny-report-theme html-fill-item html-fill-container"></div><script type="application/json" data-html-dependency="">{"name": "ipywidget-libembed-amd", "version": "1.0.1", "source": {"package": "shinywidgets", "subdir": "static"}, "script": [{"src": "libembed-amd.js"}], "stylesheet": [], "meta": [], "all_files": false, "head": null}</script>
+<script type="application/json" data-html-dependency="">{"name": "ipywidget-output-binding", "version": "0.3.2", "source": {"package": "shinywidgets", "subdir": "static"}, "script": [{"src": "output.js"}], "stylesheet": [{"href": "shinywidgets.css", "rel": "stylesheet"}], "meta": [], "all_files": false, "head": null}</script>
+<script type="application/json" data-html-dependency="">{"name": "headcontent_64c93189711f8969640e7b8f06f689fadea80c2e", "version": "0.0", "source": null, "script": [], "stylesheet": [], "meta": [], "all_files": false, "head": "<script data-jupyter-widgets-cdn=\"https://cdn.jsdelivr.net/npm/\"><\/script>"}</script>
+<script type="application/json" data-html-dependency="">{"name": "htmltools-fill", "version": "0.5.8.9000", "source": {"package": "shiny", "subdir": "www/shared/htmltools/fill"}, "script": [], "stylesheet": [{"href": "fill.css", "rel": "stylesheet"}], "meta": [], "all_files": false, "head": null}</script>
+</div>
+</div>
 </section>
 <section id="modeling-assumptions" class="slide level2 scrollable">
 <h2>Modeling Assumptions</h2>
@@ -2863,8 +2871,8 @@ Exp(e^{\mu_{ptk}}) \text{ if  } k \in \mathcal{M}
 <li>Modeling temporal and within-metric correlation</li>
 </ol>
 </section>
-<section id="methods-approach-1" class="slide level2 scrollable">
-<h2>Methods (Approach 1)</h2>
+<section id="methods" class="slide level2 scrollable">
+<h2>Methods</h2>
 <p>In order to address identifiability issues and MCMC convergence, we propose the following scheme to estimate the latent space <span class="math inline">\(X\)</span> and functional coefficients <span class="math inline">\(\beta_{rtk}\)</span>.</p>
 <ol type="1">
 <li>Initialize <span class="math inline">\(X\)</span>
@@ -2874,8 +2882,43 @@ Exp(e^{\mu_{ptk}}) \text{ if  } k \in \mathcal{M}
 <li>Using the fixed <span class="math inline">\(X\)</span> from above, conduct inference on <span class="math inline">\(\beta_{rtk}, \sigma_k, \omega_r\)</span></li>
 </ol>
 </section>
-<section id="methods-approach-2" class="slide level2 scrollable">
-<h2>Methods (Approach 2)</h2>
+<section id="probabilistic-tensor-decomposition" class="slide level2">
+<h2>Probabilistic Tensor Decomposition</h2>
+<p>This model seeks to factorize the <span class="math inline">\(N \times T \times K\)</span> linear scale tensor <span class="math inline">\(A\)</span> using CP Decomposition. Since we have various outputs that are not normally distributed, this becomes a form of exponential family CP Decomposition.</p>
+<p>We seek to approximate the following:</p>
+<p><span class="math inline">\(A \approx \mu + \sum_{i=1}^{R} \lambda_i \cdot x_i \otimes v_i \otimes w_i\)</span></p>
+<p>where, <span class="math inline">\(\mu\)</span>, <span class="math inline">\(x_i\)</span>, <span class="math inline">\(v_i\)</span>, <span class="math inline">\(w_i\)</span> <span class="math inline">\(\sim \mathcal{N}(0, I)\)</span>, <span class="math inline">\(\lambda \sim Dirichlet(1/R)\)</span></p>
+<p><span class="math inline">\(X \in \mathbb{R}^{N \times R}\)</span></p>
+<p><span class="math inline">\(V \in \mathbb{R}^{T \times R}\)</span></p>
+<p><span class="math inline">\(W \in \mathbb{R}^{K \times R}\)</span></p>
+<p><span class="math inline">\(\mu \in \mathbb{R}^{T \times K}\)</span>.</p>
+<p>Here <span class="math inline">\(\mu\)</span> is used to de-mean the data and act as an intercept term.</p>
+</section>
+<section id="probabilistic-tensor-decomposition-contd." class="slide level2 scrollable">
+<h2>Probabilistic Tensor Decomposition (contd.)</h2>
+<p>Let <span class="math inline">\(\tilde{A}_{pit} = g_{pit}^{-1}(A_{pit})\)</span>, where <span class="math inline">\(g_{pit}\)</span> is the appropriate link function transforming the linear scale parameter into the appropriate exponential family parameterization. Consequently, <span class="math inline">\(X, V, W, \mu\)</span> are estimated by maximizing the following loss function using gradient descent.</p>
+<p><span class="math inline">\(\max_{X, V, W, \mu} \sum_{p, i, t} log( F_{pit}( Y_{pit} | \tilde{A}_{pit} )) \cdot \Omega_{pit}\)</span></p>
+<p>where <span class="math inline">\(F_{pit}\)</span> is the appropriate distribution density function associated with entry <span class="math inline">\(Y_{pit}\)</span>.</p>
+<p>This offers the following benefits:</p>
+<ol type="1">
+<li>Latent space <span class="math inline">\(X\)</span> is created while accounting for sampling variability</li>
+<li>Latent space is created while also accounting for correlations across each mode of the tensor, which is representative of the final model.</li>
+</ol>
+</section>
+<section id="latent-space" class="slide level2">
+<h2>Latent Space</h2>
+</section>
+<section id="sampling-results" class="slide level2">
+<h2>Sampling Results</h2>
+</section>
+<section id="projection-results" class="slide level2">
+<h2>Projection Results</h2>
+</section>
+<section id="functional-basis-results" class="slide level2">
+<h2>Functional Basis Results</h2>
+</section>
+<section id="future-work" class="slide level2 scrollable">
+<h2>Future Work</h2>
 <p>In order to address identifiability issues and MCMC convergence while also recovering sampling variability in the latent space, we propose an alternating scheme to estimate the latent space <span class="math inline">\(X\)</span> and functional coefficients <span class="math inline">\(\beta_{rtk}\)</span>.</p>
 <ol type="1">
 <li>Let <span class="math inline">\(X \sim \mathcal{N}(\mu_0, \Sigma_0)\)</span> where <span class="math inline">\(\mu_0\)</span> and <span class="math inline">\(\Sigma_0\)</span> come from an initialized latent space <span class="math inline">\(X_0\)</span>.
@@ -2889,8 +2932,8 @@ Exp(e^{\mu_{ptk}}) \text{ if  } k \in \mathcal{M}
 </ul></li>
 </ol>
 </section>
-<section id="methods-approach-3" class="slide level2 scrollable">
-<h2>Methods (Approach 3)</h2>
+<section id="future-work-contd." class="slide level2 scrollable">
+<h2>Future Work (contd.)</h2>
 <p>In order to address identifiability issues and MCMC convergence while also recovering sampling variability in the latent space, we propose an alternating scheme to estimate the latent space <span class="math inline">\(X\)</span> and functional coefficients <span class="math inline">\(\beta_{rtk}\)</span>.</p>
 <ol type="1">
 <li>Let <span class="math inline">\(X \sim \mathcal{N}(\mu_0, \Sigma_0)\)</span> where <span class="math inline">\(\mu_0\)</span> and <span class="math inline">\(\Sigma_0\)</span> come from an initialzed latent space <span class="math inline">\(X_0\)</span>.
@@ -2899,21 +2942,6 @@ Exp(e^{\mu_{ptk}}) \text{ if  } k \in \mathcal{M}
 </ul></li>
 <li>Conditional on the fixed <span class="math inline">\(X_0\)</span>, sample the remaining parameters using HMC until convergence.</li>
 <li>Taking the posterior mean of all parameters resulting from (2), sample <span class="math inline">\(X\)</span> using HMC until convergence.</li>
-</ol>
-</section>
-<section id="current-progress" class="slide level2 scrollable">
-<h2>Current Progress</h2>
-<ol type="1">
-<li>Shiny App</li>
-</ol>
-</section>
-<section id="future-work" class="slide level2 scrollable">
-<h2>Future Work</h2>
-<ol type="1">
-<li>Address trend in baseline rate of 3PA, etc over time</li>
-<li>Impose correlation across metrics</li>
-<li>Look at hold-out coverage interval</li>
-<li>Loosen separable covariance assumption</li>
 </ol>
 </section>
 <section id="references" class="title-slide slide level1 smaller scrollable">
@@ -2955,29 +2983,6 @@ Wakim, Alexander, and Jimmy Jin. 2014. <span>“Functional Data Analysis of Agin
 <p>From Bochner’s theorem, we have that <span class="math inline">\(k(x - y) = \int p(\omega)exp(i\omega(x - y))d \omega\)</span>, and it can be shown that to produce the radial basis kernel, <span class="math inline">\(\omega \sim \mathcal{N}_D(0, I_d)\)</span>.</p>
 <p>Thus the map is composed of <span class="math inline">\(z_{\omega_r} = [cos(\omega_r ^T x), sin(\omega_r ^ T x)]^T\)</span>.</p>
 <p><span class="math inline">\(Z(X) = \frac{1}{\sqrt{R}}[z_{\omega_1}, z_{\omega_2}, \dots, z_{\omega_R}]^T\)</span></p>
-</section>
-<section id="probabilistic-tensor-decomposition" class="slide level2 appendix">
-<h2>Probabilistic Tensor Decomposition</h2>
-<p>This model seeks to factorize the <span class="math inline">\(N \times T \times K\)</span> linear scale tensor <span class="math inline">\(A\)</span> using CP Decomposition. Since we have various outputs that are not normally distributed, this becomes a form of exponential family CP Decomposition.</p>
-<p>We seek to approximate the following:</p>
-<p><span class="math inline">\(A \approx \mu + \sum_{i=1}^{R} \lambda_i \cdot x_i \otimes v_i \otimes w_i\)</span></p>
-<p>where, <span class="math inline">\(\mu\)</span>, <span class="math inline">\(x_i\)</span>, <span class="math inline">\(v_i\)</span>, <span class="math inline">\(w_i\)</span> <span class="math inline">\(\sim \mathcal{N}(0, I)\)</span>, <span class="math inline">\(\lambda \sim Dirichlet(1/R)\)</span></p>
-<p><span class="math inline">\(X \in \mathbb{R}^{N \times R}\)</span></p>
-<p><span class="math inline">\(V \in \mathbb{R}^{T \times R}\)</span></p>
-<p><span class="math inline">\(W \in \mathbb{R}^{K \times R}\)</span></p>
-<p><span class="math inline">\(\mu \in \mathbb{R}^{T \times K}\)</span>.</p>
-<p>Here <span class="math inline">\(\mu\)</span> is used to de-mean the data and act as an intercept term.</p>
-</section>
-<section id="probabilistic-tensor-decomposition-contd." class="slide level2 appendix scrollable">
-<h2>Probabilistic Tensor Decomposition (contd.)</h2>
-<p>Let <span class="math inline">\(\tilde{A}_{pit} = g_{pit}^{-1}(A_{pit})\)</span>, where <span class="math inline">\(g_{pit}\)</span> is the appropriate link function transforming the linear scale parameter into the appropriate exponential family parameterization. Consequently, <span class="math inline">\(X, V, W, \mu\)</span> are estimated by maximizing the following loss function using gradient descent.</p>
-<p><span class="math inline">\(\max_{X, V, W, \mu} \sum_{p, i, t} log( F_{pit}( Y_{pit} | \tilde{A}_{pit} )) \cdot \Omega_{pit}\)</span></p>
-<p>where <span class="math inline">\(F_{pit}\)</span> is the appropriate distribution density function associated with entry <span class="math inline">\(Y_{pit}\)</span>.</p>
-<p>This offers the following benefits:</p>
-<ol type="1">
-<li>Latent space <span class="math inline">\(X\)</span> is created while accounting for sampling variability</li>
-<li>Latent space is created while also accounting for correlations across each mode of the tensor, which is representative of the final model.</li>
-</ol>
 <div class="quarto-auto-generated-content">
 <div class="footer footer-default">
 

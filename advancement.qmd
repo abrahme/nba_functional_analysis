@@ -32,8 +32,14 @@ from shinywidgets import render_plotly
 from data.data_utils import create_fda_data
 data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
 names = data.groupby("id")["name"].first().values
+names_df = pd.DataFrame(names, columns = ["Name"])
+names_df["Player"] = range(len(names))
 metric_output = ["binomial", "exponential"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
 metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
+metric_df = pd.DataFrame(metrics, columns=["Statistic"])
+metric_df["Metric"] = range(len(metrics))
+age_df = pd.DataFrame(range(18,39), columns = ["Age"])
+age_df["Time"] = age_df["Age"] - 18
 exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
 data["retirement"] = 1
 data["log_min"] = np.log(data["minutes"])
@@ -43,6 +49,52 @@ _ , outputs, _ = create_fda_data(data, basis_dims=3, metric_output=metric_output
 , exposure_list =  exposure_list)
 observations = np.stack([output["output_data"] for output in outputs], axis = 1)
 exposures = np.stack([output["exposure_data"] for output in outputs], axis = 0)
+```
+
+
+```{python}
+#| context: setup
+#| include: false
+#| cache: true
+
+N, K, T = observations.shape
+
+edges = []
+nodes = []
+vals = []
+missing = []
+for player_index in range(N):
+    for metric_index in range(K):
+        for time_index in range(T):
+            cur_node = (player_index, metric_index, time_index)
+            nodes.append(cur_node)
+            missing.append(np.isfinite(exposures[metric_index, player_index, time_index]))
+            vals.append(observations[player_index, metric_index, time_index])
+
+            if player_index != N - 1:
+                edges.append((cur_node, (player_index + 1, metric_index ,time_index)))
+
+            if player_index != 0:
+                edges.append((cur_node, (player_index - 1, metric_index, time_index )))
+            
+            if metric_index != K - 1:
+                edges.append((cur_node, (player_index, metric_index + 1, time_index)))
+
+            if metric_index != 0:
+                edges.append((cur_node, (player_index, metric_index - 1, time_index)))
+
+            if time_index != T - 1:
+                edges.append((cur_node, (player_index, metric_index, time_index + 1)))
+
+            if time_index != 0:
+                edges.append((cur_node, (player_index, metric_index, time_index - 1)))
+
+nodes_df = pd.DataFrame(np.array([list(x) for x in zip(*nodes)]).T, columns=["Player", "Metric", "Time"])
+nodes_df["Value"] = vals
+nodes_df["Missing"] = missing
+
+final_data_plot_df = pd.merge(nodes_df, names_df).merge(metric_df).merge(age_df)
+
 ```
 
 ## Research Interests 
@@ -102,6 +154,14 @@ where $N$ is the number of players, $T$ is the number of years in a player's car
 3. $\Omega$ is binary tensor of same size as $\mathcal{Y}$ indicating missingness. 
 
 
+```{python}
+from visualization.visualization import plot_data_tensor
+@render_plotly
+def plot_data():
+    return plot_data_tensor(final_data_plot_df)
+```
+
+
 ## Modeling Assumptions
 1. Space of players live in low dimensional latent space $X \in \mathbb{R} ^{N \times D}$
 2. For a given time $t$, and metric $k$, $f_{tk} \sim \mathcal{GP}(0, K_X)$ is a vector of size $N$, with $K_X$ capturing correlation between players
@@ -149,6 +209,8 @@ We include the following metrics and distribution families
 
 ## Model Assumptions (contd.)
 
+
+
 \begin{align}
 Y_{ptk}  &\sim
 \begin{cases}
@@ -167,7 +229,7 @@ Exp(e^{\mu_{ptk}}) \text{ if  } k \in \mathcal{M}
 2. Identifiability (rotational / scale invariance of model)
 3. Modeling temporal and within-metric correlation
 
-## Methods (Approach 1)
+## Methods 
 
 In order to address identifiability issues and MCMC convergence, we propose the following scheme to estimate the latent space $X$ and functional coefficients $\beta_{rtk}$. 
 
@@ -175,7 +237,53 @@ In order to address identifiability issues and MCMC convergence, we propose the 
     - Exponential PPCA, Probabilistic Tensor Decomposition, Standard PCA, etc.
 2. Using the fixed $X$ from above, conduct inference on $\beta_{rtk}, \sigma_k, \omega_r$ 
 
-## Methods (Approach 2)
+## Probabilistic Tensor Decomposition 
+
+This model seeks to factorize the  $N \times T \times K$ linear scale tensor $A$ using CP Decomposition. Since we have various outputs that are not normally distributed, this becomes a form of exponential family CP Decomposition.
+
+We seek to approximate the following:
+
+$A \approx \mu + \sum_{i=1}^{R} \lambda_i \cdot x_i \otimes v_i \otimes w_i$
+
+where, $\mu$, $x_i$, $v_i$, $w_i$ $\sim \mathcal{N}(0, I)$, $\lambda \sim Dirichlet(1/R)$
+
+$X \in \mathbb{R}^{N \times R}$
+
+$V \in \mathbb{R}^{T \times R}$
+
+$W \in \mathbb{R}^{K \times R}$
+
+$\mu \in \mathbb{R}^{T \times K}$. 
+
+Here $\mu$ is used to de-mean the data and act as an intercept term.  
+
+## Probabilistic Tensor Decomposition (contd.) 
+
+Let $\tilde{A}_{pit} = g_{pit}^{-1}(A_{pit})$, where $g_{pit}$ is the appropriate link function transforming the linear scale parameter into the appropriate exponential family parameterization. Consequently, $X, V, W, \mu$ are estimated by maximizing the following loss function using gradient descent. 
+
+$\max_{X, V, W, \mu} \sum_{p, i, t} log( F_{pit}( Y_{pit} | \tilde{A}_{pit} )) \cdot \Omega_{pit}$
+
+where $F_{pit}$ is the appropriate distribution density function associated with entry $Y_{pit}$. 
+
+This offers the following benefits:
+
+1. Latent space $X$ is created while accounting for sampling variability 
+2. Latent space is created while also accounting for correlations across each mode of the tensor, which is representative of the final model. 
+
+
+## Latent Space 
+
+
+## Sampling Results 
+
+
+## Projection Results 
+
+
+## Functional Basis Results 
+
+
+## Future Work 
 
 In order to address identifiability issues and MCMC convergence while also recovering sampling variability in the latent space, we propose an alternating scheme to estimate the latent space $X$ and functional coefficients $\beta_{rtk}$. 
 
@@ -185,26 +293,13 @@ In order to address identifiability issues and MCMC convergence while also recov
     - Sample $X$, $\gamma$ while holding all other parameters fixed using HMC proposal step
     - Conditional on the sampled $X$ and $\gamma$, sample the remaining parameters using HMC proposal step
 
-## Methods (Approach 3)
+## Future Work (contd.)
 In order to address identifiability issues and MCMC convergence while also recovering sampling variability in the latent space, we propose an alternating scheme to estimate the latent space $X$ and functional coefficients $\beta_{rtk}$. 
 
 1. Let $X \sim \mathcal{N}(\mu_0, \Sigma_0)$ where $\mu_0$ and $\Sigma_0$ come from an initialzed latent space $X_0$.
     - Exponential PPCA, Probabilistic Tensor Decomposition, Standard PCA, etc. can be used to create $X_0$
 2. Conditional on the fixed $X_0$, sample the remaining parameters using HMC until convergence.
 3. Taking the posterior mean of all parameters resulting from (2), sample $X$ using HMC until convergence. 
-
-
-## Current Progress
-1. Shiny App
-
-
-
-## Future Work
-
-1. Address trend in baseline rate of 3PA, etc over time
-2. Impose correlation across metrics 
-3. Look at hold-out coverage interval 
-4. Loosen separable covariance assumption 
 
 
 # References
@@ -229,35 +324,3 @@ Thus the map is composed of $z_{\omega_r} = [cos(\omega_r ^T x), sin(\omega_r ^ 
 
 $Z(X) = \frac{1}{\sqrt{R}}[z_{\omega_1}, z_{\omega_2}, \dots, z_{\omega_R}]^T$
 
-## Probabilistic Tensor Decomposition {.appendix}
-
-This model seeks to factorize the  $N \times T \times K$ linear scale tensor $A$ using CP Decomposition. Since we have various outputs that are not normally distributed, this becomes a form of exponential family CP Decomposition.
-
-We seek to approximate the following:
-
-$A \approx \mu + \sum_{i=1}^{R} \lambda_i \cdot x_i \otimes v_i \otimes w_i$
-
-where, $\mu$, $x_i$, $v_i$, $w_i$ $\sim \mathcal{N}(0, I)$, $\lambda \sim Dirichlet(1/R)$
-
-$X \in \mathbb{R}^{N \times R}$
-
-$V \in \mathbb{R}^{T \times R}$
-
-$W \in \mathbb{R}^{K \times R}$
-
-$\mu \in \mathbb{R}^{T \times K}$. 
-
-Here $\mu$ is used to de-mean the data and act as an intercept term.  
-
-## Probabilistic Tensor Decomposition (contd.) {.appendix}
-
-Let $\tilde{A}_{pit} = g_{pit}^{-1}(A_{pit})$, where $g_{pit}$ is the appropriate link function transforming the linear scale parameter into the appropriate exponential family parameterization. Consequently, $X, V, W, \mu$ are estimated by maximizing the following loss function using gradient descent. 
-
-$\max_{X, V, W, \mu} \sum_{p, i, t} log( F_{pit}( Y_{pit} | \tilde{A}_{pit} )) \cdot \Omega_{pit}$
-
-where $F_{pit}$ is the appropriate distribution density function associated with entry $Y_{pit}$. 
-
-This offers the following benefits:
-
-1. Latent space $X$ is created while accounting for sampling variability 
-2. Latent space is created while also accounting for correlations across each mode of the tensor, which is representative of the final model. 

@@ -16,8 +16,14 @@ from shinywidgets import render_plotly
 from data.data_utils import create_fda_data
 data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
 names = data.groupby("id")["name"].first().values
+names_df = pd.DataFrame(names, columns = ["Name"])
+names_df["Player"] = range(len(names))
 metric_output = ["binomial", "exponential"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
 metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
+metric_df = pd.DataFrame(metrics, columns=["Statistic"])
+metric_df["Metric"] = range(len(metrics))
+age_df = pd.DataFrame(range(18,39), columns = ["Age"])
+age_df["Time"] = age_df["Age"] - 18
 exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
 data["retirement"] = 1
 data["log_min"] = np.log(data["minutes"])
@@ -30,6 +36,46 @@ exposures = np.stack([output["exposure_data"] for output in outputs], axis = 0)
 
 # ========================================================================
 
+N, K, T = observations.shape
+
+edges = []
+nodes = []
+vals = []
+missing = []
+for player_index in range(N):
+    for metric_index in range(K):
+        for time_index in range(T):
+            cur_node = (player_index, metric_index, time_index)
+            nodes.append(cur_node)
+            missing.append(np.isfinite(exposures[metric_index, player_index, time_index]))
+            vals.append(observations[player_index, metric_index, time_index])
+
+            if player_index != N - 1:
+                edges.append((cur_node, (player_index + 1, metric_index ,time_index)))
+
+            if player_index != 0:
+                edges.append((cur_node, (player_index - 1, metric_index, time_index )))
+            
+            if metric_index != K - 1:
+                edges.append((cur_node, (player_index, metric_index + 1, time_index)))
+
+            if metric_index != 0:
+                edges.append((cur_node, (player_index, metric_index - 1, time_index)))
+
+            if time_index != T - 1:
+                edges.append((cur_node, (player_index, metric_index, time_index + 1)))
+
+            if time_index != 0:
+                edges.append((cur_node, (player_index, metric_index, time_index - 1)))
+
+nodes_df = pd.DataFrame(np.array([list(x) for x in zip(*nodes)]).T, columns=["Player", "Metric", "Time"])
+nodes_df["Value"] = vals
+nodes_df["Missing"] = missing
+
+final_data_plot_df = pd.merge(nodes_df, names_df).merge(metric_df).merge(age_df)
+
+# ========================================================================
+
 
 
 
@@ -39,6 +85,13 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
     @render_plotly
     def plot_metric_arc():
         return plot_career_trajectory_observations(int(input.player()), metrics, metric_output, observations, exposures )
+
+    # ========================================================================
+
+    from visualization.visualization import plot_data_tensor
+    @render_plotly
+    def plot_data():
+        return plot_data_tensor(final_data_plot_df)
 
     # ========================================================================
 
