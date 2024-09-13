@@ -7,9 +7,16 @@ from pathlib import Path
 from shiny import App, Inputs, Outputs, Session, ui
 
 import pandas as pd
+import plotly.express as px
+import pickle
+from sklearn.manifold import TSNE
+from sklearn.decomposition import SparsePCA
+from sklearn.preprocessing import StandardScaler
 import numpy as np
 from shiny.express import input, render, ui
 from shinywidgets import render_plotly
+import numpyro
+numpyro.set_platform("cpu")
 
 # ========================================================================
 
@@ -33,6 +40,26 @@ _ , outputs, _ = create_fda_data(data, basis_dims=3, metric_output=metric_output
 , exposure_list =  exposure_list)
 observations = np.stack([output["output_data"] for output in outputs], axis = 1)
 exposures = np.stack([output["exposure_data"] for output in outputs], axis = 0)
+
+agg_dict = {"obpm":"mean", "dbpm":"mean", "bpm":"mean", 
+            "position_group": "max",
+        "minutes":"sum", "dreb": "sum", "fta":"sum", "ftm":"sum", "oreb":"sum",
+        "ast":"sum", "tov":"sum", "fg2m":"sum", "fg3m":"sum", "fg3a":"sum", "fg2a":"sum", "blk":"sum", "stl":"sum"}
+data["total_minutes"] = data["median_minutes_per_game"] * data["games"] 
+agged_data = data.groupby("id").agg(agg_dict).reset_index()
+agged_data["ft_pct"] = agged_data["ftm"] / agged_data["fta"]
+agged_data["fg2_pct"] = agged_data["fg2m"] / agged_data["fg2a"]
+agged_data["fg3_pct"] = agged_data["fg3m"] / agged_data["fg3a"]
+agged_data["dreb_rate"] = 36.0 * agged_data["dreb"] / agged_data["minutes"]
+agged_data["oreb_rate"] = 36.0 * agged_data["oreb"] / agged_data["minutes"]
+agged_data["ast_rate"] = 36.0 * agged_data["ast"] / agged_data["minutes"]
+agged_data["tov_rate"] = 36.0 * agged_data["tov"] / agged_data["minutes"]
+agged_data["blk_rate"] = 36.0 * agged_data["blk"] / agged_data["minutes"]
+agged_data["stl_rate"] = 36.0 * agged_data["stl"] / agged_data["minutes"]
+agged_data["ft_rate"] = 36.0 * agged_data["fta"] / agged_data["minutes"]
+agged_data["fg2_rate"] = 36.0 * agged_data["fg2a"] / agged_data["minutes"]
+agged_data["fg3_rate"] = 36.0 * agged_data["fg3a"] / agged_data["minutes"]
+agged_data.fillna(0, inplace=True)
 
 # ========================================================================
 
@@ -80,11 +107,39 @@ final_data_plot_df = pd.merge(nodes_df, names_df).merge(metric_df).merge(age_df)
 
 
 def server(input: Inputs, output: Outputs, session: Session) -> None:
+    with open("model_output/exponential_cp_test.pkl", "rb") as f:
+        results = pickle.load(f)
+    f.close()
+
+    X = results["U_auto_loc"]
+
+    U, _, _ = np.linalg.svd(X, full_matrices=False)
+    L       = np.linalg.cholesky(np.cov(U.T) + 1e-6 * np.eye(7)).T
+    aligned_X  = np.linalg.solve(L, U.T).T
+    aligned_X /= np.std(X, axis=0)
+
+    X_tsne = TSNE(n_components=3).fit_transform(aligned_X)
+
+
+    scatter_df = pd.concat([pd.DataFrame(X_tsne, columns=[f"dim{i+1}" for i in range(3)]), agged_data], axis = 1)
+    scatter_df["player_name"] = names
+
+    # ========================================================================
+
+    with open("model_output/fixed_nba_tvrflvm_test.pkl", "rb") as f:
+        results_tvrflvm = pickle.load(f)
+    f.close()
+
+    W = results_tvrflvm["W"]
+
+
+    # ========================================================================
+
     from visualization.visualization import plot_career_trajectory_observations
-    ui.input_select(id="player", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
+    ui.input_select(id="player_traj", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
     @render_plotly
     def plot_metric_arc():
-        return plot_career_trajectory_observations(int(input.player()), metrics, metric_output, observations, exposures )
+        return plot_career_trajectory_observations(int(input.player_traj()), metrics, metric_output, observations, exposures )
 
     # ========================================================================
 
@@ -92,6 +147,80 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
     @render_plotly
     def plot_data():
         return plot_data_tensor(final_data_plot_df)
+
+    # ========================================================================
+
+    from visualization.visualization import plot_scatter
+    ui.input_select(id="player", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
+
+    @render_plotly
+    def plot_latent_space():
+        return plot_scatter(scatter_df,  "Latent Embedding", int(input.player()) )
+
+    # ========================================================================
+
+    with ui.layout_column_wrap():
+        ui.input_select(id="player_functional", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
+    with ui.layout_column_wrap():
+        @render_plotly
+        def plot_functional_bases():
+            player_index = int(input.player_functional())
+            wTx = jnp.einsum("r,ijmr -> ijm", aligned_X[player_index, :], W)
+            phi = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], -1) * (1/ jnp.sqrt(100))
+            mu = jnp.einsum("ijk,ijmkt -> ijmt", phi, results_tvrflvm["beta"]).mean((0,1)).T 
+            standardized_mu = StandardScaler().fit_transform(mu)
+            functional_pca = SparsePCA(n_components=3, alpha=1)
+            functional_pca.fit(standardized_mu)
+            funct_bases_df = pd.DataFrame(functional_pca.transform(standardized_mu) * -1, columns = [f"Basis {i}" for i in range(1,4)])
+            funct_bases_df["Age"] = range(18,39)
+            funct_bases_melted = funct_bases_df.melt(id_vars="Age", var_name="Variable", value_name="Value")
+            fig = px.line(funct_bases_melted, x = "Age", y = "Value", color="Variable")
+            fig.update_layout({'width':350, 'height': 350,
+                           
+                                })
+            return fig
+        @render_plotly
+        def plot_metric_weights():
+            player_index = int(input.player_functional())
+            wTx = jnp.einsum("r,ijmr -> ijm", aligned_X[player_index, :], W)
+            phi = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], -1) * (1/ jnp.sqrt(100))
+            mu = jnp.einsum("ijk,ijmkt -> ijmt", phi, results_tvrflvm["beta"]).mean((0,1)).T 
+            standardized_mu = StandardScaler().fit_transform(mu)
+            functional_pca = SparsePCA(n_components=3, alpha=1)
+            functional_pca.fit(standardized_mu)
+            weights = functional_pca.components_
+            weights_df = pd.DataFrame(weights, columns = metrics)
+            weights_df["Basis"] = range(1,4)
+            weights_df_melted = weights_df.melt(id_vars="Basis", var_name="Variable", value_name="Value")
+            fig = px.bar(weights_df_melted, facet_row="Basis",x="Variable", y = "Value")
+            fig.update_layout({'width':350, 'height': 350,
+                            
+                                })
+            return fig
+
+
+    # ========================================================================
+
+    from visualization.visualization import plot_posterior_predictive_career_trajectory
+    import jax.numpy as jnp
+    ui.input_select(id="player_posterior", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
+
+
+    @render_plotly
+    def plot_posterior_predictive():
+        player_index = int(input.player_posterior())
+        wTx = jnp.einsum("r,ijmr -> ijm", aligned_X[player_index, :], W)
+        phi = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], -1) * (1/ jnp.sqrt(100))
+        mu = jnp.einsum("ijk,ijmkt -> ijmt", phi, results_tvrflvm["beta"])
+    
+        return plot_posterior_predictive_career_trajectory(
+                                                                player_index=player_index,
+                                                                metrics=metrics, 
+                                                                metric_outputs=metric_output,
+                                                                posterior_mean_samples=mu,
+                                                                observations=jnp.array(observations), 
+                                                                exposures = jnp.array(exposures),
+                                                                posterior_variance_samples=jnp.stack([results_tvrflvm["sigma_obpm"], results_tvrflvm["sigma_dbpm"]], axis = 0))
 
     # ========================================================================
 
