@@ -194,7 +194,9 @@ $Z(X) = \frac{1}{\sqrt{R}}[z_{\omega_1}, z_{\omega_2}, \dots, z_{\omega_R}]^T$
 
 ## Adjusted Modeling Setup
 
-We will approximate each $f^k_t$ using the aforementioned RFF approximation. 
+We will approximate each $f^k_t$ using the aforementioned RFF approximation. Temporal correlation is induced through a covariance structure across time, enforced on the linear weights of the approximation.
+
+![](images/pmg_corr.svg)
 
 
 

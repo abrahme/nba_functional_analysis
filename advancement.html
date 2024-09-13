@@ -397,7 +397,7 @@ Abhijit Brahme
 </section>
 <section id="motivation" class="slide level2">
 <h2>Motivation</h2>
-<div id="d30c48ea" class="cell" data-execution_count="4">
+<div id="8708e84a" class="cell" data-execution_count="4">
 <div class="cell-output cell-output-display no-overflow-x" data-execution_count="9">
 <div class="form-group shiny-input-container">
   <label class="control-label" id="player-label" for="player">Select a player</label>
@@ -2776,7 +2776,7 @@ Abhijit Brahme
 </ul></li>
 <li><span class="math inline">\(\Omega\)</span> is binary tensor of same size as <span class="math inline">\(\mathcal{Y}\)</span> indicating missingness.</li>
 </ol>
-<div id="bd9b7440" class="cell" data-execution_count="5">
+<div id="f8e426b0" class="cell" data-execution_count="5">
 <div class="cell-output cell-output-display">
 <div id="plot_data" class="shiny-ipywidget-output shiny-report-size shiny-report-theme html-fill-item html-fill-container"></div><script type="application/json" data-html-dependency="">{"name": "ipywidget-libembed-amd", "version": "1.0.1", "source": {"package": "shinywidgets", "subdir": "static"}, "script": [{"src": "libembed-amd.js"}], "stylesheet": [], "meta": [], "all_files": false, "head": null}</script>
 <script type="application/json" data-html-dependency="">{"name": "ipywidget-output-binding", "version": "0.3.2", "source": {"package": "shinywidgets", "subdir": "static"}, "script": [{"src": "output.js"}], "stylesheet": [{"href": "shinywidgets.css", "rel": "stylesheet"}], "meta": [], "all_files": false, "head": null}</script>
@@ -2785,24 +2785,36 @@ Abhijit Brahme
 </div>
 </div>
 </section>
-<section id="modeling-assumptions" class="slide level2">
-<h2>Modeling Assumptions</h2>
+<section id="modeling-setup" class="slide level2">
+<h2>Modeling Setup</h2>
 <p>Space of players live in low dimensional latent space <span class="math inline">\(X \in \mathbb{R} ^{N \times D}\)</span></p>
-<p>For a given time <span class="math inline">\(t\)</span>, and metric <span class="math inline">\(k\)</span>, <span class="math inline">\(f^t_k \sim \mathcal{GP}(0, K_X)\)</span> is a vector of size <span class="math inline">\(N\)</span>, with <span class="math inline">\(K_X\)</span> capturing correlation between players, dependent on <span class="math inline">\(X\)</span></p>
+<p>For a given time <span class="math inline">\(t\)</span>, and metric <span class="math inline">\(k\)</span>, <span class="math inline">\(f^k_t \sim \mathcal{GP}(0, K_X)\)</span> is a vector of size <span class="math inline">\(N\)</span>, with <span class="math inline">\(K_X\)</span> capturing correlation across the <span class="math inline">\(N\)</span> dimension</p>
 
 <!-- 2. For a given time $t$, and metric $k$, $f^t_k \sim \mathcal{GP}(0, K_X)$ is a vector of size $N$, with $K_X$ capturing correlation between players
-    - Approximation of $f_{tk}$ is given by Random Fourier Features such that $f_{tk} \approx Z(X)^T\beta_{tk}$ [@gundersen2020latent] -->
+    -  -->
 <img data-src="images/pgm.svg" class="r-stretch"></section>
-<section id="random-fourier-features" class="slide level2 scrollable">
-<h2>Random Fourier Features</h2>
+<section id="random-fourier-features-tldr" class="slide level2 scrollable">
+<h2>Random Fourier Features (tl;dr)</h2>
 <ol type="1">
-<li>Approximation of Gaussian Process can be turned into a linear operation, <span class="math inline">\(f_{tk}(X) \approx Z(X)^T\beta_{tk}\)</span></li>
+<li>Approximation of Gaussian Process can be turned into a linear operation, <span class="math inline">\(f^k_{t}(X) \approx Z(X)^T\beta^k_{t}\)</span> which is computationally beneficial if <span class="math inline">\(N\)</span> large</li>
 <li>Number of random features, <span class="math inline">\(R\)</span>, determines how good the approximation is</li>
-<li>Choice of <span class="math inline">\(p(\omega)\)</span> determines covariance function of the Gaussian Process</li>
 </ol>
 </section>
-<section id="modeling-assumptions-1" class="slide level2 scrollable">
-<h2>Modeling Assumptions</h2>
+<section id="random-fourier-features" class="slide level2">
+<h2>Random Fourier Features</h2>
+<p>Attempt to approximate the inner product <span class="math inline">\(k(x, y) = \langle \phi(x), \phi(y) \rangle\)</span> with a randomized map <span class="math inline">\(z: \mathbb{R}^D \rightarrow \mathbb{R}^R\)</span>. Computational savings arise if <span class="math inline">\(R &lt;&lt; N\)</span>.</p>
+<p>In our case, we let <span class="math inline">\(k(x,y) = k(x - y) = exp(\frac{-||x - y||^2}{2})\)</span> be the standard radial basis kernel.</p>
+<p>From Bochner’s theorem, we have that <span class="math inline">\(k(x - y) = \int p(\omega)exp(i\omega(x - y))d \omega\)</span>, and it can be shown that to produce the radial basis kernel, <span class="math inline">\(\omega \sim \mathcal{N}_D(0, I_d)\)</span>.</p>
+<p>Thus the map is composed of <span class="math inline">\(z_{\omega_r} = [cos(\omega_r ^T x), sin(\omega_r ^ T x)]^T\)</span>.</p>
+<p><span class="math inline">\(Z(X) = \frac{1}{\sqrt{R}}[z_{\omega_1}, z_{\omega_2}, \dots, z_{\omega_R}]^T\)</span></p>
+</section>
+<section id="adjusted-modeling-setup" class="slide level2">
+<h2>Adjusted Modeling Setup</h2>
+<p>We will approximate each <span class="math inline">\(f^k_t\)</span> using the aforementioned RFF approximation. Temporal correlation is induced through a covariance structure across time, enforced on the linear weights of the approximation.</p>
+
+<img data-src="images/pmg_corr.svg" class="r-stretch"></section>
+<section id="distributional-assumptions" class="slide level2 scrollable">
+<h2>Distributional Assumptions</h2>
 <p>We include the following metrics and distribution families</p>
 <ol type="1">
 <li>Poisson
@@ -2943,24 +2955,14 @@ Wakim, Alexander, and Jimmy Jin. 2014. <span>“Functional Data Analysis of Agin
 </div>
 </section>
 
-<section>
 <section id="appendix" class="title-slide slide level1 appendix center">
 <h1>Appendix</h1>
-
-</section>
-<section id="random-fourier-features-1" class="slide level2 appendix">
-<h2>Random Fourier Features</h2>
-<p>Attempt to approximate the inner product <span class="math inline">\(k(x, y) = \langle \phi(x), \phi(y) \rangle\)</span> with a randomized map <span class="math inline">\(z: \mathbb{R}^D \rightarrow \mathbb{R}^R\)</span>. Computational savings arise if <span class="math inline">\(R &lt;&lt; N\)</span>.</p>
-<p>In our case, we let <span class="math inline">\(k(x,y) = k(x - y) = exp(\frac{-||x - y||^2}{2})\)</span> be the standard radial basis kernel.</p>
-<p>From Bochner’s theorem, we have that <span class="math inline">\(k(x - y) = \int p(\omega)exp(i\omega(x - y))d \omega\)</span>, and it can be shown that to produce the radial basis kernel, <span class="math inline">\(\omega \sim \mathcal{N}_D(0, I_d)\)</span>.</p>
-<p>Thus the map is composed of <span class="math inline">\(z_{\omega_r} = [cos(\omega_r ^T x), sin(\omega_r ^ T x)]^T\)</span>.</p>
-<p><span class="math inline">\(Z(X) = \frac{1}{\sqrt{R}}[z_{\omega_1}, z_{\omega_2}, \dots, z_{\omega_R}]^T\)</span></p>
 <div class="quarto-auto-generated-content">
 <div class="footer footer-default">
 
 </div>
 </div>
-</section></section>
+</section>
     </div>
   </div>
 
