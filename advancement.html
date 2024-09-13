@@ -397,8 +397,8 @@ Abhijit Brahme
 </section>
 <section id="motivation" class="slide level2">
 <h2>Motivation</h2>
-<div id="a3ed7d03" class="cell" data-execution_count="4">
-<div class="cell-output cell-output-display no-overflow-x" data-execution_count="4">
+<div id="d30c48ea" class="cell" data-execution_count="4">
+<div class="cell-output cell-output-display no-overflow-x" data-execution_count="9">
 <div class="form-group shiny-input-container">
   <label class="control-label" id="player-label" for="player">Select a player</label>
   <div>
@@ -2776,7 +2776,7 @@ Abhijit Brahme
 </ul></li>
 <li><span class="math inline">\(\Omega\)</span> is binary tensor of same size as <span class="math inline">\(\mathcal{Y}\)</span> indicating missingness.</li>
 </ol>
-<div id="261ab9f1" class="cell" data-execution_count="5">
+<div id="bd9b7440" class="cell" data-execution_count="5">
 <div class="cell-output cell-output-display">
 <div id="plot_data" class="shiny-ipywidget-output shiny-report-size shiny-report-theme html-fill-item html-fill-container"></div><script type="application/json" data-html-dependency="">{"name": "ipywidget-libembed-amd", "version": "1.0.1", "source": {"package": "shinywidgets", "subdir": "static"}, "script": [{"src": "libembed-amd.js"}], "stylesheet": [], "meta": [], "all_files": false, "head": null}</script>
 <script type="application/json" data-html-dependency="">{"name": "ipywidget-output-binding", "version": "0.3.2", "source": {"package": "shinywidgets", "subdir": "static"}, "script": [{"src": "output.js"}], "stylesheet": [{"href": "shinywidgets.css", "rel": "stylesheet"}], "meta": [], "all_files": false, "head": null}</script>
@@ -2785,42 +2785,20 @@ Abhijit Brahme
 </div>
 </div>
 </section>
-<section id="modeling-assumptions" class="slide level2 scrollable">
+<section id="modeling-assumptions" class="slide level2">
 <h2>Modeling Assumptions</h2>
-<ol type="1">
-<li>Space of players live in low dimensional latent space <span class="math inline">\(X \in \mathbb{R} ^{N \times D}\)</span></li>
-<li>For a given time <span class="math inline">\(t\)</span>, and metric <span class="math inline">\(k\)</span>, <span class="math inline">\(f_{tk} \sim \mathcal{GP}(0, K_X)\)</span> is a vector of size <span class="math inline">\(N\)</span>, with <span class="math inline">\(K_X\)</span> capturing correlation between players
-<ul>
-<li>Approximation of <span class="math inline">\(f_{tk}\)</span> is given by Random Fourier Features such that <span class="math inline">\(f_{tk} \approx Z(X)^T\beta_{tk}\)</span> <span class="citation" data-cites="gundersen2020latent">(<a href="#/references" role="doc-biblioref" onclick="">Gundersen, Zhang, and Engelhardt 2020</a>)</span></li>
-<li>Inducing correlation across time <span class="math inline">\(t\)</span> and metric <span class="math inline">\(k\)</span> comes from inducing correlation amongst linear weights <span class="math inline">\(\beta_{tk}\)</span>.</li>
-<li>We assume a separable covariance structure for time, metric, and player.</li>
-</ul></li>
-</ol>
-</section>
-<section id="random-fourier-features-tldr" class="slide level2 scrollable">
-<h2>Random Fourier Features (TL;DR)</h2>
+<p>Space of players live in low dimensional latent space <span class="math inline">\(X \in \mathbb{R} ^{N \times D}\)</span></p>
+<p>For a given time <span class="math inline">\(t\)</span>, and metric <span class="math inline">\(k\)</span>, <span class="math inline">\(f^t_k \sim \mathcal{GP}(0, K_X)\)</span> is a vector of size <span class="math inline">\(N\)</span>, with <span class="math inline">\(K_X\)</span> capturing correlation between players, dependent on <span class="math inline">\(X\)</span></p>
+
+<!-- 2. For a given time $t$, and metric $k$, $f^t_k \sim \mathcal{GP}(0, K_X)$ is a vector of size $N$, with $K_X$ capturing correlation between players
+    - Approximation of $f_{tk}$ is given by Random Fourier Features such that $f_{tk} \approx Z(X)^T\beta_{tk}$ [@gundersen2020latent] -->
+<img data-src="images/pgm.svg" class="r-stretch"></section>
+<section id="random-fourier-features" class="slide level2 scrollable">
+<h2>Random Fourier Features</h2>
 <ol type="1">
 <li>Approximation of Gaussian Process can be turned into a linear operation, <span class="math inline">\(f_{tk}(X) \approx Z(X)^T\beta_{tk}\)</span></li>
 <li>Number of random features, <span class="math inline">\(R\)</span>, determines how good the approximation is</li>
 <li>Choice of <span class="math inline">\(p(\omega)\)</span> determines covariance function of the Gaussian Process</li>
-</ol>
-</section>
-<section id="model-parameters" class="slide level2 scrollable">
-<h2>Model Parameters</h2>
-<ol type="1">
-<li><span class="math inline">\(X \sim \mathcal{N}(\mu_0, \Sigma_0)\)</span> <!-- 2. $\sigma_{k} \sim IG(1, 1) \forall k \in \mathcal{G}$
-    - Variance term for normally distributed observations --></li>
-<li><span class="math inline">\(\omega_r \sim \mathcal{N}_D(0, I_d)\)</span>
-<ul>
-<li>random feature map approximation</li>
-<li><span class="math inline">\(Z(X) \in \mathbb{R}^{N \times 2 \cdot D}\)</span> <!-- 4. $\gamma \sim IG(1,1)$  represents the lengthscale of the subsequent GP --></li>
-</ul></li>
-<li><span class="math inline">\(\beta_{rtk} \sim \mathcal{GP}(0, I_{2D} \otimes I_K \otimes K_T(\gamma))\)</span>
-<ul>
-<li><span class="math inline">\(K_T(\gamma)\)</span> is the covariance function capturing auto-correlation among time observations</li>
-<li>Separable covariance structure for time, metric</li>
-</ul></li>
-<li><span class="math inline">\(\mu = Z(X)^{pr} \beta^r_{tk}  \in \mathbb{R}^{N \times T \times K}\)</span> is represented as a tensor contraction between <span class="math inline">\(Z(X)\)</span> and <span class="math inline">\(\beta\)</span> over the second index.</li>
 </ol>
 </section>
 <section id="modeling-assumptions-1" class="slide level2 scrollable">
@@ -2838,7 +2816,7 @@ Abhijit Brahme
 <li>Binomial
 <ul>
 <li><span class="math inline">\(\mathcal{B} =\)</span> {FG2M, FG3M, FTM}</li>
-<li><span class="math inline">\(\mathcal{N} =\)</span> {FG2A, FG3A, FTA}</li>
+<li><span class="math inline">\(\mathcal{A} =\)</span> {FG2A, FG3A, FTA}</li>
 </ul></li>
 <li>Exponential
 <ul>
@@ -2849,17 +2827,14 @@ Abhijit Brahme
 <li><span class="math inline">\(\mathcal{K} =\)</span> {Retirement}</li>
 </ul></li>
 </ol>
-</section>
-<section id="model-assumptions-contd." class="slide level2">
-<h2>Model Assumptions (contd.)</h2>
 <p><span class="math display">\[\begin{align}
-Y_{ptk}  &amp;\sim
+Y^k_{t}  &amp;\sim
 \begin{cases}
-Pois(Y_{ptm}e^{\mu_{ptk}}) \text{ if  } k \in \mathcal{R} \text{ , } \forall m \in \mathcal{M} \\
-Bin(Y_{ptj}, logit^{-1}(\mu_{ptk})) \text{ if } k \in \mathcal{B} \text{ , }  j \in \mathcal{N} \\
-\mathcal{N}(\mu_{ptk}, \frac{\sigma^2_k}{Y_{ptm}})  \text{ if } k \in \mathcal{G} \text{ , } \forall m \in \mathcal{M}\\
-Bern(logit^{-1}(\mu_{ptk})) \text{ if } k \in \mathcal{K}\\
-Exp(e^{\mu_{ptk}}) \text{ if  } k \in \mathcal{M}
+Pois(f^k_{t}e^{Y^m_t}) \text{if } k \in \mathcal{R} \text{ , } \forall m \in \mathcal{M} \\
+Bin(Y^j_{t}, logit^{-1}(f^k_{t})) \text{ if } k \in \mathcal{B} \text{ , }  j \in \mathcal{A} \\
+\mathcal{N}(f^k_{t}, \frac{\sigma^2_k}{Y^m_t})  \text{ if } k \in \mathcal{G} \text{ , } \forall m \in \mathcal{M}\\
+Bern(logit^{-1}(f^k_t)) \text{ if } k \in \mathcal{K}\\
+Exp(e^{f^k_t}) \text{ if  } k \in \mathcal{M}
 \end{cases}
 \end{align}\]</span></p>
 </section>
@@ -2950,9 +2925,6 @@ Exp(e^{\mu_{ptk}}) \text{ if  } k \in \mathcal{M}
 <div id="ref-berry1999bridging" class="csl-entry" role="listitem">
 Berry, Scott M, C Shane Reese, and Patrick D Larkey. 1999. <span>“Bridging Different Eras in Sports.”</span> <em>Journal of the American Statistical Association</em> 94 (447): 661–76.
 </div>
-<div id="ref-gundersen2020latent" class="csl-entry" role="listitem">
-Gundersen, Gregory W., Michael Minyi Zhang, and Barbara E. Engelhardt. 2020. <span>“Latent Variable Modeling with Random Features.”</span> <a href="https://arxiv.org/abs/2006.11145">https://arxiv.org/abs/2006.11145</a>.
-</div>
 <div id="ref-page2013effect" class="csl-entry" role="listitem">
 Page, Garritt L, Bradley J Barney, and Aaron T McGuire. 2013. <span>“Effect of Position, Usage Rate, and Per Game Minutes Played on <span>NBA</span> Player Production Curves.”</span> <em>Journal of Quantitative Analysis in Sports</em> 9 (4): 337–45.
 </div>
@@ -2976,7 +2948,7 @@ Wakim, Alexander, and Jimmy Jin. 2014. <span>“Functional Data Analysis of Agin
 <h1>Appendix</h1>
 
 </section>
-<section id="random-fourier-features" class="slide level2 appendix">
+<section id="random-fourier-features-1" class="slide level2 appendix">
 <h2>Random Fourier Features</h2>
 <p>Attempt to approximate the inner product <span class="math inline">\(k(x, y) = \langle \phi(x), \phi(y) \rangle\)</span> with a randomized map <span class="math inline">\(z: \mathbb{R}^D \rightarrow \mathbb{R}^R\)</span>. Computational savings arise if <span class="math inline">\(R &lt;&lt; N\)</span>.</p>
 <p>In our case, we let <span class="math inline">\(k(x,y) = k(x - y) = exp(\frac{-||x - y||^2}{2})\)</span> be the standard radial basis kernel.</p>

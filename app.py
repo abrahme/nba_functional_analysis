@@ -100,7 +100,7 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
     return None
 
 
-_static_assets = ["advancement_files","images/noun-deep-learning-1705425.png","images/noun-scatter-graph-4768711.png"]
+_static_assets = ["advancement_files","images/noun-deep-learning-1705425.png","images/noun-scatter-graph-4768711.png","images/pgm.svg"]
 _static_assets = {"/" + sa: Path(__file__).parent / sa for sa in _static_assets}
 
 app = App(

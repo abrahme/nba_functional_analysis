@@ -162,35 +162,45 @@ def plot_data():
 ```
 
 
-## Modeling Assumptions
-1. Space of players live in low dimensional latent space $X \in \mathbb{R} ^{N \times D}$
-2. For a given time $t$, and metric $k$, $f_{tk} \sim \mathcal{GP}(0, K_X)$ is a vector of size $N$, with $K_X$ capturing correlation between players
-    - Approximation of $f_{tk}$ is given by Random Fourier Features such that $f_{tk} \approx Z(X)^T\beta_{tk}$ [@gundersen2020latent]
-    - Inducing correlation across time $t$ and metric $k$ comes from inducing correlation amongst linear weights $\beta_{tk}$. 
-    - We assume a separable covariance structure for time, metric, and player. 
+## Modeling Setup
+Space of players live in low dimensional latent space $X \in \mathbb{R} ^{N \times D}$
+
+For a given time $t$, and metric $k$, $f^k_t \sim \mathcal{GP}(0, K_X)$ is a vector of size $N$, with $K_X$ capturing correlation across the $N$ dimension
+
+![](images/pgm.svg)
+
+<!-- 2. For a given time $t$, and metric $k$, $f^t_k \sim \mathcal{GP}(0, K_X)$ is a vector of size $N$, with $K_X$ capturing correlation between players
+    -  -->
 
 
-## Random Fourier Features  (TL;DR)
+## Random Fourier Features (tl;dr)
 
-1. Approximation of Gaussian Process can be turned into a linear operation, $f_{tk}(X) \approx Z(X)^T\beta_{tk}$
+1. Approximation of Gaussian Process can be turned into a linear operation, $f^k_{t}(X) \approx Z(X)^T\beta^k_{t}$ which is computationally beneficial if $N$ large
 2. Number of random features, $R$, determines how good the approximation is
-3. Choice of $p(\omega)$ determines covariance function of the Gaussian Process
+
+## Random Fourier Features 
+
+Attempt to approximate the inner product $k(x, y) = \langle \phi(x), \phi(y) \rangle$
+with a randomized map $z: \mathbb{R}^D \rightarrow \mathbb{R}^R$. Computational savings arise if $R << N$.
+
+In our case, we let $k(x,y) = k(x - y) = exp(\frac{-||x - y||^2}{2})$ be the standard radial basis kernel. 
+
+From Bochner's theorem, we have that 
+$k(x - y) = \int p(\omega)exp(i\omega(x - y))d \omega$, and it can be shown that to produce the radial basis kernel, $\omega \sim \mathcal{N}_D(0, I_d)$. 
+
+Thus the map is composed of $z_{\omega_r} = [cos(\omega_r ^T x), sin(\omega_r ^ T x)]^T$. 
+
+$Z(X) = \frac{1}{\sqrt{R}}[z_{\omega_1}, z_{\omega_2}, \dots, z_{\omega_R}]^T$
+
+## Adjusted Modeling Setup
+
+We will approximate each $f^k_t$ using the aforementioned RFF approximation. 
 
 
-## Model Parameters 
-1. $X \sim \mathcal{N}(\mu_0, \Sigma_0)$
-<!-- 2. $\sigma_{k} \sim IG(1, 1) \forall k \in \mathcal{G}$
-    - Variance term for normally distributed observations -->
-3. $\omega_r \sim \mathcal{N}_D(0, I_d)$
-    - random feature map approximation 
-    - $Z(X) \in \mathbb{R}^{N \times 2 \cdot D}$
-<!-- 4. $\gamma \sim IG(1,1)$  represents the lengthscale of the subsequent GP -->
-5. $\beta_{rtk} \sim \mathcal{GP}(0, I_{2D} \otimes I_K \otimes K_T(\gamma))$
-    - $K_T(\gamma)$ is the covariance function capturing auto-correlation among time observations
-    - Separable covariance structure for time, metric
-6. $\mu = Z(X)^{pr} \beta^r_{tk}  \in \mathbb{R}^{N \times T \times K}$ is represented as a tensor contraction between $Z(X)$ and $\beta$ over the second index. 
 
-## Modeling Assumptions
+
+
+## Distributional Assumptions
 
 We include the following metrics and distribution families
 
@@ -200,27 +210,23 @@ We include the following metrics and distribution families
     - $\mathcal{G} =$ {DBPM, OBPM}
 3. Binomial
     - $\mathcal{B} =$ {FG2M, FG3M, FTM}
-     - $\mathcal{N} =$ {FG2A, FG3A, FTA}
+     - $\mathcal{A} =$ {FG2A, FG3A, FTA}
 4. Exponential
     - $\mathcal{M} =$ {Minutes}
 5. Bernoulli
     - $\mathcal{K} =$ {Retirement}
 
-
-## Model Assumptions (contd.)
-
-
-
 \begin{align}
-Y_{ptk}  &\sim
+Y^k_{t}  &\sim
 \begin{cases}
-Pois(Y_{ptm}e^{\mu_{ptk}}) \text{ if  } k \in \mathcal{R} \text{ , } \forall m \in \mathcal{M} \\
-Bin(Y_{ptj}, logit^{-1}(\mu_{ptk})) \text{ if } k \in \mathcal{B} \text{ , }  j \in \mathcal{N} \\
-\mathcal{N}(\mu_{ptk}, \frac{\sigma^2_k}{Y_{ptm}})  \text{ if } k \in \mathcal{G} \text{ , } \forall m \in \mathcal{M}\\
-Bern(logit^{-1}(\mu_{ptk})) \text{ if } k \in \mathcal{K}\\
-Exp(e^{\mu_{ptk}}) \text{ if  } k \in \mathcal{M}
+Pois(f^k_{t}e^{Y^m_t}) \text{if } k \in \mathcal{R} \text{ , } \forall m \in \mathcal{M} \\
+Bin(Y^j_{t}, logit^{-1}(f^k_{t})) \text{ if } k \in \mathcal{B} \text{ , }  j \in \mathcal{A} \\
+\mathcal{N}(f^k_{t}, \frac{\sigma^2_k}{Y^m_t})  \text{ if } k \in \mathcal{G} \text{ , } \forall m \in \mathcal{M}\\
+Bern(logit^{-1}(f^k_t)) \text{ if } k \in \mathcal{K}\\
+Exp(e^{f^k_t}) \text{ if  } k \in \mathcal{M}
 \end{cases}
 \end{align}
+
 
 
 ## Inferential Challenges 
@@ -310,17 +316,5 @@ In order to address identifiability issues and MCMC convergence while also recov
 
 # Appendix {.appendix}
 
-## Random Fourier Features {.appendix}
 
-Attempt to approximate the inner product $k(x, y) = \langle \phi(x), \phi(y) \rangle$
-with a randomized map $z: \mathbb{R}^D \rightarrow \mathbb{R}^R$. Computational savings arise if $R << N$.
-
-In our case, we let $k(x,y) = k(x - y) = exp(\frac{-||x - y||^2}{2})$ be the standard radial basis kernel. 
-
-From Bochner's theorem, we have that 
-$k(x - y) = \int p(\omega)exp(i\omega(x - y))d \omega$, and it can be shown that to produce the radial basis kernel, $\omega \sim \mathcal{N}_D(0, I_d)$. 
-
-Thus the map is composed of $z_{\omega_r} = [cos(\omega_r ^T x), sin(\omega_r ^ T x)]^T$. 
-
-$Z(X) = \frac{1}{\sqrt{R}}[z_{\omega_1}, z_{\omega_2}, \dots, z_{\omega_R}]^T$
 
