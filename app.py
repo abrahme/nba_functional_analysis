@@ -134,15 +134,22 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
     f.close()
 
     W = results_tvrflvm["W"]
-    mu_dims = []
-    for i in range(aligned_X.shape[0]):
-        wTx = jnp.einsum("r,ijmr -> ijm", aligned_X[i], W)
-        phi = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], -1) * (1/ jnp.sqrt(100))
-        mu = jnp.einsum("ijk,ijmkt -> ijmt", phi, results_tvrflvm["beta"]).mean((0,1)).T
-        mu  = StandardScaler().fit_transform(mu)
-        mu_dims.append(mu)
-    mu = jnp.stack(mu_dims)
-    core, factors = tucker(mu, rank = [aligned_X.shape[0], len(metrics), 6])
+    # mu_dims = []
+    # for i in range(aligned_X.shape[0]):
+    #     wTx = jnp.einsum("r,ijmr -> ijm", aligned_X[i], W)
+    #     phi = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], -1) * (1/ jnp.sqrt(100))
+    #     mu = jnp.einsum("ijk,ijmkt -> ijmt", phi, results_tvrflvm["beta"]).mean((0,1)).T
+    #     mu  = StandardScaler().fit_transform(mu)
+    #     mu_dims.append(mu)
+    # mu = jnp.stack(mu_dims)
+    # del mu_dims
+    # core, factors = tucker(mu, rank = [aligned_X.shape[0], 3, len(metrics)])
+
+    with open("model_output/tensor_decomposition.pkl", "rb") as f:
+        results_tensor = pickle.load(f)
+    f.close()
+    core, factors, mu = results_tensor["core"], results_tensor["factors"], results_tensor["mu"]
+    full_core = np.einsum("nkl,lj -> nkj", np.einsum("nc,ckl -> nkl", factors[0], core), factors[2])
 
     # ========================================================================
 
@@ -180,13 +187,11 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
             # standardized_mu = StandardScaler().fit_transform(mu_player)
             # functional_pca = SparsePCA(n_components=3, alpha=1)
             # functional_pca.fit(standardized_mu)
-            funct_bases_df = pd.DataFrame(factors[-1].T, columns = [f"Basis {i}" for i in range(1,7)])
+            explained_var = full_core[player_index].T.var(0)
+            funct_bases_df = pd.DataFrame(factors[1], columns = [f"Basis {i}: {explained_var[i-1]/16:.{3}}% EV" for i in range(1,4)])
             funct_bases_df["Age"] = range(18,39)
             funct_bases_melted = funct_bases_df.melt(id_vars="Age", var_name="Variable", value_name="Value")
             fig = px.line(funct_bases_melted, x = "Age", y = "Value", color="Variable")
-            fig.update_layout({'width':350, 'height': 350,
-                           
-                                })
             return fig
         @render_plotly
         def plot_metric_weights():
@@ -195,14 +200,11 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
             # standardized_mu = StandardScaler().fit_transform(mu_player)
             # functional_pca = SparsePCA(n_components=3, alpha=1)
             # functional_pca.fit(standardized_mu)
-            weights = core[player_index].T - core.mean(0, keepdims=True)
+            weights = full_core[player_index] - full_core.mean(0)
             weights_df = pd.DataFrame(weights, columns = metrics)
-            weights_df["Basis"] = range(1,7)
+            weights_df["Basis"] = range(1,4)
             weights_df_melted = weights_df.melt(id_vars="Basis", var_name="Variable", value_name="Value")
             fig = px.bar(weights_df_melted, facet_row="Basis",x="Variable", y = "Value")
-            fig.update_layout({'width':350, 'height': 350,
-                            
-                                })
             return fig
 
 
