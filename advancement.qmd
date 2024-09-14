@@ -175,7 +175,6 @@ with open("model_output/tensor_decomposition.pkl", "rb") as f:
 f.close()
 core, factors, mu = results_tensor["core"], results_tensor["factors"], results_tensor["mu"]
 full_core = np.einsum("nkl,lj -> nkj", np.einsum("nc,ckl -> nkl", factors[0], core), factors[2])
-
 ```
 
 ## Research Interests 
@@ -461,6 +460,18 @@ In order to address identifiability issues and MCMC convergence while also recov
 
 
 # Appendix {.appendix}
+
+## Functional Basis 
+
+![](images/tuckerdecomp.png)
+
+Let $\mathcal{X}$ be the tensor of normalized gaussian-scale linear predictors of dimension $N \times T \times K$. 
+Then, $\mathcal{X}$ is decomposed into a "core" tensor $\mathcal{Y}$ of dimension $N \times M \times K$ and "factor" matrices $A \in \mathbb{R}^{N \times N}$, $B \in \mathbb{R}^{T \times M}$, $C \in \mathbb{R}^{K \times K}$. 
+
+These bases in $B$ represent the set of common curves across time present in all players. By ensuring that $A$ and $C$ are identity matrices, 
+the horizontal "slices" of the core tensor represent how much different metrics contributed to each basis **for each** slice (player). 
+
+
 
 
 
