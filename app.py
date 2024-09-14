@@ -16,6 +16,7 @@ import numpy as np
 from shiny.express import input, render, ui
 from shinywidgets import render_plotly
 import numpyro
+from tensorly.decomposition import tucker
 numpyro.set_platform("cpu")
 
 # ========================================================================
@@ -124,14 +125,24 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
     scatter_df = pd.concat([pd.DataFrame(X_tsne, columns=[f"dim{i+1}" for i in range(3)]), agged_data], axis = 1)
     scatter_df["player_name"] = names
 
+
     # ========================================================================
 
+    import jax.numpy as jnp
     with open("model_output/fixed_nba_tvrflvm_test.pkl", "rb") as f:
         results_tvrflvm = pickle.load(f)
     f.close()
 
     W = results_tvrflvm["W"]
-
+    mu_dims = []
+    for i in range(aligned_X.shape[0]):
+        wTx = jnp.einsum("r,ijmr -> ijm", aligned_X[i], W)
+        phi = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], -1) * (1/ jnp.sqrt(100))
+        mu = jnp.einsum("ijk,ijmkt -> ijmt", phi, results_tvrflvm["beta"]).mean((0,1)).T
+        mu  = StandardScaler().fit_transform(mu)
+        mu_dims.append(mu)
+    mu = jnp.stack(mu_dims)
+    core, factors = tucker(mu, rank = [aligned_X.shape[0], len(metrics), 6])
 
     # ========================================================================
 
@@ -165,13 +176,11 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
         @render_plotly
         def plot_functional_bases():
             player_index = int(input.player_functional())
-            wTx = jnp.einsum("r,ijmr -> ijm", aligned_X[player_index, :], W)
-            phi = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], -1) * (1/ jnp.sqrt(100))
-            mu = jnp.einsum("ijk,ijmkt -> ijmt", phi, results_tvrflvm["beta"]).mean((0,1)).T 
-            standardized_mu = StandardScaler().fit_transform(mu)
-            functional_pca = SparsePCA(n_components=3, alpha=1)
-            functional_pca.fit(standardized_mu)
-            funct_bases_df = pd.DataFrame(functional_pca.transform(standardized_mu) * -1, columns = [f"Basis {i}" for i in range(1,4)])
+            # mu_player = core[player_index].T 
+            # standardized_mu = StandardScaler().fit_transform(mu_player)
+            # functional_pca = SparsePCA(n_components=3, alpha=1)
+            # functional_pca.fit(standardized_mu)
+            funct_bases_df = pd.DataFrame(factors[-1].T, columns = [f"Basis {i}" for i in range(1,7)])
             funct_bases_df["Age"] = range(18,39)
             funct_bases_melted = funct_bases_df.melt(id_vars="Age", var_name="Variable", value_name="Value")
             fig = px.line(funct_bases_melted, x = "Age", y = "Value", color="Variable")
@@ -182,15 +191,13 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
         @render_plotly
         def plot_metric_weights():
             player_index = int(input.player_functional())
-            wTx = jnp.einsum("r,ijmr -> ijm", aligned_X[player_index, :], W)
-            phi = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], -1) * (1/ jnp.sqrt(100))
-            mu = jnp.einsum("ijk,ijmkt -> ijmt", phi, results_tvrflvm["beta"]).mean((0,1)).T 
-            standardized_mu = StandardScaler().fit_transform(mu)
-            functional_pca = SparsePCA(n_components=3, alpha=1)
-            functional_pca.fit(standardized_mu)
-            weights = functional_pca.components_
+            # mu_player = mu[player_index].T 
+            # standardized_mu = StandardScaler().fit_transform(mu_player)
+            # functional_pca = SparsePCA(n_components=3, alpha=1)
+            # functional_pca.fit(standardized_mu)
+            weights = core[player_index].T - core.mean(0, keepdims=True)
             weights_df = pd.DataFrame(weights, columns = metrics)
-            weights_df["Basis"] = range(1,4)
+            weights_df["Basis"] = range(1,7)
             weights_df_melted = weights_df.melt(id_vars="Basis", var_name="Variable", value_name="Value")
             fig = px.bar(weights_df_melted, facet_row="Basis",x="Variable", y = "Value")
             fig.update_layout({'width':350, 'height': 350,
