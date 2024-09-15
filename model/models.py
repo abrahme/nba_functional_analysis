@@ -456,7 +456,6 @@ class RFLVMBase(ABC):
         self.m = rff_dim
         self.n, self.j = output_shape
         self.prior = {}
-        self.init_x = init_x
     
     @abstractmethod
     def initialize_priors(self, *args, **kwargs) -> None:
@@ -477,17 +476,17 @@ class RFLVMBase(ABC):
     def model_fn(self, data_set) -> None:
         W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(self.m, self.r))
 
-        X_raw = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
+        X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
         # X = self._stabilize_x(X_raw)
 
 
-        wTx = jnp.einsum("nr,mr -> nm", X_raw, W)
+        wTx = jnp.einsum("nr,mr -> nm", X, W)
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
 
         beta = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(len(data_set), 2 * self.m, self.j))
 
         mu = jnp.einsum("nm,kmj -> knj", phi, beta)
-        num_gaussians = sum(data["entity"] == 'gaussian' for data in data_set)
+        num_gaussians = sum(data["output"] == 'gaussian' for data in data_set)
         sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
         gaussian_counter = 0
         for index, data_entity in enumerate(data_set):
@@ -569,10 +568,9 @@ class TVRFLVM(RFLVM):
     def model_fn(self, data_set) -> None:
         W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(self.m, self.r))
 
-        X_raw = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
+        X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
         # X = self._stabilize_x(X_raw)
-
-        wTx = jnp.einsum("nr,mr -> nm", X_raw, W)
+        wTx = jnp.einsum("nr,mr -> nm", X, W)
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
 
         ls = self.prior["lengthscale"] if not isinstance(self.prior["lengthscale"], Distribution) else sample("lengthscale", self.prior["lengthscale"])
@@ -582,10 +580,9 @@ class TVRFLVM(RFLVM):
         
         mu = jnp.einsum("nm,kmj -> knj", phi, beta)
 
-        num_gaussians = sum(data["entity"] == 'gaussian' for data in data_set)
-
+        num_gaussians = sum(data["output"] == 'gaussian' for data in data_set)
         sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
-
+        gaussian_counter = 0
         for index, data_entity in enumerate(data_set):
             output = data_entity["output"]
             metric = data_entity["metric"]
@@ -595,7 +592,7 @@ class TVRFLVM(RFLVM):
             exposure_ =  exposure_data[mask].flatten()
 
             Y_ = output_data[mask].flatten() ### non missing values
-            gaussian_counter = 0
+
             if output == "gaussian":
                 sigma = sigmas[gaussian_counter]
                 y = sample(f"likelihood_{metric}", Normal( mu[index,:,:][mask].flatten() , sigma/exposure_), obs=Y_)

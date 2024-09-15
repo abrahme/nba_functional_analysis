@@ -9,7 +9,7 @@ from numpyro.distributions import MatrixNormal
 
 jax.config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, create_pca_data, create_cp_data, create_cp_data_multi_way, create_fda_data_time
-from model.models import NBAFDAModel, NBAFDAREModel, NBAFDALatentModel, NBAMixedOutputProbabilisticPCA, NBAMixedOutputProbabilisticCPDecomposition, NBAMixedOutputProbabilisticCPDecompositionMultiWay, RFLVM, TVRFLVM, DriftRFLVM, DriftTVRFLVM, FixedRFLVM, FixedTVRFLVM, GibbsRFLVM, GibbsTVRFLVM
+from model.models import NBAFDAModel, NBAFDAREModel, NBAFDALatentModel, NBAMixedOutputProbabilisticPCA, NBAMixedOutputProbabilisticCPDecomposition, NBAMixedOutputProbabilisticCPDecompositionMultiWay, RFLVM, TVRFLVM, DriftRFLVM, DriftTVRFLVM, GibbsRFLVM, GibbsTVRFLVM
 
 
 
@@ -17,8 +17,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Description of your program')
     parser.add_argument('--model_name', help='which model to fit', required=True)
     parser.add_argument("--basis_dims", help="size of the basis", required=True, type=int)
-    parser.add_argument("--fixed_param_path",help="where to read in the fixed params from", required=True, default="")
-    parser.add_argument("--prior_x_path", help="if there is a prior on x, where to get the required params", required=True, default="")
+    parser.add_argument("--fixed_param_path",help="where to read in the fixed params from", required=False, default="")
+    parser.add_argument("--prior_x_path", help="if there is a prior on x, where to get the required params", required=False, default="")
     numpyro.set_platform("cuda")
     # numpyro.set_host_device_count(4)
     args = vars(parser.parse_args())
@@ -45,25 +45,9 @@ if __name__ == "__main__":
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
         model = NBAFDALatentModel(basis, output_size=len(metric_output), M = 10, latent_dim1=covariate_X.shape[0], latent_dim2=basis_dims)
     elif model_name == "gibbs_nba_rflvm":
-        # with open("model_output/exponential_cp_test.pkl", "rb") as f:
-        #     results = pickle.load(f)
-        # f.close()
-        # X_rflvm = results["U_auto_loc"]
-        # U, _, _ = jnp.linalg.svd(X_rflvm, full_matrices=False)
-        # L       = jnp.linalg.cholesky(jnp.cov(U.T) + 1e-6 * jnp.eye(basis_dims)).T
-        # aligned_X  = np.linalg.solve(L, U.T).T
-        # X_tvrflvm_aligned = aligned_X / jnp.std(X_rflvm, axis=0)
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
         model = GibbsRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
     elif model_name == "gibbs_nba_tvrflvm":
-        # with open("model_output/exponential_cp_test.pkl", "rb") as f:
-        #     results = pickle.load(f)
-        # f.close()
-        # X_rflvm = results["U_auto_loc"]
-        # U, _, _ = jnp.linalg.svd(X_rflvm, full_matrices=False)
-        # L       = jnp.linalg.cholesky(jnp.cov(U.T) + 1e-6 * jnp.eye(basis_dims)).T
-        # aligned_X  = np.linalg.solve(L, U.T).T
-        # X_tvrflvm_aligned = aligned_X / jnp.std(X_rflvm, axis=0)
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
         model = GibbsTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
     elif model_name == "exponential_pca":
@@ -114,24 +98,29 @@ if __name__ == "__main__":
             for param_name in results_param:
                 value = results_param[param_name]
                 prior_dict[param_name] = numpyro.deterministic(param_name, value)
-            if prior_x_path:
-                with open(prior_x_path, "rb") as f_prior:
-                    results_prior = pickle.load(f_prior)
-                f_prior.close()
-                X_rflvm = results_prior["U_auto_loc"]
-                U, _, _ = jnp.linalg.svd(X_rflvm, full_matrices=False)
-                L       = jnp.linalg.cholesky(jnp.cov(U.T) + 1e-6 * jnp.eye(basis_dims)).T
-                aligned_X  = np.linalg.solve(L, U.T).T
-                X = aligned_X / jnp.std(X_rflvm, axis=0) 
-                n, r = X.shape
-                cov_rows = jnp.cov(X) + jnp.eye(n) * (1e-6)
-                cholesky_rows = jnp.linalg.cholesky(cov_rows)
-                cov_cols = jnp.cov(X.T) + jnp.eye(r) * (1e-6)
-                cholesky_cols = jnp.linalg.cholesky(cov_cols)
-                prior_dict["X"] = MatrixNormal(loc = X, scale_tril_column=cholesky_cols, scale_tril_row=cholesky_rows)
+        if prior_x_path:
+            with open(prior_x_path, "rb") as f_prior:
+                results_prior = pickle.load(f_prior)
+            f_prior.close()
+            X_rflvm = results_prior["U_auto_loc"]
+            U, _, _ = jnp.linalg.svd(X_rflvm, full_matrices=False)
+            L       = jnp.linalg.cholesky(jnp.cov(U.T) + 1e-6 * jnp.eye(basis_dims)).T
+            aligned_X  = np.linalg.solve(L, U.T).T
+            X = aligned_X / jnp.std(X_rflvm, axis=0) 
+            n, r = X.shape
+            cov_rows = jnp.cov(X) + jnp.eye(n) * (1e-6) 
+            cholesky_rows = jnp.linalg.cholesky(cov_rows) + jnp.eye(n) * (1e-6)
+            cov_cols = jnp.cov(X.T) + jnp.eye(r) * (1e-6)
+            cholesky_cols = jnp.linalg.cholesky(cov_cols) + jnp.eye(r) * (1e-6)
+            prior_dict["X"] = MatrixNormal(loc = X, scale_tril_column=cholesky_cols, scale_tril_row=cholesky_rows)
         model.prior.update(prior_dict)
         if "gibbs" in model_name:
-            mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set}, gibbs_sites=[["X","lengthscale"], ["W","beta","sigma"]])      
+            if "tvrflvm" in model_name:
+                mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set}, gibbs_sites=[["X", "lengthscale"], ["W","beta","sigma"]])  
+            else:
+                mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set}, gibbs_sites=[["X"], ["W","beta","sigma"]])  
+
+
         else:
             mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set})
         mcmc_run.print_summary()
