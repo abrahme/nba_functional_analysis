@@ -538,8 +538,10 @@ class RFLVM(RFLVMBase):
     
     def model_fn(self, data_set) -> None:
         return super().model_fn(data_set)
-    def run_inference(self, num_steps, model_args):
-        return super().run_inference(num_steps, model_args)
+    
+    def run_inference(self, num_warmup, num_samples, num_chains, model_args):
+        return super().run_inference(num_warmup, num_samples, num_chains, model_args)
+
     def predict(self, posterior_samples: dict, model_args):
         return super().predict(posterior_samples, model_args)
 
@@ -604,8 +606,8 @@ class TVRFLVM(RFLVM):
             elif output == "exponential":
                 y = sample(f"likelihood_{metric}", Exponential(jnp.exp(mu[index,:,:][mask].flatten() + exposure_)), obs = Y_)
     
-    def run_inference(self, num_steps, model_args):
-        return super().run_inference(num_steps, model_args)
+    def run_inference(self, num_warmup, num_samples, num_chains, model_args):
+        return super().run_inference(num_warmup, num_samples, num_chains, model_args)
 
     def predict(self, posterior_samples: dict, model_args):
         return super().predict(posterior_samples, model_args)
