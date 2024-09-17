@@ -186,7 +186,7 @@ def plot_scatter(df, title= "", player_index:int = 0 ):
 
 
 def plot_data_tensor(final_df, title = ""):
-    fig = px.scatter_3d(final_df, x = "Player", y = "Metric", z = "Time", opacity = .5, title=title, color = "Missing",
+    fig = px.scatter_3d(final_df, x = "Player", y = "Metric", z = "Age", opacity = .5, title=title, color = "Missing",
                         hover_data = ["Name", "Statistic", "Age"])
     fig.update_traces(marker={'size': 1})
     return fig

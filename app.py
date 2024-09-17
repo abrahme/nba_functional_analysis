@@ -125,7 +125,6 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
     scatter_df = pd.concat([pd.DataFrame(X_tsne, columns=[f"dim{i+1}" for i in range(3)]), agged_data], axis = 1)
     scatter_df["player_name"] = names
 
-
     # ========================================================================
 
     import jax.numpy as jnp
@@ -134,25 +133,24 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
     f.close()
 
     W = results_tvrflvm["W"]
-    # mu_dims = []
-    # for i in range(aligned_X.shape[0]):
-    #     wTx = jnp.einsum("r,ijmr -> ijm", aligned_X[i], W)
-    #     phi = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], -1) * (1/ jnp.sqrt(100))
-    #     mu = jnp.einsum("ijk,ijmkt -> ijmt", phi, results_tvrflvm["beta"]).mean((0,1)).T
-    #     mu  = StandardScaler().fit_transform(mu)
-    #     mu_dims.append(mu)
-    # mu = jnp.stack(mu_dims)
-    # del mu_dims
-    # core, factors = tucker(mu, rank = [aligned_X.shape[0], 3, len(metrics)])
 
     with open("model_output/tensor_decomposition.pkl", "rb") as f:
         results_tensor = pickle.load(f)
     f.close()
     core, factors, mu = results_tensor["core"], results_tensor["factors"], results_tensor["mu"]
     full_core = np.einsum("nkl,lj -> nkj", np.einsum("nc,ckl -> nkl", factors[0], core), factors[2])
+    pos_indices = data.groupby("id")["position_group"].max().reset_index()
+    positions = ["G", "F", "C"]
+    tensor_decomps = {}
+    tensor_decomps["global"] = {"core": core, "factors": factors, "full_core": full_core}
+    for pos in positions:
+        core, factors = results_tensor[f"core_{pos}"], results_tensor[f"factors_{pos}"]
+        full_pos_core = np.einsum("nkl,lj -> nkj", np.einsum("nc,ckl -> nkl", factors[0], core), factors[2])
+        tensor_decomps[pos] = {"core": core, "factors": factors, "full_core": full_pos_core}
 
     # ========================================================================
 
+    ### combine with next slide maybe
     from visualization.visualization import plot_career_trajectory_observations
     ui.input_select(id="player_traj", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
     @render_plotly
@@ -161,6 +159,7 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
 
     # ========================================================================
 
+    #### change time to actual age 
     from visualization.visualization import plot_data_tensor
     @render_plotly
     def plot_data():
@@ -174,39 +173,6 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
     @render_plotly
     def plot_latent_space():
         return plot_scatter(scatter_df,  "Latent Embedding", int(input.player()) )
-
-    # ========================================================================
-
-    with ui.layout_column_wrap():
-        ui.input_select(id="player_functional", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
-    with ui.layout_column_wrap():
-        @render_plotly
-        def plot_functional_bases():
-            player_index = int(input.player_functional())
-            # mu_player = core[player_index].T 
-            # standardized_mu = StandardScaler().fit_transform(mu_player)
-            # functional_pca = SparsePCA(n_components=3, alpha=1)
-            # functional_pca.fit(standardized_mu)
-            explained_var = full_core[player_index].T.var(0)
-            funct_bases_df = pd.DataFrame(factors[1], columns = [f"Basis {i}: {explained_var[i-1]/16:.{3}}% EV" for i in range(1,4)])
-            funct_bases_df["Age"] = range(18,39)
-            funct_bases_melted = funct_bases_df.melt(id_vars="Age", var_name="Variable", value_name="Value")
-            fig = px.line(funct_bases_melted, x = "Age", y = "Value", color="Variable")
-            return fig
-        @render_plotly
-        def plot_metric_weights():
-            player_index = int(input.player_functional())
-            # mu_player = mu[player_index].T 
-            # standardized_mu = StandardScaler().fit_transform(mu_player)
-            # functional_pca = SparsePCA(n_components=3, alpha=1)
-            # functional_pca.fit(standardized_mu)
-            weights = full_core[player_index] - full_core.mean(0)
-            weights_df = pd.DataFrame(weights, columns = metrics)
-            weights_df["Basis"] = range(1,4)
-            weights_df_melted = weights_df.melt(id_vars="Basis", var_name="Variable", value_name="Value")
-            fig = px.bar(weights_df_melted, facet_row="Basis",x="Variable", y = "Value")
-            return fig
-
 
     # ========================================================================
 
@@ -230,6 +196,69 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
                                                                 observations=jnp.array(observations), 
                                                                 exposures = jnp.array(exposures),
                                                                 posterior_variance_samples=jnp.stack([results_tvrflvm["sigma_obpm"], results_tvrflvm["sigma_dbpm"]], axis = 0))
+
+    # ========================================================================
+
+    with ui.layout_column_wrap():
+        @render_plotly
+        def plot_functional_bases_group():
+            dfs = []
+            for pos in positions:
+                factors = tensor_decomps[pos]["factors"]
+                funct_bases_df = pd.DataFrame(factors[1], columns = [f"Basis {i}" for i in range(1,4)])
+                funct_bases_df["Position"] = pos
+                funct_bases_df["Age"] = range(18,39)
+                dfs.append(funct_bases_df)
+            full_funct_bases = pd.concat(dfs)
+            funct_bases_melted = pd.melt(full_funct_bases, id_vars = ["Position", "Age"], value_vars = [f"Basis {i}" for i in range(1,4)],
+            var_name="basis_type", value_name="value")
+            fig = px.line(funct_bases_melted, x = "Age", y = "value", color="basis_type", facet_col="Position")
+            return fig
+    
+        @render_plotly
+        def plot_metric_weights_bases_group():
+            dfs = []
+            for pos in positions:
+                factors = tensor_decomps[pos]["factors"]
+                weights = tensor_decomps[pos]["full_core"].mean(0)
+                weights_df = pd.DataFrame(weights, columns = metrics)
+                weights_df["Position"] = pos
+                weights_df["Basis"] = range(1,4)
+                dfs.append(weights_df)
+ 
+            weights_df = pd.concat(dfs)
+            weights_df_melted = weights_df.melt(id_vars=["Basis", "Position"], var_name="Variable", value_name="Value")
+            fig = px.bar(weights_df_melted, facet_row="Basis",x="Variable", y = "Value", facet_col="Position")
+            return fig
+
+
+    # ========================================================================
+
+    with ui.layout_column_wrap():
+        ui.input_select(id="player_functional", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
+    with ui.layout_column_wrap():
+        @render_plotly
+        def plot_functional_bases():
+            player_index = int(input.player_functional())
+            full_core = tensor_decomps["global"]["full_core"]
+            factors = tensor_decomps["global"]["factors"]
+            explained_var = full_core[player_index].T.var(0)
+            funct_bases_df = pd.DataFrame(factors[1], columns = [f"Basis {i}: {explained_var[i-1]/16:.{3}}% EV" for i in range(1,4)])
+            funct_bases_df["Age"] = range(18,39)
+            funct_bases_melted = funct_bases_df.melt(id_vars="Age", var_name="Variable", value_name="Value")
+            fig = px.line(funct_bases_melted, x = "Age", y = "Value", color="Variable")
+            return fig
+        @render_plotly
+        def plot_metric_weights():
+            player_index = int(input.player_functional())
+            full_core = tensor_decomps["global"]["full_core"]
+            factors = tensor_decomps["global"]["factors"]
+            weights = full_core[player_index]  
+            weights_df = pd.DataFrame(weights, columns = metrics)
+            weights_df["Basis"] = range(1,4)
+            weights_df_melted = weights_df.melt(id_vars="Basis", var_name="Variable", value_name="Value")
+            fig = px.bar(weights_df_melted, facet_row="Basis",x="Variable", y = "Value")
+            return fig
 
     # ========================================================================
 
