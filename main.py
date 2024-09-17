@@ -19,6 +19,7 @@ if __name__ == "__main__":
     parser.add_argument("--basis_dims", help="size of the basis", required=True, type=int)
     parser.add_argument("--fixed_param_path",help="where to read in the fixed params from", required=False, default="")
     parser.add_argument("--prior_x_path", help="if there is a prior on x, where to get the required params", required=False, default="")
+    parser.add_argument("--output_path", help="where to store generated files", required = False, default="")
     numpyro.set_platform("cuda")
     # numpyro.set_host_device_count(4)
     args = vars(parser.parse_args())
@@ -26,6 +27,7 @@ if __name__ == "__main__":
     basis_dims = args["basis_dims"]
     param_path = args["fixed_param_path"]
     prior_x_path = args["prior_x_path"]
+    output_path = args["output_path"] if args["output_path"] else f"model_output/{model_name}.pkl"
     data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
@@ -96,13 +98,13 @@ if __name__ == "__main__":
                 results_param = pickle.load(f_param)
             f_param.close()
             for param_name in results_param:
-                value = results_param[param_name]
+                value = results_param[param_name].mean((0,1))
                 prior_dict[param_name] = numpyro.deterministic(param_name, value)
         if prior_x_path:
             with open(prior_x_path, "rb") as f_prior:
                 results_prior = pickle.load(f_prior)
             f_prior.close()
-            X_rflvm = results_prior["U_auto_loc"]
+            X_rflvm = results_prior["X"]
             U, _, _ = jnp.linalg.svd(X_rflvm, full_matrices=False)
             L       = jnp.linalg.cholesky(jnp.cov(U.T) + 1e-6 * jnp.eye(basis_dims)).T
             aligned_X  = np.linalg.solve(L, U.T).T
@@ -130,7 +132,7 @@ if __name__ == "__main__":
         mcmc_run.print_summary()
         samples = mcmc_run.get_samples(group_by_chain=True)
 
-    with open(f"model_output/{model_name}.pkl", "wb") as f:
+    with open(output_path, "wb") as f:
         pickle.dump(samples, f)
     f.close()
     
