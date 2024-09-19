@@ -4,10 +4,11 @@ subtitle: With Applications to Sports Production Curve Modeling
 author: Abhijit Brahme
 format: 
     revealjs: 
-        incremental: false
+        incremental: true
         smaller: true
         scrollable: true
         html-math-method: mathjax
+        theme: solarized
 server: shiny
 date: 2024-09-20
 bibliography: advancement.bib
@@ -179,22 +180,29 @@ for pos in positions:
 ![](images/noun-scatter-graph-4768711.png)
 :::
 
+
+::: {.notes}
+Generally work at the intersection of more modern advances in machine learning and statistics. Trying to find connections between these advances, and 
+even instances where one field could help the other. 
+:::
+
 ## Current Work
 
 1. Metric / Manifold Estimation from Trajectory Valued Data 
     - Prof. Nina Mialone (Dept. of Electrical Engineering)
 2. Approximate HMC Methods
     - Prof. Andrew Holbrook (UCLA, Dept of Public Health)
-3. **A Latent Variable Model for Modeling Multi-Dimensional Exponential Family Time-Series**
+3. **A Latent Variable Model for Modeling Multi-Dimensional Mixed Time-Series Data**
     - **Prof. Alex Franks (Dept. of Statistics)**
 
 ## Motivation 
 
-
+::: {.nonincremental}
 1. Successfully forecast player performance, especially young players
 2. Gain insight into how different observable metrics may peak at varying timepoints for certain groups of players
 3. Quantify a level of uncertainty regarding players' future performance
 4. Jointly model all of the above 
+::: 
 
 ```{python}
 ### combine with next slide maybe
@@ -207,8 +215,37 @@ def plot_metric_arc():
 ```
 
 
+::: {.notes}
+The data are these time varying curves of specific observable and recorded metrics in basketball. Each one of these metrics is sort of an emission from an underlying latent
+state or ability. For example, we can look at LeBron James, who has had a long career and is in fact still playing. Some of these metrics are more "skill" based in that they aren't affected by physical aging. For example, the ability to make free-throws is not really an athletic feat. Whereas, things like getting rebounds or scoring, are affected by age. So for example, there is some variation amongst metrics themselves in where they peak, as well as variation within individuals, usually by position. 
+
+So, if we look at Stephen Curry by contrast, he is a smaller guard. He is shorter, and not as athletic as LeBron, and so drop-off in his athleticism will appear more sharp as it is not mitigated by physical strength or height. The model, nor the data, doesn't encode any of this explicitly, but the goal is to learn such variations through a latent embedding of players. We want to learn how to place players in some latent space where their position in the latent space tells us how they will age. 
+
+More so, we want to establish some measure of uncertainty about where players are placed. This is typically more important for rookies (new players) who just entered the league and we are sort of looking to model their future performance. Sort of an important task for team managers is to project performance and putting a level of uncertainty to an estimate is helpful in decision making. 
+
+Additionally, we want to be able to learn something about aging in general. How do different types of players age? How does that affect where they peak in certain metrics?
+So to do all of this, we want to model everything jointly. 
+
+:::
 
 
+## Data Overview
+
+::: {.nonincremental}
+1. $\approx$ 2k NBA players from years 1997 - 2021, from the ages of 18 - 39
+2. Longitudinal mixed tensor valued data $\mathcal{Y}$ of size $N$ by $T$ by $K$
+where $N$ is the number of players, $T$ is the number of years in a player's career, and $K$ are the number of production metric curves with $\mathcal{Y}_{ntk}$ is missing if player $n$ is not observed for metric $k$ at age $t$. 
+    - Non-missing entries are observations from exponential families (i.e Binomial, Gaussian, Exponential, Poisson, etc.)
+3. $\Omega$ is binary tensor of same size as $\mathcal{Y}$ indicating missingness. 
+:::
+
+```{python}
+#### change time to actual age 
+from visualization.visualization import plot_data_tensor
+@render_plotly
+def plot_data():
+    return plot_data_tensor(final_data_plot_df)
+```
 
 ## Relevant Work
 
@@ -223,21 +260,14 @@ def plot_metric_arc():
     - Production curves as a convex combination of curves from the same set of archetype [@vinue2015archetypoids]
 
 
-## Data Overview
-1. $\approx$ 2k NBA players from years 1997 - 2021, from the ages of 18 - 39
-2. Longitudinal mixed tensor valued data $\mathcal{Y}$ of size $N$ by $T$ by $K$
-where $N$ is the number of players, $T$ is the number of years in a player's career, and $K$ are the number of production metric curves with $\mathcal{Y}_{ntk}$ is missing if player $n$ is not observed for metric $k$ at age $t$. 
-    - Non-missing entries are observations from exponential families (i.e Binomial, Gaussian, Exponential, Poisson, etc.)
-3. $\Omega$ is binary tensor of same size as $\mathcal{Y}$ indicating missingness. 
+::: {.notes}
+So there's already been some kind of work in this area already. Some of this work is using specifically player positions to develop projections. But, these positions are kind of rigid in explaining the intricacies of basketball and similarities between players. We really want a continuous measure. 
+
+The paper that is most similar is this functional principal components clustering, but that works on the space of 1 metric / measure. and Nate silver's method. Again, they are not jointly learning these things. 
+:::
 
 
-```{python}
-#### change time to actual age 
-from visualization.visualization import plot_data_tensor
-@render_plotly
-def plot_data():
-    return plot_data_tensor(final_data_plot_df)
-```
+
 
 
 ## Modeling Setup
@@ -245,23 +275,29 @@ Space of players live in low dimensional latent space $X \in \mathbb{R} ^{N \tim
 
 For a given time $t$, and metric $k$, $f^k_t \sim \mathcal{GP}(0, K_X)$ is a vector of size $N$, with $K_X$ capturing correlation across the $N$ dimension
 
-![](images/pgm.svg)
+:::{layout-ncol=2}
+![](images/pgm.svg){width=90%}
 
 
-## Random Fourier Features (tl;dr)
-
-1. Approximation of Gaussian Process can be turned into a linear operation, $f^k_{t}(X) \approx Z(X)^T\beta^k_{t}$ which is computationally beneficial if $N$ large
-2. Number of random features, $R$, determines how good the approximation is
+\begin{pmatrix}
+  \vert & \vert & \cdots & \vert & \cdots & \vert  \\
+  \vert & \vert & \cdots & \vert & \cdots & \vert  \\
+  f^k_1 & f^k_2 & \cdots & f^k_i & \cdots & f^k_T  \\
+  \vert  & \vert & \cdots & \vert & \cdots & \vert \\
+  \vert  & \vert & \cdots  & \vert & \cdots  & \vert 
+\end{pmatrix}
+:::
 
 ## Random Fourier Features 
 
 Attempt to approximate the inner product $k(x, y) = \langle \phi(x), \phi(y) \rangle$
-with a randomized map $z: \mathbb{R}^D \rightarrow \mathbb{R}^R$. Computational savings arise if $R << N$.
+with a randomized map $z: \mathbb{R}^D \rightarrow \mathbb{R}^R$. Computational savings arise if $R << N$. 
+
+**Approximation of Gaussian Process can be turned into a linear operation, $f^k_{t}(X) \approx Z(X)^T\beta^k_{t}$ which is computationally beneficial if $N$ large.**
 
 In our case, we let $k(x,y) = k(x - y) = exp(\frac{-||x - y||^2}{2})$ be the standard radial basis kernel. 
 
-From Bochner's theorem, we have that 
-$k(x - y) = \int p(\omega)exp(i\omega(x - y))d \omega$, and it can be shown that to produce the radial basis kernel, $\omega \sim \mathcal{N}_D(0, I_d)$. 
+It can be shown that to produce the radial basis kernel, $\omega \sim \mathcal{N}_D(0, I_d)$. 
 
 Thus the map is composed of $z_{\omega_r} = [cos(\omega_r ^T x), sin(\omega_r ^ T x)]^T$. 
 
@@ -273,8 +309,11 @@ $Z(X) = \frac{1}{\sqrt{R}}[z_{\omega_1}, z_{\omega_2}, \dots, z_{\omega_R}]^T$
 
 ## Distributional Assumptions
 
-We include the following metrics and distribution families
+We include the following metrics and distribution families:
 
+:::{layout-ncol=2}
+
+::: {.nonincremental}
 1. Poisson
     - $\mathcal{R} =$ {FG2A, FG3A, FTA, BLK, OREB, DREB, TOV, AST, STL}
 2. Gaussian
@@ -286,6 +325,7 @@ We include the following metrics and distribution families
     - $\mathcal{M} =$ {Minutes}
 5. Bernoulli
     - $\mathcal{K} =$ {Retirement}
+:::
 
 \begin{align}
 Y^k_{t}  &\sim
@@ -297,7 +337,11 @@ Bern(logit^{-1}(f^k_t)) \text{ if } k \in \mathcal{K}\\
 Exp(e^{f^k_t}) \text{ if  } k \in \mathcal{M}
 \end{cases}
 \end{align}
+:::
 
+::: {.notes}
+One thing to take note of here is that we are handling exposure parameters properly here. So, for example the total rebounds is scaled by the number of minutes played that year. Similarly for the metrics like 3 point percentage, we include the number of attempts (which coincidentally is another metric). The gaussian metric's variance is scaled by the minutes played as well. So in this way we handle varying levels of playing time (something that other papers don't really look at.) 
+:::
 
 
 ## Inferential Challenges 
@@ -316,23 +360,13 @@ In order to address identifiability issues and MCMC convergence, we propose the 
 
 ## Probabilistic Tensor Decomposition 
 
+:::{layout-ncol=2}
+![](images/cp_decomp.jpg){width=90%}
+
+:::
+
 This model seeks to factorize the  $N \times T \times K$ linear scale tensor $A$ using CP Decomposition. Since we have various outputs that are not normally distributed, this becomes a form of exponential family CP Decomposition.
 
-We seek to approximate the following:
-
-$A \approx \mu + \sum_{i=1}^{R} \lambda_i \cdot x_i \otimes v_i \otimes w_i$
-
-where, $\mu$, $x_i$, $v_i$, $w_i$ $\sim \mathcal{N}(0, I)$, $\lambda \sim Dirichlet(1/R)$
-
-$X \in \mathbb{R}^{N \times R}$
-
-$V \in \mathbb{R}^{T \times R}$
-
-$W \in \mathbb{R}^{K \times R}$
-
-$\mu \in \mathbb{R}^{T \times K}$. 
-
-Here $\mu$ is used to de-mean the data and act as an intercept term.  
 
 ## Probabilistic Tensor Decomposition (contd.) 
 
@@ -488,6 +522,7 @@ In order to address identifiability issues and MCMC convergence while also recov
 2. Conditional on the fixed $X_0$, sample the remaining parameters using HMC until convergence.
 3. Taking the posterior mean of all parameters resulting from (2), sample $X$ using HMC until convergence. 
 
+# Questions ?
 
 # References
 
@@ -495,7 +530,7 @@ In order to address identifiability issues and MCMC convergence while also recov
 :::
 
 
-# Appendix {.appendix}
+
 
 
 
