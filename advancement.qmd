@@ -330,7 +330,7 @@ We include the following metrics and distribution families:
 \begin{align}
 Y^k_{t}  &\sim
 \begin{cases}
-Pois(f^k_{t}e^{Y^m_t}) \text{if } k \in \mathcal{R} \text{ , } \forall m \in \mathcal{M} \\
+Pois(Y^m_t e^{f^k_{t}}) \text{if } k \in \mathcal{R} \text{ , } \forall m \in \mathcal{M} \\
 Bin(Y^j_{t}, logit^{-1}(f^k_{t})) \text{ if } k \in \mathcal{B} \text{ , }  j \in \mathcal{A} \\
 \mathcal{N}(f^k_{t}, \frac{\sigma^2_k}{Y^m_t})  \text{ if } k \in \mathcal{G} \text{ , } \forall m \in \mathcal{M}\\
 Bern(logit^{-1}(f^k_t)) \text{ if } k \in \mathcal{K}\\
@@ -506,22 +506,14 @@ with ui.layout_column_wrap():
 
 ## Future Work 
 
-In order to address identifiability issues and MCMC convergence while also recovering sampling variability in the latent space, we propose an alternating scheme to estimate the latent space $X$ and functional coefficients $\beta_{rtk}$. 
 
-1. Let $X \sim \mathcal{N}(\mu_0, \Sigma_0)$ where $\mu_0$ and $\Sigma_0$ come from an initialized latent space $X_0$.
-    - Exponential PPCA, Probabilistic Tensor Decomposition, Standard PCA, etc. can be used to create $X_0$
-2. Using a hybrid Gibbs-HMC routine, perform the following updates:
+1. Using a hybrid Gibbs-HMC routine, perform the following updates:
     - Sample $X$, $\gamma$ while holding all other parameters fixed using HMC proposal step
     - Conditional on the sampled $X$ and $\gamma$, sample the remaining parameters using HMC proposal step
 
-## Future Work (contd.)
-In order to address identifiability issues and MCMC convergence while also recovering sampling variability in the latent space, we propose an alternating scheme to estimate the latent space $X$ and functional coefficients $\beta_{rtk}$. 
-
-1. Let $X \sim \mathcal{N}(\mu_0, \Sigma_0)$ where $\mu_0$ and $\Sigma_0$ come from an initialzed latent space $X_0$.
-    - Exponential PPCA, Probabilistic Tensor Decomposition, Standard PCA, etc. can be used to create $X_0$
-2. Conditional on the fixed $X_0$, sample the remaining parameters using HMC until convergence.
-3. Taking the posterior mean of all parameters resulting from (2), sample $X$ using HMC until convergence. 
-
+2. Posterior Coverage Tests
+    - Holdout forecasting performance
+    
 # Questions ?
 
 # References
