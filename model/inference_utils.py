@@ -4,7 +4,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 import jax.scipy as jsc
-from numpyro.distributions import Normal, Poisson, Exponential, Bernoulli
+from numpyro.distributions import Normal, Poisson, Gamma, Bernoulli
 jax.config.update('jax_platform_name', 'cuda')
 
 def varimax(Phi, gamma = 1, q = 20):
@@ -62,7 +62,7 @@ def match_align(Phi):
 
 def create_metric_trajectory(posterior_mean_samples, player_index, observations, exposures, metric_outputs: list[str], metrics: list[str], posterior_variance_samples = None):
     key = jax.random.key(0)
-    gaussian_index = 0
+    gaussian_index = 1
     minutes_index = metrics.index("minutes")
     retirement_index = metrics.index("retirement")  ### 1 -> playing, 0 --> retired
 
@@ -72,9 +72,9 @@ def create_metric_trajectory(posterior_mean_samples, player_index, observations,
     obs_retirement = observations[player_index, retirement_index, :]
 
     #### then sample minutes 
-    
     post_min = posterior_mean_samples[..., minutes_index, :]
-    posterior_predictions_min = Exponential(rate = jnp.exp(post_min)).sample(key = key)
+    print(post_min)
+    posterior_predictions_min = Gamma(jnp.exp(post_min), posterior_variance_samples[..., 0][..., None]).sample(key = key)
     posterior_predictions_min = posterior_predictions_min.at[jnp.where(posterior_predictions_retirement == 0)].set(0) ## fix the minutes to sample from zero inflated process
     obs_min = observations[player_index, minutes_index, :]
     posteriors = [jsc.special.expit(post_retirement), posterior_predictions_min]
@@ -87,14 +87,13 @@ def create_metric_trajectory(posterior_mean_samples, player_index, observations,
         obs = observations[player_index, metric_index, :]
         post = posterior_mean_samples[..., metric_index, :]
         if metric_output == "gaussian":
-            scale = posterior_variance_samples[gaussian_index][..., None] / jnp.sqrt(posterior_predictions_min)
-            dist = Normal()
-            posterior_predictions = (dist.sample(key = key, sample_shape=post.shape) * scale + post)
+            scale = posterior_variance_samples[..., gaussian_index][..., None] / jnp.sqrt(posterior_predictions_min)
+            posterior_predictions = (Normal().sample(key = key, sample_shape=post.shape) * scale + post)
             posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_retirement == 0)].set(-2.0)
             obs_normal = obs
             gaussian_index += 1
         elif metric_output == "poisson":
-            dist = Poisson(rate = jnp.exp(post + jnp.log(Exponential(rate = jnp.exp(post_min)).sample(key = key))))
+            dist = Poisson(rate = jnp.exp(post + jnp.log(Gamma(jnp.exp(post_min), posterior_variance_samples[..., 0][..., None] ).sample(key = key))))
             posterior_predictions = 36.0 * (dist.sample(key = key) / posterior_predictions_min) ### per 36 min statistics
             posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_retirement == 0)].set(0) ### set to 0 wherever 
             obs_normal = 36.0 * (obs / jnp.exp(exposure))

@@ -19,7 +19,7 @@ jax.config.update("jax_platform_name", "cuda")
 data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
 names = data.groupby("id")["name"].first().values
 
-metric_output = ["binomial", "exponential"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+metric_output = ["binomial", "log-normal"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
 
 metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
 exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
@@ -31,9 +31,11 @@ _ , outputs, _ = create_fda_data(data, basis_dims=3, metric_output=metric_output
                                      metrics = metrics
 , exposure_list =  exposure_list)
 
-with open("model_output/gibbs_nba_tvrflvm_test.pkl", "rb") as f:
+with open("model_output/gibbs_nba_tvrflvm.pkl", "rb") as f:
     results = pickle.load(f)
 f.close()
+
+
 
 inf_data = az.from_dict(results)
 
@@ -41,13 +43,14 @@ W = results["W"]
 X = results["X"]
 
 X_rflvm_aligned_mean = X[-1, -10, ...] ### TODO: align 
+X_rflvm_aligned_mean = X.mean((0,1))
 X_rflvm_aligned = X
 
 X_tsne = TSNE(n_components=3).fit_transform(X_rflvm_aligned_mean)
 knn = NearestNeighbors(n_neighbors=6).fit(X_tsne)
 
 
-parameters = list(results.keys()) + ["phi", "mu"]
+parameters = list(results.keys())+ ["phi", "mu"]
 
 agg_dict = {"obpm":"mean", "dbpm":"mean", "bpm":"mean", 
             "position_group": "max",
@@ -104,7 +107,7 @@ with ui.nav_panel("Player Embeddings & Trajectories"):
                                                             posterior_mean_samples=mu,
                                                             observations=jnp.stack([output["output_data"] for output in outputs], axis = 1), 
                                                             exposures = jnp.stack([outputs[i]["exposure_data"] for i in range(len(metrics))],axis=0),
-                                                            posterior_variance_samples=jnp.stack([results["sigma_obpm"], results["sigma_dbpm"]], axis = 0))
+                                                            posterior_variance_samples=results["sigma"])
 
 
 

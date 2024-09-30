@@ -28,6 +28,16 @@ def process_data(df, output_metric, exposure, model, input_metrics):
         exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
         offset = jnp.log(exposure_array)
         return offset, jnp.array(metric_array), X
+    elif model == "log-normal":
+        metric_array = metric_df.to_numpy()
+        exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
+        variance_scale = jnp.sqrt(exposure_array)
+        return variance_scale, jnp.array(metric_array), X
+    elif model == "gamma":
+        metric_array = metric_df.to_numpy()
+        exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
+        variance_scale = jnp.sqrt(exposure_array)
+        return variance_scale, jnp.array(metric_array), X
     elif model == "binomial":
         metric_array = metric_df.to_numpy()
         exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()

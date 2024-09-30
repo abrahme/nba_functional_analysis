@@ -3,7 +3,7 @@ import jax
 import numpy as np
 from numpyro import sample 
 from numpyro import deterministic
-from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, MatrixNormal, Distribution
+from numpyro.distributions import HalfNormal, InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, Distribution, LogNormal
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive
 from numpyro.infer.autoguide import AutoDelta
 from optax import linear_onecycle_schedule, adam
@@ -477,16 +477,13 @@ class RFLVMBase(ABC):
         W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(self.m, self.r))
 
         X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
-        # X = self._stabilize_x(X_raw)
-
-
         wTx = jnp.einsum("nr,mr -> nm", X, W)
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
 
         beta = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(len(data_set), 2 * self.m, self.j))
 
         mu = jnp.einsum("nm,kmj -> knj", phi, beta)
-        num_gaussians = sum(data["output"] == 'gaussian' for data in data_set)
+        num_gaussians = sum((data["output"] == 'gaussian') or (data["output"] == "log-normal") for data in data_set)
         sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
         gaussian_counter = 0
         for index, data_entity in enumerate(data_set):
@@ -507,18 +504,27 @@ class RFLVMBase(ABC):
                 y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten(), total_count=exposure_), obs = Y_)
             elif output == "exponential":
                 y = sample(f"likelihood_{metric}", Exponential(jnp.exp(mu[index,:,:][mask].flatten() + exposure_)), obs = Y_)
+            elif output == "log-normal":
+                sigma = sigmas[gaussian_counter]
+                y = sample(f"likelihood_{metric}", LogNormal(mu[index,:,:][mask].flatten(), sigma/exposure_), obs=Y_)
+                gaussian_counter += 1
     @abstractmethod
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
-        mcmc = MCMC(
-        NUTS(self.model_fn, init_strategy=init_to_median),
-        num_warmup=num_warmup,
-        num_samples=num_samples,
-        num_chains=num_chains,
-        progress_bar=True,
-        chain_method="parallel"
-    )
-        mcmc.run(jax.random.PRNGKey(0), **model_args)
-        return mcmc
+        n_parallel = jax.local_device_count()
+        n_vectorized = num_chains // n_parallel
+        def do_mcmc(rng_key):
+            mcmc = MCMC(
+            NUTS(self.model_fn, init_strategy=init_to_median),
+            num_warmup=num_warmup,
+            num_samples=num_samples,
+            num_chains=n_vectorized,
+            progress_bar=False,
+            chain_method="vectorized")
+            mcmc.run(rng_key, **model_args)
+            return {**mcmc.get_samples()}
+        rng_keys = jax.random.split(jax.random.PRNGKey(0), n_parallel)
+        traces = jax.pmap(do_mcmc)(rng_keys)
+        return {k: jnp.concatenate(v) for k, v in traces.items()}
 
 
     @abstractmethod
@@ -569,9 +575,8 @@ class TVRFLVM(RFLVM):
 
     def model_fn(self, data_set) -> None:
         W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(self.m, self.r))
-
         X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
-        # X = self._stabilize_x(X_raw)
+        # X = self._stabilize_x(X)
         wTx = jnp.einsum("nr,mr -> nm", X, W)
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
 
@@ -581,8 +586,7 @@ class TVRFLVM(RFLVM):
         beta = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta",  MultivariateNormal(loc=jnp.zeros_like(self.basis), covariance_matrix=kernel), sample_shape=(len(data_set), 2 * self.m)) ### don't need extra dimension
         
         mu = jnp.einsum("nm,kmj -> knj", phi, beta)
-
-        num_gaussians = sum(data["output"] == 'gaussian' for data in data_set)
+        num_gaussians = sum((data["output"] == 'gaussian') or (data["output"] == "log-normal") for data in data_set)
         sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
         gaussian_counter = 0
         for index, data_entity in enumerate(data_set):
@@ -592,9 +596,7 @@ class TVRFLVM(RFLVM):
             exposure_data = data_entity["exposure_data"]
             output_data = data_entity["output_data"]
             exposure_ =  exposure_data[mask].flatten()
-
             Y_ = output_data[mask].flatten() ### non missing values
-
             if output == "gaussian":
                 sigma = sigmas[gaussian_counter]
                 y = sample(f"likelihood_{metric}", Normal( mu[index,:,:][mask].flatten() , sigma/exposure_), obs=Y_)
@@ -605,6 +607,10 @@ class TVRFLVM(RFLVM):
                 y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten(), total_count=exposure_), obs = Y_)
             elif output == "exponential":
                 y = sample(f"likelihood_{metric}", Exponential(jnp.exp(mu[index,:,:][mask].flatten() + exposure_)), obs = Y_)
+            elif output == "log-normal":
+                sigma = sigmas[gaussian_counter]
+                y = sample(f"likelihood_{metric}", LogNormal(mu[index,:,:][mask].flatten(), sigma/exposure_), obs=Y_)
+                gaussian_counter += 1
     
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
         return super().run_inference(num_warmup, num_samples, num_chains, model_args)

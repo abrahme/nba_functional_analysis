@@ -20,6 +20,7 @@ if __name__ == "__main__":
     parser.add_argument("--fixed_param_path",help="where to read in the fixed params from", required=False, default="")
     parser.add_argument("--prior_x_path", help="if there is a prior on x, where to get the required params", required=False, default="")
     parser.add_argument("--output_path", help="where to store generated files", required = False, default="")
+    parser.add_argument("--chain_num_fixed", help="which chain to hold constant in samples", required = True, default=0,type=int)
     numpyro.set_platform("cuda")
     # numpyro.set_host_device_count(4)
     args = vars(parser.parse_args())
@@ -27,12 +28,13 @@ if __name__ == "__main__":
     basis_dims = args["basis_dims"]
     param_path = args["fixed_param_path"]
     prior_x_path = args["prior_x_path"]
+    num_chain = args["chain_num_fixed"] 
     output_path = args["output_path"] if args["output_path"] else f"model_output/{model_name}.pkl"
     data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
     data["retirement"] = 1
-    metric_output = ["binomial", "exponential"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+    metric_output = ["binomial", "log-normal"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
     metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
     exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
     
@@ -98,7 +100,9 @@ if __name__ == "__main__":
                 results_param = pickle.load(f_param)
             f_param.close()
             for param_name in results_param:
-                value = results_param[param_name].mean((0,1))
+                value = results_param[param_name]
+                if num_chain >= 0:
+                    value = value[num_chain].mean(0)
                 prior_dict[param_name] = numpyro.deterministic(param_name, value)
         if prior_x_path:
             with open(prior_x_path, "rb") as f_prior:
@@ -121,12 +125,20 @@ if __name__ == "__main__":
                 mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set}, gibbs_sites=[["X", "lengthscale"], ["W","beta","sigma"]])  
             else:
                 mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set}, gibbs_sites=[["X"], ["W","beta","sigma"]])  
+            mcmc_run.print_summary()
+            samples = mcmc_run.get_samples(group_by_chain=True)
 
 
+        elif "rflvm" in model_name:
+            if num_chain >= 0:
+                samples = model.run_inference(num_chains=1, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set})
+            else:
+                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set})
         else:
             mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set})
-        mcmc_run.print_summary()
-        samples = mcmc_run.get_samples(group_by_chain=True)
+            mcmc_run.print_summary()
+            samples = mcmc_run.get_samples(group_by_chain=True)
+
     else:
         mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set})
         mcmc_run.print_summary()
