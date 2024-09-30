@@ -232,7 +232,7 @@ So to do all of this, we want to model everything jointly.
 ## Data Overview
 
 ::: {.nonincremental}
-1. $\approx$ 2k NBA players from years 1997 - 2021, from the ages of 18 - 39
+1. $\approx$ 3,000 NBA players from years 1997 - 2021, from the ages of 18 - 39
 2. Longitudinal mixed tensor valued data $\mathcal{Y}$ of size $N$ by $T$ by $K$
 where $N$ is the number of players, $T$ is the number of years in a player's career, and $K$ are the number of production metric curves with $\mathcal{Y}_{ntk}$ is missing if player $n$ is not observed for metric $k$ at age $t$. 
     - Non-missing entries are observations from exponential families (i.e Binomial, Gaussian, Exponential, Poisson, etc.)
@@ -273,7 +273,7 @@ The paper that is most similar is this functional principal components clusterin
 ## Modeling Setup
 Space of players live in low dimensional latent space $X \in \mathbb{R} ^{N \times D}$
 
-For a given time $t$, and metric $k$, $f^k_t \sim \mathcal{GP}(0, K_X)$ is a vector of size $N$, with $K_X$ capturing correlation across the $N$ dimension
+For a given time $t$, and metric $k$, $f^k_t \sim \mathcal{GP}(0, K_X)$ is a vector of size $N$, with $K_X$ capturing correlation across the $N$ dimension [@gundersen2020latent]
 
 :::{layout-ncol=2}
 ![](images/pgm.svg){width=90%}
@@ -513,7 +513,7 @@ with ui.layout_column_wrap():
 
 2. Posterior Coverage Tests
     - Holdout forecasting performance
-    
+
 # Questions ?
 
 # References
