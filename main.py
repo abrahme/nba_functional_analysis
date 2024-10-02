@@ -21,7 +21,7 @@ if __name__ == "__main__":
     parser.add_argument("--prior_x_path", help="if there is a prior on x, where to get the required params", required=False, default="")
     parser.add_argument("--output_path", help="where to store generated files", required = False, default="")
     parser.add_argument("--run_neutra", help = "whether or not to run neural reparametrization", action="store_true")
-    numpyro.set_platform("cuda")
+    numpyro.set_platform("cpu")
     # numpyro.set_host_device_count(4)
     args = vars(parser.parse_args())
     neural_parametrization = args["run_neutra"]
@@ -130,7 +130,7 @@ if __name__ == "__main__":
             if not neural_parametrization:
                 mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set})
             else:
-                mcmc_run, neutra = model.run_neutra_inference(num_chains=4, num_samples=2000, num_warmup=1000, num_steps=10000, guide_kwargs={"num_flows":2, "hidden_factors": [100, 100]}, model_args={"data_set": data_set})
+                mcmc_run, neutra = model.run_neutra_inference(num_chains=4, num_samples=2000, num_warmup=1000, num_steps=10000, guide_kwargs={}, model_args={"data_set": data_set})
         mcmc_run.print_summary()
         samples = mcmc_run.get_samples(group_by_chain=True)
         if neural_parametrization:

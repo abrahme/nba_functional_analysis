@@ -526,9 +526,10 @@ class RFLVMBase(ABC):
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
         guide = AutoBNAFNormal(self.model_fn, prefix="", **guide_kwargs)
         print("Setup guide")
-        svi = SVI(self.model_fn, guide, optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO())
+        svi = SVI(self.model_fn, guide, optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO(),
+                  )
         print("Setup SVI")
-        result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps, **model_args)
+        result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps,progress_bar = False, **model_args)
         return result, guide
     
     @abstractmethod
