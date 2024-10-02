@@ -37,7 +37,6 @@ if __name__ == "__main__":
     exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
     
 
-    
     if model_name == "gibbs_nba_rflvm":
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
         model = GibbsRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
@@ -50,10 +49,9 @@ if __name__ == "__main__":
 
     elif "rflvm" in model_name:
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
-        model = RFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(covariate_X.shape[0], len(basis)))
-    elif "tvrflvm" in model_name:
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
-        model = TVRFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+        model = RFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
+        if "tvrflvm" in model_name:
+            model = TVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
     else:
         raise ValueError("Model not implemented")
 
@@ -68,7 +66,7 @@ if __name__ == "__main__":
                 results_param = pickle.load(f_param)
             f_param.close()
             for param_name in results_param:
-                value = results_param[param_name].mean((0,1))
+                value = results_param[param_name]
                 prior_dict[param_name] = numpyro.deterministic(param_name, value)
         if prior_x_path:
             with open(prior_x_path, "rb") as f_prior:
@@ -87,12 +85,20 @@ if __name__ == "__main__":
             prior_dict["X"] = MatrixNormal(loc = X, scale_tril_column=cholesky_cols, scale_tril_row=cholesky_rows)
         model.prior.update(prior_dict)
         distribution_families = set([data_entity["output"] for data_entity in data_set])
-        distribution_indices = {family: jnp.array([1 if family == data_entity["output"] else 0 for data_entity in data_set]) for family in distribution_families}
+        distribution_indices = {family: jnp.array([index for index, data_entity in enumerate(data_set) if family == data_entity["output"]]) for family in distribution_families}
         masks = jnp.stack([data_entity["mask"] for data_entity in data_set])
         exposures = jnp.stack([data_entity["exposure_data"] for data_entity in data_set])
         Y = jnp.stack([data_entity["output_data"] for data_entity in data_set])
-        num_gaussians = (distribution_families['gaussian']).sum()
-        data_dict = {"Y": Y, "exposures": exposures, "masks": masks, "n_gaussian": num_gaussians, "dist_indices": distribution_indices}
+        num_gaussians = len(distribution_indices['gaussian'])
+        data_dict = {}
+        for family in distribution_families:
+            family_dict = {}
+            indices = distribution_indices[family]
+            family_dict["Y"] = Y[indices]
+            family_dict["exposure"] = exposures[indices]
+            family_dict["mask"] = masks[indices]
+            family_dict["indices"] = indices
+            data_dict[family] = family_dict
         if "gibbs" in model_name:
             if "tvrflvm" in model_name:
                 mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X", "lengthscale"], ["W","beta","sigma"]])  

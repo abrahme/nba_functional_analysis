@@ -54,7 +54,7 @@ RUN pip install \
         ### Example (note the backslash after name): ###
         ### scikit-ntk \                             ###
         ################################################
-        "jax[cuda12]==0.4.27" \
+        "jax[cuda12]" \
         numpyro \ 
         arviz \
         optax \

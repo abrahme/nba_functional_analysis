@@ -130,23 +130,23 @@ class RFLVMBase(ABC):
 
     @abstractmethod
     def model_fn(self, data_set) -> None:
-        Y, masks, distribution_indices, exposures, num_gaussians = data_set["Y"], data_set["masks"], data_set["distribution_indices"], data_set["exposures"], data_set["n_gaussians"]
+        num_gaussians = data_set["gaussian"]["Y"].shape[0]
+        num_metrics = sum(len(data_set[family]["indices"]) for family in data_set)
         W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(self.m, self.r))
         X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
         # X = self._stabilize_x(X_raw)
         wTx = jnp.einsum("nr,mr -> nm", X, W)
         phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
-        beta = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(len(data_set), 2 * self.m, self.j))
+        beta = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(num_metrics, 2 * self.m, self.j))
         mu = jnp.einsum("nm,kmj -> knj", phi, beta)
         sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
-        for family in distribution_indices:
-            indices = distribution_indices[family]
-            linear_predictor = mu[indices]
-            mask = masks[indices]
-            exposure = exposures[indices]
-            obs = Y[indices]
+        for family in data_set:
+            linear_predictor = mu[data_set[family]["indices"]]
+            exposure = data_set[family]["exposure"]
+            obs = data_set[family]["Y"]
+            mask = data_set[family]["mask"]
             if family == "gaussian":
-                dist = Normal(linear_predictor[mask].flatten(), jnp.einsum("r,r... -> r...",sigmas, 1/exposure)[mask].flatten())
+                dist = Normal(linear_predictor[mask].flatten(), jnp.einsum("r,r... -> r...",sigmas, jnp.nan_to_num(1/exposure))[mask].flatten())
             elif family == "poisson":
                 dist = Poisson(jnp.exp(linear_predictor[mask].flatten() + exposure[mask].flatten())) 
             elif family == "binomial":
@@ -215,8 +215,8 @@ class TVRFLVM(RFLVM):
 
 
     def model_fn(self, data_set) -> None:
-        Y, masks, distribution_indices, exposures, num_gaussians = data_set["Y"], data_set["masks"], data_set["distribution_indices"], data_set["exposures"], data_set["n_gaussians"]
-
+        num_gaussians = data_set["gaussian"]["Y"].shape[0]
+        num_metrics = sum(len(data_set[family]["indices"]) for family in data_set)
         W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(self.m, self.r))
 
         X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
@@ -226,24 +226,16 @@ class TVRFLVM(RFLVM):
 
         ls = self.prior["lengthscale"] if not isinstance(self.prior["lengthscale"], Distribution) else sample("lengthscale", self.prior["lengthscale"])
         kernel = self.make_kernel(ls)
-
-        beta = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta",  MultivariateNormal(loc=jnp.zeros_like(self.basis), covariance_matrix=kernel), sample_shape=(len(data_set), 2 * self.m)) ### don't need extra dimension
+        beta = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta",  MultivariateNormal(loc=jnp.zeros_like(self.basis), covariance_matrix=kernel), sample_shape=(num_metrics, 2 * self.m)) ### don't need extra dimension
         mu = jnp.einsum("nm,kmj -> knj", phi, beta)
-        distribution_families = set([data_entity["output"] for data_entity in data_set])
-        distribution_indices = {family: jnp.array([1 if family == data_entity["output"] else 0 for data_entity in data_set]) for family in distribution_families}
-        masks = jnp.stack([data_entity["mask"] for data_entity in data_set])
-        exposures = jnp.stack([data_entity["exposure_data"] for data_entity in data_set])
-        Y = jnp.stack([data_entity["output_data"] for data_entity in data_set])
-        num_gaussians = (distribution_families['gaussian']).sum()
         sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
-        for family in distribution_indices:
-            indices = distribution_indices[family]
-            linear_predictor = mu[indices]
-            mask = masks[indices]
-            exposure = exposures[indices]
-            obs = Y[indices]
+        for family in data_set:
+            linear_predictor = mu[data_set[family]["indices"]]
+            exposure = data_set[family]["exposure"]
+            obs = data_set[family]["Y"]
+            mask = data_set[family]["mask"]
             if family == "gaussian":
-                dist = Normal(linear_predictor[mask].flatten(), jnp.einsum("r,r... -> r...",sigmas, 1/exposure)[mask].flatten())
+                dist = Normal(linear_predictor[mask].flatten(), jnp.einsum("r,r... -> r...",sigmas, jnp.nan_to_num(1/exposure))[mask].flatten())
             elif family == "poisson":
                 dist = Poisson(jnp.exp(linear_predictor[mask].flatten() + exposure[mask].flatten())) 
             elif family == "binomial":
