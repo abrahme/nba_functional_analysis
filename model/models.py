@@ -502,8 +502,6 @@ class RFLVMBase(ABC):
                 y = sample(f"likelihood_{metric}", Poisson( jnp.exp(mu[index,:,:][mask].flatten() + exposure_) ), obs=Y_)
             elif output == "binomial":
                 y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten(), total_count=exposure_), obs = Y_)
-            elif output == "exponential":
-                y = sample(f"likelihood_{metric}", Exponential(jnp.exp(mu[index,:,:][mask].flatten() + exposure_)), obs = Y_)
             elif output == "log-normal":
                 sigma = sigmas[gaussian_counter]
                 y = sample(f"likelihood_{metric}", LogNormal(mu[index,:,:][mask].flatten(), sigma/exposure_), obs=Y_)
@@ -605,8 +603,6 @@ class TVRFLVM(RFLVM):
                 y = sample(f"likelihood_{metric}", Poisson(jnp.exp(mu[index,:,:][mask].flatten() + exposure_) ), obs=Y_)
             elif output == "binomial":
                 y = sample(f"likelihood_{metric}", Binomial(logits=mu[index,:,:][mask].flatten(), total_count=exposure_), obs = Y_)
-            elif output == "exponential":
-                y = sample(f"likelihood_{metric}", Exponential(jnp.exp(mu[index,:,:][mask].flatten() + exposure_)), obs = Y_)
             elif output == "log-normal":
                 sigma = sigmas[gaussian_counter]
                 y = sample(f"likelihood_{metric}", LogNormal(mu[index,:,:][mask].flatten(), sigma/exposure_), obs=Y_)
