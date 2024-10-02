@@ -9,7 +9,7 @@ from numpyro.distributions import MatrixNormal
 
 jax.config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, create_pca_data, create_cp_data, create_cp_data_multi_way, create_fda_data_time
-from model.models import NBAFDAModel, NBAFDAREModel, NBAFDALatentModel, NBAMixedOutputProbabilisticPCA, NBAMixedOutputProbabilisticCPDecomposition, NBAMixedOutputProbabilisticCPDecompositionMultiWay, RFLVM, TVRFLVM, DriftRFLVM, DriftTVRFLVM, GibbsRFLVM, GibbsTVRFLVM
+from model.models import  NBAMixedOutputProbabilisticCPDecomposition, RFLVM, TVRFLVM,  GibbsRFLVM, GibbsTVRFLVM
 
 
 
@@ -37,58 +37,28 @@ if __name__ == "__main__":
     exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
     
 
-    if model_name == "nba_fda_model":
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
-        model = NBAFDAModel(basis, output_size=len(metric_output), M=10)
-    elif model_name == "nba_fda_re_model":
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
-        model = NBAFDAREModel(basis, output_size=len(metric_output), M=10)
-    elif model_name == "nba_fda_latent_model":
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
-        model = NBAFDALatentModel(basis, output_size=len(metric_output), M = 10, latent_dim1=covariate_X.shape[0], latent_dim2=basis_dims)
-    elif model_name == "gibbs_nba_rflvm":
+    
+    if model_name == "gibbs_nba_rflvm":
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
         model = GibbsRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
     elif model_name == "gibbs_nba_tvrflvm":
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
         model = GibbsTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
-    elif model_name == "exponential_pca":
-        exposures, masks, X, outputs = create_pca_data(data, metric_output, exposure_list, metrics)
-        model = NBAMixedOutputProbabilisticPCA(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
-    elif model_name.startswith("exponential_cp"):
-        if "multi" in model_name:
-            exposures, masks, X, outputs  = create_cp_data_multi_way(data, metric_output, exposure_list, metrics)
-            model = NBAMixedOutputProbabilisticCPDecompositionMultiWay(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
-        else:
-            exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics)
-            model = NBAMixedOutputProbabilisticCPDecomposition(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
+    elif model_name == "exponential_cp":
+        exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics)
+        model = NBAMixedOutputProbabilisticCPDecomposition(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
 
-    elif "nba_rflvm" in model_name:
-        if "drift" in model_name:
-            covariate_X, data_set, basis, time_basis = create_fda_data_time(data, basis_dims, metric_output, metrics, exposure_list)
-            model = DriftRFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(covariate_X.shape[0], len(basis)), drift_basis=time_basis)
-        else:
-            covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
-            model = RFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(covariate_X.shape[0], len(basis)))
-    elif "nba_tvrflvm" in model_name:
-        if "drift" in model_name:
-            covariate_X, data_set, basis, time_basis = create_fda_data_time(data, basis_dims, metric_output, metrics, exposure_list)
-            model = DriftTVRFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(covariate_X.shape[0], len(basis)), basis=basis, drift_basis=time_basis)
-        else:
-            covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
-            model = TVRFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+    elif "rflvm" in model_name:
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
+        model = RFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(covariate_X.shape[0], len(basis)))
+    elif "tvrflvm" in model_name:
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
+        model = TVRFLVM(latent_rank=basis_dims, rff_dim=10, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
     else:
-        raise ValueError("Wrong model name")
-    
+        raise ValueError("Model not implemented")
+
     model.initialize_priors()
-    if model_name in ["nba_fda_model", "nba_fda_re_model"]:
-        mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"covariate_X": covariate_X, "data_set": data_set})
-        mcmc_run.print_summary()
-        samples = mcmc_run.get_samples(group_by_chain=True)
-    elif "pca" in model_name:
-        svi_run = model.run_inference(num_steps=1000000)
-        samples = svi_run.params
-    elif "cp" in model_name:
+    if "cp" in model_name:
         svi_run = model.run_inference(num_steps=1000000)
         samples = svi_run.params
     elif "rflvm" in model_name:
@@ -116,19 +86,20 @@ if __name__ == "__main__":
             cholesky_cols = jnp.linalg.cholesky(cov_cols) + jnp.eye(r) * (1e-6)
             prior_dict["X"] = MatrixNormal(loc = X, scale_tril_column=cholesky_cols, scale_tril_row=cholesky_rows)
         model.prior.update(prior_dict)
+        distribution_families = set([data_entity["output"] for data_entity in data_set])
+        distribution_indices = {family: jnp.array([1 if family == data_entity["output"] else 0 for data_entity in data_set]) for family in distribution_families}
+        masks = jnp.stack([data_entity["mask"] for data_entity in data_set])
+        exposures = jnp.stack([data_entity["exposure_data"] for data_entity in data_set])
+        Y = jnp.stack([data_entity["output_data"] for data_entity in data_set])
+        num_gaussians = (distribution_families['gaussian']).sum()
+        data_dict = {"Y": Y, "exposures": exposures, "masks": masks, "n_gaussian": num_gaussians, "dist_indices": distribution_indices}
         if "gibbs" in model_name:
             if "tvrflvm" in model_name:
-                mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set}, gibbs_sites=[["X", "lengthscale"], ["W","beta","sigma"]])  
+                mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X", "lengthscale"], ["W","beta","sigma"]])  
             else:
-                mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set}, gibbs_sites=[["X"], ["W","beta","sigma"]])  
-
-
+                mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X"], ["W","beta","sigma"]])  
         else:
-            mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set})
-        mcmc_run.print_summary()
-        samples = mcmc_run.get_samples(group_by_chain=True)
-    else:
-        mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_set})
+            mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict})
         mcmc_run.print_summary()
         samples = mcmc_run.get_samples(group_by_chain=True)
 
