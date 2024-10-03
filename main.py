@@ -6,6 +6,7 @@ import argparse
 import pickle
 import numpyro
 from numpyro.distributions import MatrixNormal
+from numpyro.diagnostics import print_summary
 
 jax.config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, create_cp_data
@@ -101,13 +102,12 @@ if __name__ == "__main__":
             data_dict[family] = family_dict
         if "gibbs" in model_name:
             if "tvrflvm" in model_name:
-                mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X", "lengthscale"], ["W","beta","sigma"]])  
+                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X", "lengthscale"], ["W","beta","sigma"]])  
             else:
-                mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X"], ["W","beta","sigma"]])  
+                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X"], ["W","beta","sigma"]])  
         else:
-            mcmc_run = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict})
-        mcmc_run.print_summary()
-        samples = mcmc_run.get_samples(group_by_chain=True)
+            samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict})
+        print_summary(samples)
 
     with open(output_path, "wb") as f:
         pickle.dump(samples, f)
