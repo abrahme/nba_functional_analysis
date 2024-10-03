@@ -157,18 +157,21 @@ class RFLVMBase(ABC):
             y = sample(f"likelihood_{family}", dist, obs[mask])
     @abstractmethod
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
-        mcmc = MCMC(
-        NUTS(self.model_fn, init_strategy=init_to_median),
-        num_warmup=num_warmup,
-        num_samples=num_samples,
-        num_chains=num_chains,
-        progress_bar=True,
-        chain_method="parallel"
-    )
-        mcmc.run(jax.random.PRNGKey(0), **model_args)
-        return mcmc
-
-
+        n_parallel = jax.local_device_count()
+        n_vectorized = num_chains // n_parallel
+        def do_mcmc(rng_key):
+            mcmc = MCMC(
+            NUTS(self.model_fn, init_strategy=init_to_median),
+            num_warmup=num_warmup,
+            num_samples=num_samples,
+            num_chains=n_vectorized,
+            progress_bar=False,
+            chain_method="vectorized")
+            mcmc.run(rng_key, **model_args)
+            return {**mcmc.get_samples()}
+        rng_keys = jax.random.split(jax.random.PRNGKey(0), n_parallel)
+        traces = jax.pmap(do_mcmc)(rng_keys)
+        return {k: jnp.concatenate(v) for k, v in traces.items()}
     @abstractmethod
     def predict(self, posterior_samples: dict, model_args):
         predictive = Predictive(self.model_fn, posterior_samples, **model_args)
@@ -262,18 +265,23 @@ class GibbsRFLVM(RFLVM):
         return super().model_fn(data_set)
     
     def run_inference(self, num_warmup, num_samples, num_chains, model_args, gibbs_sites: list = []):
-
+        n_parallel = jax.local_device_count()
+        n_vectorized = num_chains // n_parallel
         inner_kernels = [NUTS(self.model_fn) for _ in range(len(gibbs_sites))]
         outer_kernel = MultiHMCGibbs(inner_kernels, gibbs_sites_list=gibbs_sites)
-        mcmc = MCMC(outer_kernel,
-        num_warmup=num_warmup,
-        num_samples=num_samples,
-        num_chains=num_chains,
-        progress_bar=True,
-        chain_method="parallel"
-    )
-        mcmc.run(jax.random.PRNGKey(0), **model_args)
-        return mcmc
+        def do_mcmc(rng_key):
+            mcmc = MCMC(
+            outer_kernel,
+            num_warmup=num_warmup,
+            num_samples=num_samples,
+            num_chains=n_vectorized,
+            progress_bar=False,
+            chain_method="vectorized")
+            mcmc.run(rng_key, **model_args)
+            return {**mcmc.get_samples()}
+        rng_keys = jax.random.split(jax.random.PRNGKey(0), n_parallel)
+        traces = jax.pmap(do_mcmc)(rng_keys)
+        return {k: jnp.concatenate(v) for k, v in traces.items()}
     
     def predict(self, posterior_samples: dict, model_args):
         return super().predict(posterior_samples, model_args)
@@ -290,18 +298,24 @@ class GibbsTVRFLVM(TVRFLVM):
         return super().model_fn(data_set)
     
     def run_inference(self, num_warmup, num_samples, num_chains, model_args, gibbs_sites: list = []):
-
+        n_parallel = jax.local_device_count()
+        n_vectorized = num_chains // n_parallel
         inner_kernels = [NUTS(self.model_fn) for _ in range(len(gibbs_sites))]
         outer_kernel = MultiHMCGibbs(inner_kernels, gibbs_sites_list=gibbs_sites)
-        mcmc = MCMC(outer_kernel,
-        num_warmup=num_warmup,
-        num_samples=num_samples,
-        num_chains=num_chains,
-        progress_bar=True,
-        chain_method="parallel"
-    )
-        mcmc.run(jax.random.PRNGKey(0), **model_args)
-        return mcmc
+        def do_mcmc(rng_key):
+            mcmc = MCMC(
+            outer_kernel,
+            num_warmup=num_warmup,
+            num_samples=num_samples,
+            num_chains=n_vectorized,
+            progress_bar=False,
+            chain_method="vectorized")
+            mcmc.run(rng_key, **model_args)
+            return {**mcmc.get_samples()}
+        rng_keys = jax.random.split(jax.random.PRNGKey(0), n_parallel)
+        traces = jax.pmap(do_mcmc)(rng_keys)
+        return {k: jnp.concatenate(v) for k, v in traces.items()}
+        
     
     def predict(self, posterior_samples: dict, model_args):
         return super().predict(posterior_samples, model_args)
