@@ -4,7 +4,8 @@ import numpy as np
 from numpyro import sample 
 from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, Distribution
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive
-from numpyro.infer.autoguide import AutoDelta
+from numpyro.infer.reparam import NeuTraReparam
+from numpyro.infer.autoguide import AutoDelta, AutoBNAFNormal
 from optax import linear_onecycle_schedule, adam
 import jax.numpy as jnp
 from .MultiHMCGibbs import MultiHMCGibbs
@@ -173,6 +174,33 @@ class RFLVMBase(ABC):
         traces = jax.pmap(do_mcmc)(rng_keys)
         return {k: jnp.concatenate(v) for k, v in traces.items()}
     @abstractmethod
+    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
+        guide = AutoBNAFNormal(self.model_fn, prefix="", **guide_kwargs)
+        print("Setup guide")
+        svi = SVI(self.model_fn, guide, optim=adam(.003), loss=Trace_ELBO(),
+                  )
+        print("Setup SVI")
+        result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps,progress_bar = True, **model_args)
+        return result, guide
+    
+    @abstractmethod
+    def run_neutra_inference(self, num_warmup, num_samples, num_chains, num_steps, guide_kwargs: dict = {}, model_args:dict = {}):
+        svi_result, guide = self.run_svi_inference(num_steps, guide_kwargs, model_args)
+        neutra = NeuTraReparam(guide, svi_result.params)
+        neutra_model = neutra.reparam(self.model_fn)
+        mcmc = MCMC(
+        NUTS(neutra_model, init_strategy=init_to_median),
+        num_warmup=num_warmup,
+        num_samples=num_samples,
+        num_chains=num_chains,
+        progress_bar=True,
+        chain_method="parallel"
+    )
+        mcmc.run(jax.random.PRNGKey(0), **model_args)
+        return mcmc, neutra
+    
+
+    @abstractmethod
     def predict(self, posterior_samples: dict, model_args):
         predictive = Predictive(self.model_fn, posterior_samples, **model_args)
         return predictive(jax.random.PRNGKey(0))["obs"]
@@ -192,6 +220,12 @@ class RFLVM(RFLVMBase):
     
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
         return super().run_inference(num_warmup, num_samples, num_chains, model_args)
+
+    def run_neutra_inference(self, num_warmup, num_samples, num_chains, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
+        return super().run_neutra_inference(num_warmup, num_samples, num_chains, num_steps, guide_kwargs, model_args)
+    
+    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
+        return super().run_svi_inference(num_steps, guide_kwargs, model_args)
 
     def predict(self, posterior_samples: dict, model_args):
         return super().predict(posterior_samples, model_args)
@@ -250,6 +284,12 @@ class TVRFLVM(RFLVM):
             y = sample(f"likelihood_{family}", dist, obs[mask])
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
         return super().run_inference(num_warmup, num_samples, num_chains, model_args)
+    
+    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
+        return super().run_svi_inference(num_steps, guide_kwargs, model_args)
+
+    def run_neutra_inference(self, num_warmup, num_samples, num_chains, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
+        return super().run_neutra_inference(num_warmup, num_samples, num_chains, num_steps, guide_kwargs, model_args)
 
     def predict(self, posterior_samples: dict, model_args):
         return super().predict(posterior_samples, model_args)

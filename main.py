@@ -21,9 +21,11 @@ if __name__ == "__main__":
     parser.add_argument("--fixed_param_path",help="where to read in the fixed params from", required=False, default="")
     parser.add_argument("--prior_x_path", help="if there is a prior on x, where to get the required params", required=False, default="")
     parser.add_argument("--output_path", help="where to store generated files", required = False, default="")
+    parser.add_argument("--run_neutra", help = "whether or not to run neural reparametrization", action="store_true")
     numpyro.set_platform("cuda")
     # numpyro.set_host_device_count(4)
     args = vars(parser.parse_args())
+    neural_parametrization = args["run_neutra"]
     model_name = args["model_name"]
     basis_dims = args["basis_dims"]
     param_path = args["fixed_param_path"]
@@ -52,7 +54,7 @@ if __name__ == "__main__":
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
         model = RFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
         if "tvrflvm" in model_name:
-            model = TVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+            model = TVRFLVM(latent_rank=basis_dims, rff_dim=2, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
     else:
         raise ValueError("Model not implemented")
 
@@ -106,10 +108,20 @@ if __name__ == "__main__":
             else:
                 samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X"], ["W","beta","sigma"]])  
         else:
-            samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict})
-        print_summary(samples)
+            if not neural_parametrization:
+                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict})
+            else:
+                mcmc_run, neutra = model.run_neutra_inference(num_chains=4, num_samples=2000, num_warmup=1000, num_steps=1000000, guide_kwargs={}, model_args={"data_set": data_dict})
+                samples = mcmc_run.get_samples(group_by_chain=True)
+        if neural_parametrization:
+            samples = neutra.transform_sample(samples)
+            print_summary(samples)
+        else:
+            print_summary(samples)
 
     with open(output_path, "wb") as f:
         pickle.dump(samples, f)
     f.close()
     
+        
+        
