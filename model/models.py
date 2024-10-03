@@ -140,20 +140,21 @@ class RFLVMBase(ABC):
         beta = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(num_metrics, 2 * self.m, self.j))
         mu = jnp.einsum("nm,kmj -> knj", phi, beta)
         sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
+        expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))
         for family in data_set:
             linear_predictor = mu[data_set[family]["indices"]]
             exposure = data_set[family]["exposure"]
             obs = data_set[family]["Y"]
             mask = data_set[family]["mask"]
             if family == "gaussian":
-                dist = Normal(linear_predictor[mask].flatten(), jnp.einsum("r,r... -> r...",sigmas, jnp.nan_to_num(1/exposure))[mask].flatten())
+                dist = Normal(linear_predictor[mask], expanded_sigmas[mask]/exposure[mask])
             elif family == "poisson":
-                dist = Poisson(jnp.exp(linear_predictor[mask].flatten() + exposure[mask].flatten())) 
+                dist = Poisson(jnp.exp(linear_predictor[mask] + exposure[mask])) 
             elif family == "binomial":
-                dist = Binomial(logits = linear_predictor[mask].flatten(), total_count=exposure[mask].flatten())
+                dist = Binomial(logits = linear_predictor[mask], total_count=exposure[mask])
             elif family == "exponential":
-                dist = Exponential(jnp.exp(linear_predictor[mask].flatten() + exposure[mask].flatten()))
-            y = sample(f"likelihood_{family}", dist, obs[mask].flatten())
+                dist = Exponential(jnp.exp(linear_predictor[mask] + exposure[mask]))
+            y = sample(f"likelihood_{family}", dist, obs[mask])
     @abstractmethod
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
         mcmc = MCMC(
@@ -229,20 +230,21 @@ class TVRFLVM(RFLVM):
         beta = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta",  MultivariateNormal(loc=jnp.zeros_like(self.basis), covariance_matrix=kernel), sample_shape=(num_metrics, 2 * self.m)) ### don't need extra dimension
         mu = jnp.einsum("nm,kmj -> knj", phi, beta)
         sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
+        expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))
         for family in data_set:
             linear_predictor = mu[data_set[family]["indices"]]
             exposure = data_set[family]["exposure"]
             obs = data_set[family]["Y"]
             mask = data_set[family]["mask"]
             if family == "gaussian":
-                dist = Normal(linear_predictor[mask].flatten(), jnp.einsum("r,r... -> r...",sigmas, jnp.nan_to_num(1/exposure))[mask].flatten())
+                dist = Normal(linear_predictor[mask], expanded_sigmas[mask] /exposure[mask])
             elif family == "poisson":
-                dist = Poisson(jnp.exp(linear_predictor[mask].flatten() + exposure[mask].flatten())) 
+                dist = Poisson(jnp.exp(linear_predictor[mask] + exposure[mask])) 
             elif family == "binomial":
-                dist = Binomial(logits = linear_predictor[mask].flatten(), total_count=exposure[mask].flatten())
+                dist = Binomial(logits = linear_predictor[mask], total_count=exposure[mask])
             elif family == "exponential":
-                dist = Exponential(jnp.exp(linear_predictor[mask].flatten() + exposure[mask].flatten()))
-            y = sample(f"likelihood_{family}", dist, obs[mask].flatten())
+                dist = Exponential(jnp.exp(linear_predictor[mask] + exposure[mask]))
+            y = sample(f"likelihood_{family}", dist, obs[mask])
     def run_inference(self, num_warmup, num_samples, num_chains, model_args):
         return super().run_inference(num_warmup, num_samples, num_chains, model_args)
 
