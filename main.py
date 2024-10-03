@@ -8,7 +8,7 @@ import numpyro
 from numpyro.distributions import MatrixNormal
 
 jax.config.update("jax_enable_x64", True)
-from data.data_utils import create_fda_data, create_pca_data, create_cp_data, create_cp_data_multi_way, create_fda_data_time
+from data.data_utils import create_fda_data, create_cp_data
 from model.models import  NBAMixedOutputProbabilisticCPDecomposition, RFLVM, TVRFLVM,  GibbsRFLVM, GibbsTVRFLVM
 
 
