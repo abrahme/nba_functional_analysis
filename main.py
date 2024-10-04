@@ -21,6 +21,7 @@ if __name__ == "__main__":
     parser.add_argument("--fixed_param_path",help="where to read in the fixed params from", required=False, default="")
     parser.add_argument("--prior_x_path", help="if there is a prior on x, where to get the required params", required=False, default="")
     parser.add_argument("--output_path", help="where to store generated files", required = False, default="")
+    parser.add_argument("--vectorized", help="whether to vectorize some chains so all gpus will be used", action="store_true")
     parser.add_argument("--run_neutra", help = "whether or not to run neural reparametrization", action="store_true")
     numpyro.set_platform("cuda")
     # numpyro.set_host_device_count(4)
@@ -29,6 +30,7 @@ if __name__ == "__main__":
     model_name = args["model_name"]
     basis_dims = args["basis_dims"]
     param_path = args["fixed_param_path"]
+    vectorized = args["vectorized"]
     prior_x_path = args["prior_x_path"]
     output_path = args["output_path"] if args["output_path"] else f"model_output/{model_name}.pkl"
     data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
@@ -55,10 +57,10 @@ if __name__ == "__main__":
     elif "rflvm" in model_name:
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
         model = RFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
-        if "tvrflvm" in model_name:
-            model = TVRFLVM(latent_rank=basis_dims, rff_dim=2, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
-        elif "iftvrflvm" in model_name:
-            model = IFTVRFLVM(latent_rank=basis_dims, rff_dim=2, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+        if "iftvrflvm" in model_name:
+            model = IFTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+        elif "tvrflvm" in model_name:
+            model = TVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
    
     else:
         raise ValueError("Model not implemented")
@@ -114,7 +116,7 @@ if __name__ == "__main__":
                 samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X"], ["W","beta","sigma"]])  
         else:
             if not neural_parametrization:
-                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict})
+                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args={"data_set": data_dict})
             else:
                 mcmc_run, neutra = model.run_neutra_inference(num_chains=4, num_samples=2000, num_warmup=1000, num_steps=1000000, guide_kwargs={}, model_args={"data_set": data_dict})
                 samples = mcmc_run.get_samples(group_by_chain=True)
