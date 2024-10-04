@@ -10,7 +10,7 @@ from numpyro.diagnostics import print_summary
 
 jax.config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, create_cp_data
-from model.models import  NBAMixedOutputProbabilisticCPDecomposition, RFLVM, TVRFLVM,  GibbsRFLVM, GibbsTVRFLVM
+from model.models import  NBAMixedOutputProbabilisticCPDecomposition, RFLVM, TVRFLVM, IFTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsIFTVRFLVM
 
 
 
@@ -46,15 +46,20 @@ if __name__ == "__main__":
     elif model_name == "gibbs_nba_tvrflvm":
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
         model = GibbsTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+    elif model_name == "gibbs_nba_iftvrflvm":
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
+        model = GibbsIFTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)    
     elif model_name == "exponential_cp":
         exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics)
         model = NBAMixedOutputProbabilisticCPDecomposition(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
-
     elif "rflvm" in model_name:
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
         model = RFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
         if "tvrflvm" in model_name:
             model = TVRFLVM(latent_rank=basis_dims, rff_dim=2, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+        elif "iftvrflvm" in model_name:
+            model = IFTVRFLVM(latent_rank=basis_dims, rff_dim=2, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+   
     else:
         raise ValueError("Model not implemented")
 
