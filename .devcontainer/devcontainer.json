@@ -1,5 +1,5 @@
 {
-    "name": "pytorch-cuda",
+    "name": "jax-cuda",
     "build": {
         "dockerfile": "Dockerfile",
         "options": ["--format=docker"]        // required for Podman, remove line if using Docker
@@ -16,31 +16,19 @@
     "runArgs": [
         "--user=1000:100",
         "--userns=keep-id:uid=1000,gid=100",  // required for Podman, remove line if using Docker
-        "--name=pytorch-cuda", // needs to be unique
-        "--hostname=pytorch-cuda_container", // needs to be unique
+        "--name=jax-cuda", // needs to be unique
+        "--hostname=jax-cuda_container", // needs to be unique
         "--device=nvidia.com/gpu=all",
         "--security-opt=label=disable"
     ],
 
-    "forwardPorts": [8888],
-    "portsAttributes": {
-        "8888": {
-            // Naming the Jupyterlab port
-            "label": "Jupyterlab",
-            // Disable autoforwarding of ports (by default, only 8888 is necessary)
-            "onAutoForward": "ignore"
-        }
-    },
-
     "customizations": {
         "vscode": {
-            "settings": {
-                "python.defaultInterpreterPath": "/opt/conda/bin/python"
-            },
+            // "settings": {
+            //     "python.defaultInterpreterPath": "/bin/python"
+            // },
             "extensions": [
                 "ms-python.python",             // for Python
-                "ms-toolsai.jupyter",           // for Python
-                "ms-toolsai.jupyter-keymap",    // for Python
                 "quarto.quarto",                // for Python and R
                 "ms-vscode.live-server",
                 "analytic-signal.preview-pdf"
