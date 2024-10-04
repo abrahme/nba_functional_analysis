@@ -157,22 +157,33 @@ class RFLVMBase(ABC):
                 dist = Exponential(jnp.exp(linear_predictor[mask] + exposure[mask]))
             y = sample(f"likelihood_{family}", dist, obs[mask])
     @abstractmethod
-    def run_inference(self, num_warmup, num_samples, num_chains, model_args):
-        n_parallel = jax.local_device_count()
-        n_vectorized = num_chains // n_parallel
-        def do_mcmc(rng_key):
-            mcmc = MCMC(
-            NUTS(self.model_fn, init_strategy=init_to_median),
-            num_warmup=num_warmup,
-            num_samples=num_samples,
-            num_chains=n_vectorized,
-            progress_bar=False,
-            chain_method="vectorized")
-            mcmc.run(rng_key, **model_args)
-            return {**mcmc.get_samples()}
-        rng_keys = jax.random.split(jax.random.PRNGKey(0), n_parallel)
-        traces = jax.pmap(do_mcmc)(rng_keys)
-        return {k: jnp.concatenate(v) for k, v in traces.items()}
+    def run_inference(self, num_warmup, num_samples, num_chains, vectorized:bool, model_args):
+        kernel = NUTS(self.model_fn, init_strategy=init_to_median)
+        key = jax.random.PRNGKey(0)
+        if vectorized:
+            n_parallel = jax.local_device_count()
+            n_vectorized = num_chains // n_parallel
+            def do_mcmc(rng_key):
+                mcmc = MCMC(
+                kernel,
+                num_warmup=num_warmup,
+                num_samples=num_samples,
+                num_chains=n_vectorized,
+                progress_bar=False,
+                chain_method="vectorized")
+                mcmc.run(rng_key, **model_args)
+                return {**mcmc.get_samples()}
+            rng_keys = jax.random.split(key, n_parallel)
+            traces = jax.pmap(do_mcmc)(rng_keys)
+            return {k: jnp.concatenate(v) for k, v in traces.items()}
+        else:
+            mcmc = MCMC(kernel,
+                        num_warmup=num_warmup,
+                        num_samples=num_samples,
+                        num_chains = num_chains,
+                        chain_method="parallel")
+            mcmc.run(key, **model_args)
+            return mcmc.get_samples(group_by_chain=True)
     @abstractmethod
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
         guide = AutoBNAFNormal(self.model_fn, prefix="", **guide_kwargs)
@@ -180,6 +191,8 @@ class RFLVMBase(ABC):
         svi = SVI(self.model_fn, guide, optim=adam(.003), loss=Trace_ELBO(),
                   )
         print("Setup SVI")
+
+        
         result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps,progress_bar = True, **model_args)
         return result, guide
     
@@ -218,8 +231,8 @@ class RFLVM(RFLVMBase):
     def model_fn(self, data_set) -> None:
         return super().model_fn(data_set)
     
-    def run_inference(self, num_warmup, num_samples, num_chains, model_args):
-        return super().run_inference(num_warmup, num_samples, num_chains, model_args)
+    def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args):
+        return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args)
 
     def run_neutra_inference(self, num_warmup, num_samples, num_chains, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
         return super().run_neutra_inference(num_warmup, num_samples, num_chains, num_steps, guide_kwargs, model_args)
@@ -282,8 +295,9 @@ class TVRFLVM(RFLVM):
             elif family == "exponential":
                 dist = Exponential(jnp.exp(linear_predictor[mask] + exposure[mask]))
             y = sample(f"likelihood_{family}", dist, obs[mask])
-    def run_inference(self, num_warmup, num_samples, num_chains, model_args):
-        return super().run_inference(num_warmup, num_samples, num_chains, model_args)
+
+    def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args):
+        return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args)
     
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
         return super().run_svi_inference(num_steps, guide_kwargs, model_args)
@@ -293,6 +307,61 @@ class TVRFLVM(RFLVM):
 
     def predict(self, posterior_samples: dict, model_args):
         return super().predict(posterior_samples, model_args)
+
+class IFTVRFLVM(TVRFLVM):
+    """
+    model for time varying functional 
+    """
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape, basis)
+
+    def initialize_priors(self, *args, **kwargs) -> None:
+        super().initialize_priors(*args, **kwargs)
+        self.prior["lengthscale"] = InverseGamma(1.0, 1.0)
+
+    def model_fn(self, data_set) -> None:
+        num_gaussians = data_set["gaussian"]["Y"].shape[0]
+        num_metrics = sum(len(data_set[family]["indices"]) for family in data_set)
+        W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(self.m, self.r))
+
+        X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
+        # X = self._stabilize_x(X_raw)
+        wTx = jnp.einsum("nr,mr -> nm", X, W)
+        phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
+
+        ls = self.prior["lengthscale"] if not isinstance(self.prior["lengthscale"], Distribution) else sample("lengthscale", self.prior["lengthscale"])
+        beta = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta",  Normal(), sample_shape=(num_metrics, 2 * self.m, 10, 2)) * ls 
+        ifft_beta = jnp.fft.irfftn(beta[..., 0] + 1j * beta[..., -1], axes = [-1], norm = "ortho", s = [self.j])
+        mu = jnp.einsum("nm,kmj -> knj", phi, ifft_beta)
+        sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
+        expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))
+        for family in data_set:
+            linear_predictor = mu[data_set[family]["indices"]]
+            exposure = data_set[family]["exposure"]
+            obs = data_set[family]["Y"]
+            mask = data_set[family]["mask"]
+            if family == "gaussian":
+                dist = Normal(linear_predictor[mask], expanded_sigmas[mask] /exposure[mask])
+            elif family == "poisson":
+                dist = Poisson(jnp.exp(linear_predictor[mask] + exposure[mask])) 
+            elif family == "binomial":
+                dist = Binomial(logits = linear_predictor[mask], total_count=exposure[mask])
+            elif family == "exponential":
+                dist = Exponential(jnp.exp(linear_predictor[mask] + exposure[mask]))
+            y = sample(f"likelihood_{family}", dist, obs[mask])
+
+    def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args):
+        return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args)
+    
+    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
+        return super().run_svi_inference(num_steps, guide_kwargs, model_args)
+
+    def run_neutra_inference(self, num_warmup, num_samples, num_chains, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
+        return super().run_neutra_inference(num_warmup, num_samples, num_chains, num_steps, guide_kwargs, model_args)
+
+    def predict(self, posterior_samples: dict, model_args):
+        return super().predict(posterior_samples, model_args)
+
 
 class GibbsRFLVM(RFLVM):
     def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple) -> None:
@@ -361,4 +430,36 @@ class GibbsTVRFLVM(TVRFLVM):
         return super().predict(posterior_samples, model_args)
     
 
+class GibbsIFTVRFLVM(IFTVRFLVM):
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape, basis)
+
+    def initialize_priors(self, *args, **kwargs) -> None:
+        super().initialize_priors(*args, **kwargs)
+    
+    def model_fn(self, data_set) -> None:
+        return super().model_fn(data_set)
+    
+    def run_inference(self, num_warmup, num_samples, num_chains, model_args, gibbs_sites: list = []):
+        n_parallel = jax.local_device_count()
+        n_vectorized = num_chains // n_parallel
+        inner_kernels = [NUTS(self.model_fn) for _ in range(len(gibbs_sites))]
+        outer_kernel = MultiHMCGibbs(inner_kernels, gibbs_sites_list=gibbs_sites)
+        def do_mcmc(rng_key):
+            mcmc = MCMC(
+            outer_kernel,
+            num_warmup=num_warmup,
+            num_samples=num_samples,
+            num_chains=n_vectorized,
+            progress_bar=False,
+            chain_method="vectorized")
+            mcmc.run(rng_key, **model_args)
+            return {**mcmc.get_samples()}
+        rng_keys = jax.random.split(jax.random.PRNGKey(0), n_parallel)
+        traces = jax.pmap(do_mcmc)(rng_keys)
+        return {k: jnp.concatenate(v) for k, v in traces.items()}
         
+    
+    def predict(self, posterior_samples: dict, model_args):
+        return super().predict(posterior_samples, model_args)
+    
