@@ -7,10 +7,10 @@ import pickle
 import numpyro
 from numpyro.distributions import MatrixNormal
 from numpyro.diagnostics import print_summary
-
+# jax. config. update("jax_debug_infs", True)
 jax.config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, create_cp_data
-from model.models import  NBAMixedOutputProbabilisticCPDecomposition, RFLVM, TVRFLVM, IFTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsIFTVRFLVM
+from model.models import  NBAMixedOutputProbabilisticCPDecomposition, RFLVM, TVRFLVM, IFTVRFLVM, ConvexTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsIFTVRFLVM, GibbsConvexVRFLVM
 
 
 
@@ -57,7 +57,9 @@ if __name__ == "__main__":
     elif "rflvm" in model_name:
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
         model = RFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
-        if "iftvrflvm" in model_name:
+        if "convex" in model_name:
+            model = ConvexTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+        elif "iftvrflvm" in model_name:
             model = IFTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
         elif "tvrflvm" in model_name:
             model = TVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
@@ -110,7 +112,9 @@ if __name__ == "__main__":
             family_dict["indices"] = indices
             data_dict[family] = family_dict
         if "gibbs" in model_name:
-            if "tvrflvm" in model_name:
+            if "convex" in model_name:
+                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X", "lengthscale", "alpha"], ["W","beta","sigma", "slope", "intercept"]])
+            elif "tvrflvm" in model_name:
                 samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X", "lengthscale"], ["W","beta","sigma"]])  
             else:
                 samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X"], ["W","beta","sigma"]])  

@@ -374,6 +374,8 @@ class ConvexTVRFLVM(TVRFLVM):
         super().initialize_priors(*args, **kwargs)
         self.prior["lengthscale"] = InverseGamma(1.0, 1.0)
         self.prior["alpha"] = InverseGamma(1.0, 1.0)
+        self.prior["intercept"] = Normal()
+        self.prior["slope"] = Normal()
 
     def model_fn(self, data_set) -> None:
         num_gaussians = data_set["gaussian"]["Y"].shape[0]
@@ -387,7 +389,9 @@ class ConvexTVRFLVM(TVRFLVM):
 
         ls = self.prior["lengthscale"] if not isinstance(self.prior["lengthscale"], Distribution) else sample("lengthscale", self.prior["lengthscale"])
         alpha = self.prior["alpha"] if not isinstance(self.prior["alpha"], Distribution) else sample("alpha", self.prior["alpha"])
-        beta = approx_convex_se(self.basis - self.basis.mean(), alpha, length=ls, L = self.L, M = 10, output_size=num_metrics, name = "beta", beta = self.prior["beta"]) 
+        
+        beta = approx_convex_se(x = self.basis - self.basis.mean(), alpha = alpha, length=ls, L = self.L, M = 10, output_size=(self.m * 2, num_metrics), name = "beta", beta = self.prior["beta"],
+                                slope=self.prior["slope"], intercept=self.prior["intercept"]) 
         mu = jnp.einsum("nm,kmj -> knj", phi, beta)
         sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
         expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))

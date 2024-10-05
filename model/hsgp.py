@@ -14,7 +14,7 @@ def sqrt_eigenvalues(M, L):
     return jnp.arange(1,  M + 1) * jnp.pi / (2 * L) 
 
 def convex_eigenfunctions(x, L, M= 1):
-    assert len(x.shape) == 1
+    assert len(x.shape) == 1 ### only have capacity for single dimension concavity
     eig_vals = sqrt_eigenvalues(M, L)
     broadcast_sub = jax.vmap(jax.vmap(jnp.subtract, (None, 0)), (0, None))
     broadcast_add = jax.vmap(jax.vmap(jnp.add, (None, 0)), (0, None))
@@ -25,14 +25,13 @@ def convex_eigenfunctions(x, L, M= 1):
     x_shifted = x + L
     cos_pos = jnp.cos(jnp.einsum("t,m... -> tm...", x_shifted, sum_eig_vals)) / (2 * L * sum_eig_vals_square)
     cos_neg = jnp.cos(jnp.einsum("t,m... -> tm...", x_shifted, diff_eig_vals)) / (2 * L * diff_eig_vals_square)
-    diagonal_constants = broadcast_sub(jnp.power(x, 2) / (4 * L) - (x / 2) + L / 4 , (1 / (2 * L * jnp.diag(diff_eig_vals_square)))) ### should be t x m
 
-    diagonal_elements = diagonal_constants + jnp.diag(sum_eig_vals_square)
+    diagonal_constants = broadcast_sub(jnp.power(x, 2) / (4 * L) + (x / 2) + (L/ 4) , (1 / (2 * L * jnp.diagonal(sum_eig_vals_square)))) ### should be t x m
+    diagonal_elements = diagonal_constants + jnp.diagonal(sum_eig_vals_square) / (2 * L)
 
     other_elements = cos_pos - cos_neg 
-
-    phi = jnp.fill_diagonal(other_elements, diagonal_elements, inplace=False)
-
+    broadcast_fill_diag = jax.vmap(lambda x, y: jnp.fill_diagonal(x,y, inplace=False), in_axes = 0)
+    phi = broadcast_fill_diag(other_elements, diagonal_elements)
     return phi #should be t x m x m where t is the length of x and m is the number of eigen values (or M)
 
 
@@ -66,7 +65,7 @@ def approx_se_ncp(x, alpha, length, L, M, output_size = 1, name: str = ""):
     return f
 
 
-def approx_convex_se(x, alpha, length, L, M, output_size, beta, name: str = ""):
+def approx_convex_se(x, alpha, length, L, M, output_size, beta, intercept, slope, name: str = ""):
     """
     Hilbert space approximation for the squared
     exponential kernel in the non-centered parametrisation for convex gp based on 
@@ -74,8 +73,10 @@ def approx_convex_se(x, alpha, length, L, M, output_size, beta, name: str = ""):
     """
     
     phi = convex_eigenfunctions(x, L, M)
-    spd = jnp.tile(jnp.sqrt(diag_spectral_density(alpha, length, L, M)), (output_size,1)).T
-    weights = sample(name, beta, sample_shape=(M, output_size)) if isinstance(beta, Distribution) else beta ### can have multi-output
+    spd = jnp.moveaxis(jnp.tile(jnp.sqrt(diag_spectral_density(alpha, length, L, M)), (*output_size,1)), -1, 0)
+    weights = sample(name, beta, sample_shape=(M, *output_size)) if isinstance(beta, Distribution) else beta ### can have multi-output
     gamma = spd * weights
-    f = jnp.einsum("tj...,j... -> t..." , jnp.einsum("tjk,k... -> tj...", phi, gamma), gamma) ## output is length of x and output size
-    return f
+    f = -1*jnp.einsum("tj...,j... -> t..." , jnp.einsum("tjk,k... -> tj...", phi, gamma), gamma) ## output is length of x and output size (mult by -1 to make sure we get concave functions)
+    f_0 = sample("f_0", intercept, sample_shape = (1, output_size[-1])) if isinstance(intercept, Distribution) else intercept
+    f_0_prime = sample("f_0_prime", slope, sample_shape = (output_size[-1], )) if isinstance(slope, Distribution) else slope
+    return jnp.swapaxes(f + f_0 + jnp.einsum("o,t -> to", f_0_prime, (x + L))[:, None, ...], 0, -1)
