@@ -65,7 +65,7 @@ def create_metric_trajectory(posterior_mean_samples, player_index, observations,
     gaussian_index = 0
     minutes_index = metrics.index("minutes")
     retirement_index = metrics.index("retirement")  ### 1 -> playing, 0 --> retired
-
+    print(posterior_variance_samples.shape)
     ### first sample retirement
     post_retirement = posterior_mean_samples[..., retirement_index, :]
     posterior_predictions_retirement = Bernoulli(logits=post_retirement).sample(key = key) 
