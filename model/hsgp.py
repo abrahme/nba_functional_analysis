@@ -52,6 +52,18 @@ def eigenfunctions(x, L, M):
     return num / den
 
 
+def make_convex_f(phi, gamma, intercept, slope, x, L):
+    right_result = jax.vmap(jax.vmap(lambda x: jnp.einsum("tjk,k -> tj", phi, x), -1, -1), -1, -1)(gamma)
+    result = jax.vmap(jax.vmap(lambda x, y: jnp.einsum("tj,j -> t", x, y), -1, -1), -1, -1)(right_result, gamma)
+     ## output is length of x and output size (mult by -1 to make sure we get concave functions)    
+    return jnp.swapaxes(intercept + jnp.einsum("o,t -> to", slope, (x + L))[:, None, ...] - result, 0, -1)
+
+
+def make_gamma(weights, alpha, length, M, L, output_size):
+    spd = jnp.moveaxis(jnp.tile(jnp.sqrt(diag_spectral_density(alpha, length, L, M)), (*output_size,1)), -1, 0)
+    gamma = spd * weights
+    return gamma
+
 # --- Approximate Gaussian processes --- #
 def approx_se_ncp(x, alpha, length, L, M, output_size = 1, name: str = ""):
     """
@@ -65,18 +77,15 @@ def approx_se_ncp(x, alpha, length, L, M, output_size = 1, name: str = ""):
     return f
 
 
-def approx_convex_se(x, alpha, length, L, M, output_size, beta, intercept, slope, name: str = ""):
+def approx_convex_se(phi, x, alpha, length, L, M, output_size, beta, intercept, slope, name: str = ""):
     """
     Hilbert space approximation for the squared
     exponential kernel in the non-centered parametrisation for convex gp based on 
     https://drive.google.com/file/d/19kHhfuYC22ymNt3a3BlYgW0vWexOmbNy/view
     """
-    
-    phi = convex_eigenfunctions(x, L, M)
-    spd = jnp.moveaxis(jnp.tile(jnp.sqrt(diag_spectral_density(alpha, length, L, M)), (*output_size,1)), -1, 0)
+
     weights = sample(name, beta, sample_shape=(M, *output_size)) if isinstance(beta, Distribution) else beta ### can have multi-output
-    gamma = spd * weights
-    f = -1*jnp.einsum("tj...,j... -> t..." , jnp.einsum("tjk,k... -> tj...", phi, gamma), gamma) ## output is length of x and output size (mult by -1 to make sure we get concave functions)
+    gamma = make_gamma(weights, alpha, length, M, L, output_size)
     f_0 = sample("f_0", intercept, sample_shape = (1, output_size[-1])) if isinstance(intercept, Distribution) else intercept
     f_0_prime = sample("f_0_prime", slope, sample_shape = (output_size[-1], )) if isinstance(slope, Distribution) else slope
-    return jnp.swapaxes(f + f_0 + jnp.einsum("o,t -> to", f_0_prime, (x + L))[:, None, ...], 0, -1)
+    return make_convex_f(phi, gamma, f_0, f_0_prime, x, L)

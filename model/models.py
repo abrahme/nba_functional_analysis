@@ -1,13 +1,13 @@
 from abc import abstractmethod, ABC
 import jax 
 import numpy as np
-from numpyro import sample 
+from numpyro import sample , deterministic
 from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, Distribution
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive
 from numpyro.infer.reparam import NeuTraReparam
 from numpyro.infer.autoguide import AutoDelta, AutoBNAFNormal
 from optax import linear_onecycle_schedule, adam
-from .hsgp import approx_convex_se
+from .hsgp import approx_convex_se, convex_eigenfunctions
 import jax.numpy as jnp
 from .MultiHMCGibbs import MultiHMCGibbs
 
@@ -369,7 +369,9 @@ class ConvexTVRFLVM(TVRFLVM):
     """
     def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis) -> None:
         super().__init__(latent_rank, rff_dim, output_shape, basis)
+        self.M = 10
         self.L = jnp.max(jnp.abs(self.basis - self.basis.mean())) * 1.2
+        self.phi = convex_eigenfunctions(self.basis - self.basis.mean(), self.L, self.M)
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
         self.prior["lengthscale"] = InverseGamma(1.0, 1.0)
@@ -390,9 +392,9 @@ class ConvexTVRFLVM(TVRFLVM):
         ls = self.prior["lengthscale"] if not isinstance(self.prior["lengthscale"], Distribution) else sample("lengthscale", self.prior["lengthscale"])
         alpha = self.prior["alpha"] if not isinstance(self.prior["alpha"], Distribution) else sample("alpha", self.prior["alpha"])
         
-        beta = approx_convex_se(x = self.basis - self.basis.mean(), alpha = alpha, length=ls, L = self.L, M = 10, output_size=(self.m * 2, num_metrics), name = "beta", beta = self.prior["beta"],
+        beta = approx_convex_se(phi=self.phi, x = self.basis - self.basis.mean(), alpha = alpha, length=ls, L = self.L, M = self.M, output_size=(self.m * 2, num_metrics), name = "beta", beta = self.prior["beta"],
                                 slope=self.prior["slope"], intercept=self.prior["intercept"]) 
-        mu = jnp.einsum("nm,kmj -> knj", phi, beta)
+        mu = deterministic("mu",jnp.einsum("nm,kmj -> knj", phi, beta))
         sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
         expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))
         for family in data_set:

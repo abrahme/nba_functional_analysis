@@ -10,6 +10,7 @@ from shinywidgets import render_plotly
 from shiny.express import input, ui, render
 from visualization.visualization import plot_correlation_dendrogram, plot_mcmc_diagnostics, plot_posterior_predictive_career_trajectory, plot_scatter
 from data.data_utils import create_fda_data
+from model.hsgp import convex_eigenfunctions, make_convex_f, make_gamma
 jax.config.update("jax_enable_x64", True)
 jax.config.update("jax_platform_name", "cuda")
 
@@ -20,7 +21,11 @@ data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
 names = data.groupby("id")["name"].first().values
 
 metric_output = ["binomial", "exponential"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+basis = np.arange(18,39)
+x = basis - basis.mean()
+L = 1.3 * np.max(np.abs(x))
 
+eig_funcs = convex_eigenfunctions(x, L, 10)
 metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
 exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
 
@@ -31,19 +36,29 @@ _ , outputs, _ = create_fda_data(data, basis_dims=3, metric_output=metric_output
                                      metrics = metrics
 , exposure_list =  exposure_list)
 
-with open("model_output/gibbs_nba_tvrflvm_test.pkl", "rb") as f:
+with open("model_output/latent_variable.pkl", "rb") as f:
+    results_latent = pickle.load(f)
+f.close()
+
+with open("model_output/fixed_latent_convex_nba_tvrflvm.pkl", "rb") as f:
     results = pickle.load(f)
 f.close()
 
 inf_data = az.from_dict(results)
 
+X = results_latent["X"]
 W = results["W"]
-X = results["X"]
-
-X_rflvm_aligned_mean = X[-1, -10, ...] ### TODO: align 
+weights = results["beta"]
+alpha = results["alpha"]
+length = results["lengthscale"]
+intercept = results["f_0"]
+slope = results["f_0_prime"]
+gamma = make_gamma(weights, alpha, length)
+convex_beta = make_convex_f(eig_funcs, gamma, intercept, slope, x, L)
+# X_rflvm_aligned_mean = X[-1, -10, ...] ### TODO: align 
 X_rflvm_aligned = X
 
-X_tsne = TSNE(n_components=3).fit_transform(X_rflvm_aligned_mean)
+X_tsne = TSNE(n_components=3).fit_transform(X_rflvm_aligned)
 knn = NearestNeighbors(n_neighbors=6).fit(X_tsne)
 
 
@@ -94,9 +109,9 @@ with ui.nav_panel("Player Embeddings & Trajectories"):
         @render_plotly
         def player_trajectory():
             player_index = int(input.player())
-            wTx = np.einsum("ijr,ijmr -> ijm", X_rflvm_aligned[:,:,player_index, :], W)
+            wTx = np.einsum("r,...mr -> ...m", X_rflvm_aligned[player_index, :], W)
             phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
-            mu = np.einsum("ijk,ijmkt -> ijmt", phi, results["beta"])
+            mu = np.einsum("k,...mkt -> ...mt", phi, convex_beta)
             return plot_posterior_predictive_career_trajectory(
                                                             player_index=player_index,
                                                             metrics=metrics, 
@@ -109,7 +124,7 @@ with ui.nav_panel("Player Embeddings & Trajectories"):
 
 
 with ui.nav_panel("MCMC Diagnostics"):
-    ui.input_select(id="model", label = "Select a model parameter", choices={index : name for index, name in enumerate(parameters) if ("sigma" in name) or (name == "lengthscale")})
+    ui.input_select(id="model", label = "Select a model parameter", choices={index : name for index, name in enumerate(parameters) if ("sigma" in name) or (name == "lengthscale") or ("f" in name)})
 
     with ui.layout_column_wrap():
         @render.plot
@@ -122,23 +137,7 @@ with ui.nav_panel("MCMC Diagnostics"):
             return plot_mcmc_diagnostics(inf_data, param_name, plot="summary" )
     
     ui.input_select(id="player_model", label = "Select a player", choices={index : name for index, name in enumerate(names)})
-    with ui.layout_column_wrap():
-        @render.plot
-        def plot_player_trace():
-            player_index = int(input.player_model())
-            results["X"] = X_rflvm_aligned[:,:,player_index,:]
-            inf_data = az.from_dict(results)
-            return plot_mcmc_diagnostics(inf_data, "X", plot = "trace")
-        
-        @render.table
-        def plot_player_summary():
-            player_index = int(input.player_model())
-            results["X"] = X_rflvm_aligned[:,:,player_index,:]
-            inf_data = az.from_dict(results)
-            return plot_mcmc_diagnostics(inf_data, "X", plot = "summary")
-        
-
-    
+ 
     with ui.layout_column_wrap():
         ui.input_select(id="metric_mcmc", label = "Select a metric", choices = {index : name for index, name in enumerate(metrics)})
         ui.input_select(id="age", label = "Select an age", choices = {index : name for index, name in enumerate(range(18,39))})
@@ -146,9 +145,9 @@ with ui.nav_panel("MCMC Diagnostics"):
         @render.plot
         def plot_player_trace_mu():
             player_index = int(input.player_model())
-            wTx = np.einsum("ijr,ijmr -> ijm", X_rflvm_aligned[:,:,player_index,:], W)
+            wTx = np.einsum("r,...mr -> ...m", X_rflvm_aligned[:,:,player_index,:], W)
             phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
-            mu = np.einsum("ijk,ijk -> ij", phi, results["beta"][:, :, int(input.metric_mcmc()), :, int(input.age())])
+            mu = np.einsum("k,ijk -> ij", phi, convex_beta[:, :, int(input.metric_mcmc()), :, int(input.age())])
             results["mu"] = mu
             inf_data = az.from_dict(results)
             return plot_mcmc_diagnostics(inf_data, "mu", plot = "trace")
@@ -156,9 +155,9 @@ with ui.nav_panel("MCMC Diagnostics"):
         @render.table
         def plot_player_summary_mu():
             player_index = int(input.player_model())
-            wTx = np.einsum("ijr,ijmr -> ijm", X_rflvm_aligned[:,:,player_index,:], W)
+            wTx = np.einsum("r,...mr -> ...m", X_rflvm_aligned[:,:,player_index,:], W)
             phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
-            mu = np.einsum("ijk,ijk -> ij", phi, results["beta"][:, :, int(input.metric_mcmc()), :, int(input.age())])
+            mu = np.einsum("k,ijk -> ij", phi, convex_beta[:, :, int(input.metric_mcmc()), :, int(input.age())])
             results["mu"] = mu
             inf_data = az.from_dict(results)
             return plot_mcmc_diagnostics(inf_data, "mu", plot = "summary")
@@ -167,5 +166,5 @@ with ui.nav_panel("Metric Correlations"):
     ui.input_select(id="chain", label = "Select a chain", choices = {index : name for index, name in enumerate(range(1,5))})
     @render_plotly
     def plot_latent_space_dendrogram():
-        return plot_correlation_dendrogram(results["beta"][int(input.chain()), :, :, :, :].mean(axis = (0,3)), labels = metrics, title = "Metric Correlation")
+        return plot_correlation_dendrogram(convex_beta[int(input.chain()), :, :, :, :].mean(axis = (0,3)), labels = metrics, title = "Metric Correlation")
 
