@@ -47,12 +47,12 @@ f.close()
 inf_data = az.from_dict(results)
 
 X = results_latent["X"]
-W = results["W"][1:2]
-weights = results["beta"][1:2]
-alpha = results["alpha"][1:2]
-length = results["lengthscale"][1:2]
-intercept = results["f_0"][1:2]
-slope = results["f_0_prime"][1:2]
+W = results["W"][0:1]
+weights = results["beta"][0:1][:,:,0:10,...]
+alpha = results["alpha"][0:1]
+length = results["lengthscale"][0:1]
+intercept = results["f_0"][0:1]
+slope = results["f_0_prime"][0:1]
 gamma_simple = lambda x, y, z : make_gamma(x, y, z, output_size=(200, len(metrics)), L = L, M = 10)
 gamma = jax.vmap(jax.vmap(gamma_simple))(weights, alpha, length)
 simple_convex_f = lambda t,y,z: make_convex_f(eig_funcs, t, y, z, x, L )
@@ -121,7 +121,7 @@ with ui.nav_panel("Player Embeddings & Trajectories"):
                                                             posterior_mean_samples=mu,
                                                             observations=jnp.stack([output["output_data"] for output in outputs], axis = 1), 
                                                             exposures = jnp.stack([outputs[i]["exposure_data"] for i in range(len(metrics))],axis=0),
-                                                            posterior_variance_samples=jnp.moveaxis(results["sigma"][1:2],-1, 0))
+                                                            posterior_variance_samples=jnp.moveaxis(results["sigma"][0:1],-1, 0))
 
 
 

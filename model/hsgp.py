@@ -6,14 +6,16 @@ import numpyro.distributions as dist
 
 
 def spectral_density(w, alpha, length):
-    c = alpha * jnp.sqrt(2 * jnp.pi) * length
-    e = jnp.exp(-0.5 * (length**2) * (w**2))
+    D = length.shape[-1]
+    c = alpha * jnp.power(2 * jnp.pi, D / 2) * jnp.prod(length)
+    e = jnp.exp(-0.5 * (jnp.square(length) * jnp.square(w)).sum())
     return c * e
 
 def sqrt_eigenvalues(M, L):
-    return jnp.arange(1,  M + 1) * jnp.pi / (2 * L) 
+    D = L.shape[-1]
+    return jnp.sqrt(jnp.tile(jnp.arange(1,  M + 1)[:, None], (1, D)) * jnp.pi / (2 * L) )
 
-def convex_eigenfunctions(x, L, M= 1):
+def make_convex_phi(x, L, M= 1):
     assert len(x.shape) == 1 ### only have capacity for single dimension concavity
     eig_vals = sqrt_eigenvalues(M, L)
     broadcast_sub = jax.vmap(jax.vmap(jnp.subtract, (None, 0)), (0, None))
@@ -34,6 +36,9 @@ def convex_eigenfunctions(x, L, M= 1):
     phi = broadcast_fill_diag(other_elements, diagonal_elements)
     return phi #should be t x m x m where t is the length of x and m is the number of eigen values (or M)
 
+def make_phi(x, L, M):
+    eigen_funcs = eigenfunctions(x, L, M)
+    return jnp.einsum("...m, ...k -> ...mk", eigen_funcs, eigen_funcs)
 
 def diag_spectral_density(alpha, length, L, M):
     return spectral_density(sqrt_eigenvalues(M, L), alpha, length)
@@ -41,22 +46,20 @@ def diag_spectral_density(alpha, length, L, M):
 
 def eigenfunctions(x, L, M):
     """
-    The first `M` eigenfunctions of the laplacian operator in `[-L, L]`
+    The first `M` eigenfunctions of the laplacian operator in `[-L, L] ^ D`
     evaluated at `x`. These are used for the approximation of the
     squared exponential kernel.
     """
-    m1 = (jnp.pi / (2 * L)) * jnp.tile(L + x[:, None], M)
-    m2 = jnp.diag(jnp.linspace(1, M, num=M))
-    num = jnp.sin(m1 @ m2)
-    den = jnp.sqrt(L)
-    return num / den
+
+    eig_vals = jnp.square(sqrt_eigenvalues(M, L))
+    return jnp.prod(jnp.sin(jnp.einsum("n..., m... -> nm...", x + L, eig_vals)), -1) / jnp.prod(jnp.sqrt(L)) 
 
 
-def make_convex_f(phi, gamma, intercept, slope, x, L):
+def make_gamma_phi_gamma(phi, gamma):
     right_result = jax.vmap(jax.vmap(lambda x: jnp.einsum("tjk,k -> tj", phi, x), -1, -1), -1, -1)(gamma)
     result = jax.vmap(jax.vmap(lambda x, y: jnp.einsum("tj,j -> t", x, y), -1, -1), -1, -1)(right_result, gamma)
      ## output is length of x and output size (mult by -1 to make sure we get concave functions)    
-    return jnp.swapaxes(intercept + jnp.einsum("o,t -> to", slope, (x + L))[:, None, ...] - result, 0, -1)
+    return result
 
 
 def make_gamma(weights, alpha, length, M, L, output_size):
@@ -64,28 +67,17 @@ def make_gamma(weights, alpha, length, M, L, output_size):
     gamma = spd * weights
     return gamma
 
-# --- Approximate Gaussian processes --- #
-def approx_se_ncp(x, alpha, length, L, M, output_size = 1, name: str = ""):
-    """
-    Hilbert space approximation for the squared
-    exponential kernel in the non-centered parametrisation.
-    """
-    phi = eigenfunctions(x, L, M)
-    spd = jnp.tile(jnp.sqrt(diag_spectral_density(alpha, length, L, M)), (output_size,1)).T
-    beta = sample(name, dist.Normal(0, 1), sample_shape=(M, output_size)) ### can have multi-output
-    f = phi @ (spd * beta)
-    return f
+def make_psi_gamma(psi, gamma):
+    return jnp.einsum("...m , nm -> n...", gamma, psi)
 
+def make_convex_f(phi_x, psi_x, psi_x_time_cross, phi_time, shifted_x_time, L_time, M_time, alpha_time, length_time, weights_time, L, M, alpha, length, weights, slope, intercept, output_size):
+    ## intercept should be n x k
+    ### slope should be n x k 
+    gamma_x = make_gamma(weights, alpha, length, M, L, output_size)
+    gamma_time = make_gamma(weights_time, alpha_time, length_time, M_time, L_time, output_size)
+    gamma_phi_gamma_x = make_gamma_phi_gamma(phi_x, gamma_x)
 
-def approx_convex_se(phi, x, alpha, length, L, M, output_size, beta, intercept, slope, name: str = ""):
-    """
-    Hilbert space approximation for the squared
-    exponential kernel in the non-centered parametrisation for convex gp based on 
-    https://drive.google.com/file/d/19kHhfuYC22ymNt3a3BlYgW0vWexOmbNy/view
-    """
-
-    weights = sample(name, beta, sample_shape=(M, *output_size)) if isinstance(beta, Distribution) else beta ### can have multi-output
-    gamma = make_gamma(weights, alpha, length, M, L, output_size)
-    f_0 = sample("f_0", intercept, sample_shape = (1, output_size[-1])) if isinstance(intercept, Distribution) else intercept
-    f_0_prime = sample("f_0_prime", slope, sample_shape = (output_size[-1], )) if isinstance(slope, Distribution) else slope
-    return make_convex_f(phi, gamma, f_0, f_0_prime, x, L)
+    return intercept + jnp.einsum("nk, t -> nkt",  slope, shifted_x_time) - jnp.einsum("..., t -> ...t" , gamma_phi_gamma_x, .5 * jnp.square(shifted_x_time)) - 2 * jnp.einsum("n..., ...t -> n...t",
+                                                                                                                                                                           make_psi_gamma(psi_x, gamma_x),
+                                                                                                                                                                           make_psi_gamma(psi_x_time_cross,
+                                                                                                                                                                                          gamma_time)) - make_gamma_phi_gamma(phi_time, gamma_time) 

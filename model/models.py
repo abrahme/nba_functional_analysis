@@ -7,7 +7,7 @@ from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictiv
 from numpyro.infer.reparam import NeuTraReparam
 from numpyro.infer.autoguide import AutoDelta, AutoBNAFNormal
 from optax import linear_onecycle_schedule, adam
-from .hsgp import approx_convex_se, convex_eigenfunctions
+from .hsgp import make_convex_f, eigenfunctions, make_phi, make_psi_gamma
 import jax.numpy as jnp
 from .MultiHMCGibbs import MultiHMCGibbs
 
@@ -369,32 +369,40 @@ class ConvexTVRFLVM(TVRFLVM):
     """
     def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis) -> None:
         super().__init__(latent_rank, rff_dim, output_shape, basis)
-        self.M = 10
-        self.L = jnp.max(jnp.abs(self.basis - self.basis.mean())) * 1.2
-        self.phi = convex_eigenfunctions(self.basis - self.basis.mean(), self.L, self.M)
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
         self.prior["lengthscale"] = InverseGamma(1.0, 1.0)
         self.prior["alpha"] = InverseGamma(1.0, 1.0)
         self.prior["intercept"] = Normal()
         self.prior["slope"] = Normal()
+        self.prior["beta_time"] = Normal()
 
-    def model_fn(self, data_set) -> None:
+    def model_fn(self, data_set, hsgp_params) -> None:
         num_gaussians = data_set["gaussian"]["Y"].shape[0]
         num_metrics = sum(len(data_set[family]["indices"]) for family in data_set)
-        W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(self.m, self.r))
+
+        psi_x_time_cross = hsgp_params["psi_x_time_cross"]
+        phi_time  = hsgp_params["phi_x_time"]
+        shifted_x_time = hsgp_params["shifted_x_time"]
+        L_time = hsgp_params["L_time"]
+        M_time = hsgp_params["M_time"]
+        M = hsgp_params["M"]
+        L = jnp.max(jnp.abs(X), -1) * 1.5
 
         X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
+        psi_x = eigenfunctions(X, L, M)
+        phi_x = make_phi(X, L, M) 
         # X = self._stabilize_x(X_raw)
-        wTx = jnp.einsum("nr,mr -> nm", X, W)
-        phi = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
+        
+        slope = make_psi_gamma(psi_x, self.prior["slope"] if not isinstance(self.prior["slope"], Distribution) else sample("slope", self.prior["slope"], sample_shape=(M, num_metrics)))
+        intercept = make_psi_gamma(psi_x, self.prior["intercept"] if not isinstance(self.prior["intercept"], Distribution) else sample("intercept", self.prior["intercept"], sample_shape=(M, num_metrics)))
+
 
         ls = self.prior["lengthscale"] if not isinstance(self.prior["lengthscale"], Distribution) else sample("lengthscale", self.prior["lengthscale"])
-        alpha = self.prior["alpha"] if not isinstance(self.prior["alpha"], Distribution) else sample("alpha", self.prior["alpha"])
-        
-        beta = approx_convex_se(phi=self.phi, x = self.basis - self.basis.mean(), alpha = alpha, length=ls, L = self.L, M = self.M, output_size=(self.m * 2, num_metrics), name = "beta", beta = self.prior["beta"],
-                                slope=self.prior["slope"], intercept=self.prior["intercept"]) 
-        mu = deterministic("mu",jnp.einsum("nm,kmj -> knj", phi, beta))
+        alpha_time = self.prior["alpha"] if not isinstance(self.prior["alpha"], Distribution) else sample("alpha", self.prior["alpha"])
+        weights_time = self.prior["beta_time"] if not isinstance(self.prior["beta_time"], Distribution) else sample("beta_time", self.prior["beta_time"], sample_shape=(M_time, num_metrics))
+        weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(M, num_metrics))
+        mu = make_convex_f(phi_x, psi_x, psi_x_time_cross, phi_time, shifted_x_time, L_time, M_time, alpha_time, ls, weights_time, L, M, 1, 1, weights, slope, intercept, (num_metrics, ))
         sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
         expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))
         for family in data_set:

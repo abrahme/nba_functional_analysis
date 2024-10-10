@@ -7,6 +7,7 @@ import pickle
 import numpyro
 from numpyro.distributions import MatrixNormal
 from numpyro.diagnostics import print_summary
+from model.hsgp import eigenfunctions, make_phi, make_convex_phi, sqrt_eigenvalues
 # jax. config. update("jax_debug_infs", True)
 jax.config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, create_cp_data
@@ -111,18 +112,39 @@ if __name__ == "__main__":
             family_dict["mask"] = masks[indices]
             family_dict["indices"] = indices
             data_dict[family] = family_dict
+        if "convex" in model_name:
+                hsgp_params = {}
+                x_time = basis - basis.mean()
+                L_time = 1.5 * jnp.max(jnp.abs(x_time))
+                M_time = 10
+                phi_time = make_convex_phi(x_time, L_time, M_time)
+                psi_time = eigenfunctions(x_time, L_time, M_time)
+                eig_val_time = jnp.square(sqrt_eigenvalues(M_time, L_time))
+                psi_x_time_cross = x_time + L_time  - psi_time / eig_val_time
+                hsgp_params["psi_x_time_cross"] = psi_x_time_cross
+                hsgp_params["eig_val_time"] = eig_val_time
+                hsgp_params['psi_x_time'] = psi_time
+                hsgp_params["phi_x_time"] = phi_time
+                hsgp_params["shifted_x_time"] = x_time + L_time
+                hsgp_params["M_time"] = M_time
+                hsgp_params["L_time"] = L_time
+                hsgp_params["M"] = 100
+
         if "gibbs" in model_name:
             if "convex" in model_name:
-                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X", "lengthscale", "alpha"], ["W","beta","sigma", "slope", "intercept"]])
+                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict, "hsgp_params": hsgp_params}, gibbs_sites=[["X", "lengthscale", "alpha"], ["beta_time","beta","sigma", "slope", "intercept"]])
             elif "tvrflvm" in model_name:
                 samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X", "lengthscale"], ["W","beta","sigma"]])  
             else:
                 samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X"], ["W","beta","sigma"]])  
         else:
+            model_args = {"data_set": data_dict}
+            if "convex" in model_name:
+                model_args.update({ "hsgp_params": hsgp_params})
             if not neural_parametrization:
-                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args={"data_set": data_dict})
+                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args)
             else:
-                mcmc_run, neutra = model.run_neutra_inference(num_chains=4, num_samples=2000, num_warmup=1000, num_steps=1000000, guide_kwargs={}, model_args={"data_set": data_dict})
+                mcmc_run, neutra = model.run_neutra_inference(num_chains=4, num_samples=2000, num_warmup=1000, num_steps=1000000, guide_kwargs={}, model_args=model_args)
                 samples = mcmc_run.get_samples(group_by_chain=True)
         if neural_parametrization:
             samples = neutra.transform_sample(samples)
