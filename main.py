@@ -7,7 +7,7 @@ import pickle
 import numpyro
 from numpyro.distributions import MatrixNormal
 from numpyro.diagnostics import print_summary
-from model.hsgp import eigenfunctions, make_phi, make_convex_phi, sqrt_eigenvalues
+from model.hsgp import eigenfunctions, make_convex_phi, sqrt_eigenvalues
 # jax. config. update("jax_debug_infs", True)
 jax.config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, create_cp_data
@@ -24,7 +24,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_path", help="where to store generated files", required = False, default="")
     parser.add_argument("--vectorized", help="whether to vectorize some chains so all gpus will be used", action="store_true")
     parser.add_argument("--run_neutra", help = "whether or not to run neural reparametrization", action="store_true")
-    numpyro.set_platform("cuda")
+    numpyro.set_platform("cpu")
     # numpyro.set_host_device_count(4)
     args = vars(parser.parse_args())
     neural_parametrization = args["run_neutra"]
@@ -115,12 +115,12 @@ if __name__ == "__main__":
         if "convex" in model_name:
                 hsgp_params = {}
                 x_time = basis - basis.mean()
-                L_time = 1.5 * jnp.max(jnp.abs(x_time))
+                L_time = 1.5 * jnp.max(jnp.abs(x_time), 0, keepdims=True)
                 M_time = 10
                 phi_time = make_convex_phi(x_time, L_time, M_time)
                 psi_time = eigenfunctions(x_time, L_time, M_time)
                 eig_val_time = jnp.square(sqrt_eigenvalues(M_time, L_time))
-                psi_x_time_cross = x_time + L_time  - psi_time / eig_val_time
+                psi_x_time_cross = (x_time + L_time)[..., None]  - psi_time / eig_val_time.T
                 hsgp_params["psi_x_time_cross"] = psi_x_time_cross
                 hsgp_params["eig_val_time"] = eig_val_time
                 hsgp_params['psi_x_time'] = psi_time
