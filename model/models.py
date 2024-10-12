@@ -1,7 +1,7 @@
 from abc import abstractmethod, ABC
 import jax 
 import numpy as np
-from numpyro import sample , deterministic
+from numpyro import sample 
 from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, Distribution
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive
 from numpyro.infer.reparam import NeuTraReparam

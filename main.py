@@ -24,7 +24,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_path", help="where to store generated files", required = False, default="")
     parser.add_argument("--vectorized", help="whether to vectorize some chains so all gpus will be used", action="store_true")
     parser.add_argument("--run_neutra", help = "whether or not to run neural reparametrization", action="store_true")
-    numpyro.set_platform("cpu")
+    numpyro.set_platform("cuda")
     # numpyro.set_host_device_count(4)
     args = vars(parser.parse_args())
     neural_parametrization = args["run_neutra"]
@@ -116,7 +116,7 @@ if __name__ == "__main__":
                 hsgp_params = {}
                 x_time = basis - basis.mean()
                 L_time = 1.5 * jnp.max(jnp.abs(x_time), 0, keepdims=True)
-                M_time = 10
+                M_time = 5
                 phi_time = make_convex_phi(x_time, L_time, M_time)
                 psi_time = eigenfunctions(x_time, L_time, M_time)
                 eig_val_time = jnp.square(sqrt_eigenvalues(M_time, L_time))
@@ -128,7 +128,7 @@ if __name__ == "__main__":
                 hsgp_params["shifted_x_time"] = x_time + L_time
                 hsgp_params["M_time"] = M_time
                 hsgp_params["L_time"] = L_time
-                hsgp_params["M"] = 100
+                hsgp_params["M"] = 35
 
         if "gibbs" in model_name:
             if "convex" in model_name:
