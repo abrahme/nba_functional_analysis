@@ -10,7 +10,7 @@ from shinywidgets import render_plotly
 from shiny.express import input, ui, render
 from visualization.visualization import plot_correlation_dendrogram, plot_mcmc_diagnostics, plot_posterior_predictive_career_trajectory, plot_scatter
 from data.data_utils import create_fda_data
-from model.hsgp import convex_eigenfunctions, make_convex_f, make_gamma
+from model.hsgp import make_convex_phi, make_convex_f, eigenfunctions, sqrt_eigenvalues, make_psi_gamma, make_phi
 jax.config.update("jax_enable_x64", True)
 jax.config.update("jax_platform_name", "cpu")
 
@@ -25,7 +25,7 @@ basis = np.arange(18,39)
 x = basis - basis.mean()
 L = 1.3 * np.max(np.abs(x))
 
-eig_funcs = convex_eigenfunctions(x, L, 10)
+
 metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
 exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
 
@@ -46,17 +46,43 @@ f.close()
 
 inf_data = az.from_dict(results)
 
+
+x_time = basis - basis.mean()
+L_time = 1.5 * jnp.max(jnp.abs(x_time), 0, keepdims=True)
+shifted_x_time = x_time + L_time
+M_time = 5
+phi_time = make_convex_phi(x_time, L_time, M_time)
+psi_time = eigenfunctions(x_time, L_time, M_time)
+eig_val_time = jnp.square(sqrt_eigenvalues(M_time, L_time))
+psi_x_time_cross = (x_time + L_time)[..., None]  - psi_time / eig_val_time.T
+M = 35
+
+
 X = results_latent["X"]
-W = results["W"][0:1]
-weights = results["beta"][0:1][:,:,0:10,...]
+weights = results["beta"][0:1]
+weights_time = results["beta_time"][0:1]
 alpha = results["alpha"][0:1]
-length = results["lengthscale"][0:1]
-intercept = results["f_0"][0:1]
-slope = results["f_0_prime"][0:1]
-gamma_simple = lambda x, y, z : make_gamma(x, y, z, output_size=(200, len(metrics)), L = L, M = 10)
-gamma = jax.vmap(jax.vmap(gamma_simple))(weights, alpha, length)
-simple_convex_f = lambda t,y,z: make_convex_f(eig_funcs, t, y, z, x, L )
-convex_beta = jax.vmap(jax.vmap(simple_convex_f))(gamma, intercept, slope)
+length_time = results["lengthscale"][0:1]
+intercept_samples = results["intercept"][0:1]
+slope_samples = results["slope"][0:1]
+
+L = jnp.max(jnp.abs(X), 0, keepdims=True) * 1.5
+length = jnp.ones_like(L)
+psi_x = eigenfunctions(X, L, M)
+phi_x = make_phi(X, L, M) 
+
+batch_make_psi_gamma = jax.vmap(jax.vmap(lambda x: make_psi_gamma(psi_x, x)))
+
+slope = batch_make_psi_gamma(slope_samples)
+intercept = batch_make_psi_gamma(intercept_samples)[..., None]
+
+batch_make_convex_f = jax.vmap(jax.vmap(lambda alpha_time, length_time, weights_time, weights, slope, intercept: make_convex_f(phi_x, psi_x, psi_x_time_cross, phi_time, 
+                                                                                      shifted_x_time, L_time, M_time, alpha_time, 
+                                                                                      length_time, weights_time, L, M, 1, length, 
+                                                                                      weights, slope, intercept, (len(metrics),)  )))
+
+core_tensor = batch_make_convex_f(alpha, length_time, weights_time, weights, slope, intercept)
+
 # X_rflvm_aligned_mean = X[-1, -10, ...] ### TODO: align 
 X_rflvm_aligned = X
 
@@ -64,7 +90,7 @@ X_tsne = TSNE(n_components=3).fit_transform(X_rflvm_aligned)
 knn = NearestNeighbors(n_neighbors=6).fit(X_tsne)
 
 
-parameters = list(results.keys()) + ["phi", "mu"]
+parameters = list(results.keys()) + ["mu"]
 
 agg_dict = {"obpm":"mean", "dbpm":"mean", "bpm":"mean", 
             "position_group": "max",
@@ -111,9 +137,7 @@ with ui.nav_panel("Player Embeddings & Trajectories"):
         @render_plotly
         def player_trajectory():
             player_index = int(input.player())
-            wTx = np.einsum("r,...mr -> ...m", X_rflvm_aligned[player_index, :], W)
-            phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
-            mu = np.einsum("ijk, ijmkt -> ijmt", phi, convex_beta)
+            mu = core_tensor[:,:,:, player_index, ...]
             return plot_posterior_predictive_career_trajectory(
                                                             player_index=player_index,
                                                             metrics=metrics, 

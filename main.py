@@ -24,7 +24,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_path", help="where to store generated files", required = False, default="")
     parser.add_argument("--vectorized", help="whether to vectorize some chains so all gpus will be used", action="store_true")
     parser.add_argument("--run_neutra", help = "whether or not to run neural reparametrization", action="store_true")
-    numpyro.set_platform("cuda")
+    numpyro.set_platform("cpu")
     # numpyro.set_host_device_count(4)
     args = vars(parser.parse_args())
     neural_parametrization = args["run_neutra"]
