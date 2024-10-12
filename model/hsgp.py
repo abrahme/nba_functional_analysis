@@ -23,8 +23,8 @@ def make_convex_phi(x, L, M= 1):
     x_shifted = x + L
     cos_pos = jnp.cos(jnp.einsum("t,m... -> tm...", x_shifted, sum_eig_vals)) / (2 * L * sum_eig_vals_square)
     cos_neg = jnp.cos(jnp.einsum("t,m... -> tm...", x_shifted, diff_eig_vals)) / (2 * L * diff_eig_vals_square)
-    diagonal_constants = broadcast_sub(jnp.power(x, 2) / (4 * L) + (x / 2) + (L/ 4) , (1 / (2 * L * jnp.diagonal(sum_eig_vals_square)))) ### should be t x m
-    diagonal_elements = diagonal_constants + jnp.diagonal(sum_eig_vals_square) / (2 * L)
+    diagonal_constants = broadcast_sub(jnp.square(x - L)/ (4 * L) - L , (1 / (2 * L * jnp.diagonal(sum_eig_vals_square)))) ### should be t x m
+    diagonal_elements = diagonal_constants + jnp.diagonal(cos_pos)
     other_elements = cos_pos - cos_neg 
     broadcast_fill_diag = jax.vmap(lambda x, y: jnp.fill_diagonal(x,y, inplace=False), in_axes = 0)
     phi = broadcast_fill_diag(other_elements, diagonal_elements)
