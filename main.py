@@ -119,7 +119,7 @@ if __name__ == "__main__":
                 M_time = 5
                 phi_time = make_convex_phi(x_time, L_time, M_time)
                 psi_time = eigenfunctions(x_time, L_time, M_time)
-                eig_val_time = jnp.square(sqrt_eigenvalues(M_time, L_time))
+                eig_val_time = jnp.squeeze(jnp.square(sqrt_eigenvalues(L_time, M_time, 1)))
                 psi_x_time_cross = (x_time + L_time)[..., None]  - psi_time / eig_val_time.T
                 hsgp_params["psi_x_time_cross"] = psi_x_time_cross
                 hsgp_params["eig_val_time"] = eig_val_time
@@ -128,11 +128,10 @@ if __name__ == "__main__":
                 hsgp_params["shifted_x_time"] = x_time + L_time
                 hsgp_params["M_time"] = M_time
                 hsgp_params["L_time"] = L_time
-                hsgp_params["M"] = 35
 
         if "gibbs" in model_name:
             if "convex" in model_name:
-                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict, "hsgp_params": hsgp_params}, gibbs_sites=[["X", "lengthscale", "alpha"], ["beta_time","beta","sigma", "slope", "intercept"]])
+                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict, "hsgp_params": hsgp_params}, gibbs_sites=[["X", "lengthscale", "alpha"], ["W", "beta_time","beta","sigma", "slope", "intercept"]])
             elif "tvrflvm" in model_name:
                 samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X", "lengthscale"], ["W","beta","sigma"]])  
             else:

@@ -7,9 +7,10 @@ from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictiv
 from numpyro.infer.reparam import NeuTraReparam
 from numpyro.infer.autoguide import AutoDelta, AutoBNAFNormal
 from optax import linear_onecycle_schedule, adam
-from .hsgp import make_convex_f, eigenfunctions, make_phi, make_psi_gamma
+from .hsgp import make_convex_f, make_psi_gamma
 import jax.numpy as jnp
 from .MultiHMCGibbs import MultiHMCGibbs
+
 
 class ProbabilisticCPDecomposition(ABC):
     """
@@ -386,24 +387,19 @@ class ConvexTVRFLVM(TVRFLVM):
         shifted_x_time = hsgp_params["shifted_x_time"]
         L_time = hsgp_params["L_time"]
         M_time = hsgp_params["M_time"]
-        M = hsgp_params["M"]
-
+        W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(self.m, self.r))
 
         X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
-        L = jnp.max(jnp.abs(X), 0, keepdims=True) * 1.5
-        psi_x = eigenfunctions(X, L, M)
-        phi_x = make_phi(X, L, M) 
-        # X = self._stabilize_x(X_raw)
-        
-        slope = make_psi_gamma(psi_x, self.prior["slope"] if not isinstance(self.prior["slope"], Distribution) else sample("slope", self.prior["slope"], sample_shape=(M, num_metrics)))
-        intercept = make_psi_gamma(psi_x, self.prior["intercept"] if not isinstance(self.prior["intercept"], Distribution) else sample("intercept", self.prior["intercept"], sample_shape=( M, num_metrics)))[..., None]
-
-        length = jnp.ones_like(L)
+        wTx = jnp.einsum("nr,mr -> nm", X, W)
+        psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
+        phi_x = jnp.einsum("nm, nk -> nkm", psi_x, psi_x)
+        slope = make_psi_gamma(psi_x, self.prior["slope"] if not isinstance(self.prior["slope"], Distribution) else sample("slope", self.prior["slope"], sample_shape=(self.m*2, num_metrics)))
+        intercept = make_psi_gamma(psi_x, self.prior["intercept"] if not isinstance(self.prior["intercept"], Distribution) else sample("intercept", self.prior["intercept"], sample_shape=(self.m * 2, num_metrics)))[..., None]
         ls = self.prior["lengthscale"] if not isinstance(self.prior["lengthscale"], Distribution) else sample("lengthscale", self.prior["lengthscale"], sample_shape=(1,))
         alpha_time = self.prior["alpha"] if not isinstance(self.prior["alpha"], Distribution) else sample("alpha", self.prior["alpha"])
         weights_time = self.prior["beta_time"] if not isinstance(self.prior["beta_time"], Distribution) else sample("beta_time", self.prior["beta_time"], sample_shape=(M_time, num_metrics))
-        weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(M, num_metrics))
-        mu = make_convex_f(phi_x, psi_x, psi_x_time_cross, phi_time, shifted_x_time, L_time, M_time, alpha_time, ls, weights_time, L, M, 1, length, weights, slope, intercept, (num_metrics, ))
+        weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.m * 2, num_metrics))
+        mu = make_convex_f(phi_x, psi_x, psi_x_time_cross, phi_time, shifted_x_time, L_time, M_time, alpha_time, ls, weights_time, weights, slope, intercept, (num_metrics, ))
         sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
         expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))
         for family in data_set:
@@ -414,11 +410,13 @@ class ConvexTVRFLVM(TVRFLVM):
             if family == "gaussian":
                 dist = Normal(linear_predictor[mask], expanded_sigmas[mask] /exposure[mask])
             elif family == "poisson":
-                dist = Poisson(jnp.exp(linear_predictor[mask] + exposure[mask])) 
+                rate = jnp.exp(linear_predictor[mask] + exposure[mask])
+                dist = Poisson(rate) 
             elif family == "binomial":
                 dist = Binomial(logits = linear_predictor[mask], total_count=exposure[mask])
             elif family == "exponential":
-                dist = Exponential(jnp.exp(linear_predictor[mask] + exposure[mask]))
+                rate = jnp.exp(linear_predictor[mask] + exposure[mask])
+                dist = Exponential(rate)
             y = sample(f"likelihood_{family}", dist, obs[mask])
 
     def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args):
