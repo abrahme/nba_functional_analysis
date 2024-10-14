@@ -59,7 +59,7 @@ if __name__ == "__main__":
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
         model = RFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
         if "convex" in model_name:
-            model = ConvexTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+            model = ConvexTVRFLVM(latent_rank=basis_dims, rff_dim=50, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
         elif "iftvrflvm" in model_name:
             model = IFTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
         elif "tvrflvm" in model_name:
