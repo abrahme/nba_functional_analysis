@@ -382,7 +382,6 @@ class ConvexTVRFLVM(TVRFLVM):
         num_gaussians = data_set["gaussian"]["Y"].shape[0]
         num_metrics = sum(len(data_set[family]["indices"]) for family in data_set)
 
-        psi_x_time_cross = hsgp_params["psi_x_time_cross"]
         phi_time  = hsgp_params["phi_x_time"]
         shifted_x_time = hsgp_params["shifted_x_time"]
         L_time = hsgp_params["L_time"]
@@ -399,7 +398,7 @@ class ConvexTVRFLVM(TVRFLVM):
         alpha_time = self.prior["alpha"] if not isinstance(self.prior["alpha"], Distribution) else sample("alpha", self.prior["alpha"])
         weights_time = self.prior["beta_time"] if not isinstance(self.prior["beta_time"], Distribution) else sample("beta_time", self.prior["beta_time"], sample_shape=(M_time, num_metrics))
         weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.m * 2, num_metrics))
-        mu = make_convex_f(phi_x, psi_x, psi_x_time_cross, phi_time, shifted_x_time, L_time, M_time, alpha_time, ls, weights_time, weights, slope, intercept, (num_metrics, ))
+        mu = make_convex_f(phi_x, phi_time, shifted_x_time, L_time, M_time, alpha_time, ls, weights_time, weights, slope, intercept, (num_metrics, ))
         sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
         expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))
         for family in data_set:

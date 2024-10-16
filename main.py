@@ -24,7 +24,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_path", help="where to store generated files", required = False, default="")
     parser.add_argument("--vectorized", help="whether to vectorize some chains so all gpus will be used", action="store_true")
     parser.add_argument("--run_neutra", help = "whether or not to run neural reparametrization", action="store_true")
-    numpyro.set_platform("cpu")
+    numpyro.set_platform("cuda")
     # numpyro.set_host_device_count(4)
     args = vars(parser.parse_args())
     neural_parametrization = args["run_neutra"]
@@ -118,12 +118,6 @@ if __name__ == "__main__":
                 L_time = 1.5 * jnp.max(jnp.abs(x_time), 0, keepdims=True)
                 M_time = 5
                 phi_time = make_convex_phi(x_time, L_time, M_time)
-                psi_time = eigenfunctions(x_time, L_time, M_time)
-                eig_val_time = jnp.squeeze(jnp.square(sqrt_eigenvalues(L_time, M_time, 1)))
-                psi_x_time_cross = (x_time + L_time)[..., None]  - psi_time / eig_val_time.T
-                hsgp_params["psi_x_time_cross"] = psi_x_time_cross
-                hsgp_params["eig_val_time"] = eig_val_time
-                hsgp_params['psi_x_time'] = psi_time
                 hsgp_params["phi_x_time"] = phi_time
                 hsgp_params["shifted_x_time"] = x_time + L_time
                 hsgp_params["M_time"] = M_time

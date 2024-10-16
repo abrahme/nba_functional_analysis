@@ -284,13 +284,11 @@ def make_gamma(weights, alpha, length, M, L, output_size, dim):
 def make_psi_gamma(psi, gamma):
     return jnp.dot(psi,gamma)
 
-def make_convex_f(phi_x, psi_x, psi_x_time_cross, phi_time, shifted_x_time, L_time, M_time, alpha_time, length_time, weights_time, weights, slope, intercept, output_size):
+def make_convex_f(phi_x, phi_time, shifted_x_time, L_time, M_time, alpha_time, length_time, weights_time, weights, slope, intercept, output_size):
     ## intercept should be n x k
     ### slope should be n x k 
     gamma_time = make_gamma(weights_time, alpha_time, length_time, M_time, L_time, output_size, 1)
     gamma_phi_gamma_x = make_gamma_phi_gamma(phi_x, weights)
-    psi_gamma_x = make_psi_gamma(psi_x, weights)
-    psi_gamma_cross = make_psi_gamma(psi_x_time_cross, gamma_time)
-    parabolic = jnp.einsum("..., t -> ...t" , gamma_phi_gamma_x, .5 * jnp.square(shifted_x_time))
-    cross_term = 2 * jnp.einsum("n..., t... -> n...t",psi_gamma_x,psi_gamma_cross)
-    return jnp.swapaxes(intercept + jnp.einsum("nk, t -> nkt",  slope, shifted_x_time) - parabolic - cross_term - make_gamma_phi_gamma(phi_time, gamma_time).T[None,...] ,0,1)
+    gamma_phi_gamma_time = make_gamma_phi_gamma(phi_time, gamma_time).T[None,...]
+    convex = jnp.einsum("n..., ...t -> n...t", gamma_phi_gamma_x, gamma_phi_gamma_time)
+    return jnp.swapaxes(intercept + jnp.einsum("nk, t -> nkt",  slope, shifted_x_time) - convex, 0,1)
