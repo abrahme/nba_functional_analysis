@@ -289,6 +289,6 @@ def make_convex_f(phi_x, phi_time, shifted_x_time, L_time, M_time, alpha_time, l
     ### slope should be n x k 
     gamma_time = make_gamma(weights_time, alpha_time, length_time, M_time, L_time, output_size, 1)
     gamma_phi_gamma_x = make_gamma_phi_gamma(phi_x, weights)
-    gamma_phi_gamma_time = make_gamma_phi_gamma(phi_time, gamma_time).T[None,...]
+    gamma_phi_gamma_time = make_gamma_phi_gamma(phi_time, gamma_time).T
     convex = jnp.einsum("n..., ...t -> n...t", gamma_phi_gamma_x, gamma_phi_gamma_time)
     return jnp.swapaxes(intercept + jnp.einsum("nk, t -> nkt",  slope, shifted_x_time) - convex, 0,1)
