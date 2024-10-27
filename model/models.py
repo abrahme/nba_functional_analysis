@@ -3,11 +3,11 @@ import jax
 import numpy as np
 from numpyro import sample 
 from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, Distribution
-from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive
+from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive, init_to_value
 from numpyro.infer.reparam import NeuTraReparam
-from numpyro.infer.autoguide import AutoDelta, AutoBNAFNormal
+from numpyro.infer.autoguide import AutoDelta, AutoBNAFNormal, AutoDiagonalNormal
 from optax import linear_onecycle_schedule, adam
-from .hsgp import make_convex_f, make_psi_gamma
+from .hsgp import make_convex_f, make_psi_gamma, diag_spectral_density
 import jax.numpy as jnp
 from .MultiHMCGibbs import MultiHMCGibbs
 
@@ -159,8 +159,8 @@ class RFLVMBase(ABC):
                 dist = Exponential(jnp.exp(linear_predictor[mask] + exposure[mask]))
             y = sample(f"likelihood_{family}", dist, obs[mask])
     @abstractmethod
-    def run_inference(self, num_warmup, num_samples, num_chains, vectorized:bool, model_args):
-        kernel = NUTS(self.model_fn, init_strategy=init_to_median)
+    def run_inference(self, num_warmup, num_samples, num_chains, vectorized:bool, model_args, initial_values = {}):
+        kernel = NUTS(self.model_fn, init_strategy=init_to_value(values=initial_values))
         key = jax.random.PRNGKey(0)
         if vectorized:
             n_parallel = jax.local_device_count()
@@ -187,15 +187,15 @@ class RFLVMBase(ABC):
             mcmc.run(key, **model_args)
             return mcmc.get_samples(group_by_chain=True)
     @abstractmethod
-    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
+    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
         guide = AutoBNAFNormal(self.model_fn, prefix="", **guide_kwargs)
         print("Setup guide")
-        svi = SVI(self.model_fn, guide, optim=adam(.003), loss=Trace_ELBO(),
+        svi = SVI(self.model_fn, guide, optim=adam(.003), loss=Trace_ELBO(), 
                   )
         print("Setup SVI")
 
         
-        result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps,progress_bar = True, **model_args)
+        result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps,progress_bar = True, init_params=initial_values, **model_args)
         return result, guide
     
     @abstractmethod
@@ -233,14 +233,14 @@ class RFLVM(RFLVMBase):
     def model_fn(self, data_set) -> None:
         return super().model_fn(data_set)
     
-    def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args):
-        return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args)
+    def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args, initial_values={}):
+        return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args, initial_values)
 
     def run_neutra_inference(self, num_warmup, num_samples, num_chains, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
         return super().run_neutra_inference(num_warmup, num_samples, num_chains, num_steps, guide_kwargs, model_args)
     
-    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
-        return super().run_svi_inference(num_steps, guide_kwargs, model_args)
+    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values: dict = {}):
+        return super().run_svi_inference(num_steps, guide_kwargs, model_args, initial_values)
 
     def predict(self, posterior_samples: dict, model_args):
         return super().predict(posterior_samples, model_args)
@@ -255,6 +255,7 @@ class TVRFLVM(RFLVM):
     def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis) -> None:
         super().__init__(latent_rank, rff_dim, output_shape)
         self.basis = basis ### basis for time dimension
+        self.t = len(basis)
     
 
     def make_kernel(self, lengthscale, jitter = 1e-6):
@@ -298,11 +299,11 @@ class TVRFLVM(RFLVM):
                 dist = Exponential(jnp.exp(linear_predictor[mask] + exposure[mask]))
             y = sample(f"likelihood_{family}", dist, obs[mask])
 
-    def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args):
-        return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args)
+    def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args, initial_values={}):
+        return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args, initial_values)
     
-    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
-        return super().run_svi_inference(num_steps, guide_kwargs, model_args)
+    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values: dict = {}):
+        return super().run_svi_inference(num_steps, guide_kwargs, model_args, initial_values)
 
     def run_neutra_inference(self, num_warmup, num_samples, num_chains, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
         return super().run_neutra_inference(num_warmup, num_samples, num_chains, num_steps, guide_kwargs, model_args)
@@ -352,11 +353,11 @@ class IFTVRFLVM(TVRFLVM):
                 dist = Exponential(jnp.exp(linear_predictor[mask] + exposure[mask]))
             y = sample(f"likelihood_{family}", dist, obs[mask])
 
-    def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args):
-        return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args)
+    def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args, initial_values={}):
+        return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args, initial_values)
     
-    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
-        return super().run_svi_inference(num_steps, guide_kwargs, model_args)
+    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values: dict = {}):
+        return super().run_svi_inference(num_steps, guide_kwargs, model_args, initial_values)
 
     def run_neutra_inference(self, num_warmup, num_samples, num_chains, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
         return super().run_neutra_inference(num_warmup, num_samples, num_chains, num_steps, guide_kwargs, model_args)
@@ -372,39 +373,47 @@ class ConvexTVRFLVM(TVRFLVM):
         super().__init__(latent_rank, rff_dim, output_shape, basis)
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
-        self.prior["lengthscale"] = InverseGamma(1.0, 1.0)
+        self.prior["lengthscale_deriv"] = InverseGamma(1.0, 1.0)
         self.prior["alpha"] = InverseGamma(1.0, 1.0)
         self.prior["intercept"] = Normal()
         self.prior["slope"] = Normal()
-        self.prior["beta_time"] = Normal()
 
     def model_fn(self, data_set, hsgp_params) -> None:
         num_gaussians = data_set["gaussian"]["Y"].shape[0]
         num_metrics = sum(len(data_set[family]["indices"]) for family in data_set)
 
         phi_time  = hsgp_params["phi_x_time"]
-        shifted_x_time = hsgp_params["shifted_x_time"]
         L_time = hsgp_params["L_time"]
         M_time = hsgp_params["M_time"]
+        shifted_x_time = hsgp_params["shifted_x_time"]
         W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(self.m, self.r))
 
         X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
+        X  = X - X.mean(0)
+        X = X / X.std(0)
         wTx = jnp.einsum("nr,mr -> nm", X, W)
         psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
-        phi_x = jnp.einsum("nm, nk -> nkm", psi_x, psi_x)
+        phi_x = jnp.einsum("...m,...k -> ...mk", psi_x, psi_x)
         slope = make_psi_gamma(psi_x, self.prior["slope"] if not isinstance(self.prior["slope"], Distribution) else sample("slope", self.prior["slope"], sample_shape=(self.m*2, num_metrics)))
-        intercept = make_psi_gamma(psi_x, self.prior["intercept"] if not isinstance(self.prior["intercept"], Distribution) else sample("intercept", self.prior["intercept"], sample_shape=(self.m * 2, num_metrics)))[..., None]
-        ls = self.prior["lengthscale"] if not isinstance(self.prior["lengthscale"], Distribution) else sample("lengthscale", self.prior["lengthscale"], sample_shape=(1,))
-        alpha_time = self.prior["alpha"] if not isinstance(self.prior["alpha"], Distribution) else sample("alpha", self.prior["alpha"])
-        weights_time = self.prior["beta_time"] if not isinstance(self.prior["beta_time"], Distribution) else sample("beta_time", self.prior["beta_time"], sample_shape=(M_time, num_metrics))
-        weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.m * 2, num_metrics))
-        mu = make_convex_f(phi_x, phi_time, shifted_x_time, L_time, M_time, alpha_time, ls, weights_time, weights, slope, intercept, (num_metrics, ))
+        ls_deriv = self.prior["lengthscale_deriv"] if not isinstance(self.prior["lengthscale_deriv"], Distribution) else sample("lengthscale_deriv", self.prior["lengthscale_deriv"], sample_shape=(num_metrics,))
+        intercept = make_psi_gamma(psi_x, self.prior["intercept"] if not isinstance(self.prior["intercept"], Distribution) else sample("intercept", self.prior["intercept"] , sample_shape=(2 * self.m, num_metrics, 1))) 
+        alpha_time = self.prior["alpha"] if not isinstance(self.prior["alpha"], Distribution) else sample("alpha", self.prior["alpha"], sample_shape=(num_metrics, ))
+        spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
+        weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.m * 2, M_time, num_metrics))
+        weights = weights * spd * .0001
+        left_result = jnp.einsum("tmz, lmk -> tklz", phi_time, weights) ### (t x M_time x M_time) , (M * 2, M _time, k) -> (t, k, M * 2, M_time)
+        gamma_phi_gamma_time = jnp.einsum("tkjz,lzk -> tklj", left_result, weights) ## -> (t, k , M *2, M*2)
+
+        # left_result_x = jnp.einsum("tklp, nl -> nktp", gamma_phi_gamma_time, psi_x)
+        # gamma_phi_gamma_x = jnp.einsum("nktp,np -> nkt",left_result_x, psi_x)
+        gamma_phi_gamma_x = jnp.einsum("n...,tk... -> nkt", phi_x, gamma_phi_gamma_time)
+        mu = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, intercept)
         sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
         expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))
         for family in data_set:
             linear_predictor = mu[data_set[family]["indices"]]
             exposure = data_set[family]["exposure"]
-            obs = data_set[family]["Y"]
+            obs = data_set[family]["Y"] 
             mask = data_set[family]["mask"]
             if family == "gaussian":
                 dist = Normal(linear_predictor[mask], expanded_sigmas[mask] /exposure[mask])
@@ -418,11 +427,22 @@ class ConvexTVRFLVM(TVRFLVM):
                 dist = Exponential(rate)
             y = sample(f"likelihood_{family}", dist, obs[mask])
 
-    def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args):
-        return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args)
+    def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args, initial_values={}):
+        return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args, initial_values)
     
-    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
-        return super().run_svi_inference(num_steps, guide_kwargs, model_args)
+    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
+        guide = AutoDelta(self.model_fn, prefix="", **guide_kwargs)
+        print("Setup guide")
+        svi = SVI(self.model_fn, guide, optim=adam(.0000003), loss=Trace_ELBO(num_particles=10),
+                  )
+        print("Setup SVI")
+
+        
+        result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps,progress_bar = True, init_params=initial_values, **model_args)
+    #     return guide.sample_posterior(
+    #     jax.random.PRNGKey(0), result.params, sample_shape=(4,2000)
+    # )
+        return result.params
 
     def run_neutra_inference(self, num_warmup, num_samples, num_chains, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
         return super().run_neutra_inference(num_warmup, num_samples, num_chains, num_steps, guide_kwargs, model_args)

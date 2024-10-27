@@ -218,15 +218,6 @@ def diag_spectral_density(
     sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m, dim = dim)  # dim x m
     return jax.vmap(_spectral_density, in_axes=-1)(sqrt_eigenvalues_)
 
-# def spectral_density(w, alpha, length):
-#     D = length.shape[-1]
-#     c = alpha * jnp.power(2 * jnp.pi, D / 2) * jnp.prod(length)
-#     e = jnp.exp(-0.5 * (jnp.square(length * w)).sum(-1))
-#     return c * e
-
-# def sqrt_eigenvalues(M, L):
-#     D = L.shape[-1]
-#     return jnp.sqrt(jnp.tile(jnp.arange(1,  M + 1)[:, None], (1, D)) * jnp.pi / (2 * L) ).sum(-1, keepdims=True)
 
 def make_convex_phi(x, L, M= 1):
     assert len(x.shape) == 1 ### only have capacity for single dimension concavity
@@ -238,30 +229,14 @@ def make_convex_phi(x, L, M= 1):
     diff_eig_vals_square = jnp.power( diff_eig_vals, 2)
     sum_eig_vals_square = jnp.power(sum_eig_vals, 2)
     x_shifted = x + L
-    cos_pos = jnp.cos(jnp.einsum("t,m... -> tm...", x_shifted, sum_eig_vals)) / (2 * L * sum_eig_vals_square)
-    cos_neg = jnp.cos(jnp.einsum("t,m... -> tm...", x_shifted, diff_eig_vals)) / (2 * L * diff_eig_vals_square)
-    diagonal_constants = broadcast_sub(jnp.square(x - L)/ (4 * L) - L , (1 / (2 * L * jnp.diagonal(sum_eig_vals_square)))) ### should be t x m
-    diagonal_elements = diagonal_constants + jnp.diagonal(cos_pos, axis1=1, axis2=2)
+    cos_pos = (jnp.cos(jnp.einsum("t,m... -> tm...", x_shifted, sum_eig_vals)) - 1) / (2 * L * sum_eig_vals_square)
+    cos_neg = (jnp.cos(jnp.einsum("t,m... -> tm...", x_shifted, diff_eig_vals)) -1) / (2 * L * diff_eig_vals_square)
+    diagonal_elements = jnp.square(x[..., None] - L)/ (4 * L) - L +  jnp.diagonal(cos_pos, axis1=1, axis2=2)
     other_elements = cos_pos - cos_neg 
     broadcast_fill_diag = jax.vmap(lambda x, y: jnp.fill_diagonal(x,y, inplace=False), in_axes = 0)
     phi = broadcast_fill_diag(other_elements, diagonal_elements)
     return phi #should be t x m x m where t is the length of x and m is the number of eigen values (or M)
 
-
-
-# def diag_spectral_density(alpha, length, L, M):
-#     return spectral_density(sqrt_eigenvalues(M, L), alpha, length)
-
-
-# def eigenfunctions(x, L, M):
-#     """
-#     The first `M` eigenfunctions of the laplacian operator in `[-L, L] ^ D`
-#     evaluated at `x`. These are used for the approximation of the
-#     squared exponential kernel.
-#     """
-
-#     eig_vals = jnp.square(sqrt_eigenvalues(M, L))
-#     return jnp.prod(jnp.sin(jnp.einsum("n..., m... -> nm...", x + L, eig_vals)), -1) / jnp.prod(jnp.sqrt(L)) 
 
 
 def make_gamma_phi_gamma(phi, gamma):
@@ -282,13 +257,10 @@ def make_gamma(weights, alpha, length, M, L, output_size, dim):
     return gamma
 
 def make_psi_gamma(psi, gamma):
-    return jnp.dot(psi,gamma)
+    return jnp.einsum("nm, m... -> n...", psi,gamma)
 
-def make_convex_f(phi_x, phi_time, shifted_x_time, L_time, M_time, alpha_time, length_time, weights_time, weights, slope, intercept, output_size):
+def make_convex_f(gamma_phi_gamma_time, shifted_x_time, slope, intercept):
     ## intercept should be n x k
     ### slope should be n x k 
-    gamma_time = make_gamma(weights_time, alpha_time, length_time, M_time, L_time, output_size, 1)
-    gamma_phi_gamma_x = make_gamma_phi_gamma(phi_x, weights)
-    gamma_phi_gamma_time = make_gamma_phi_gamma(phi_time, gamma_time).T
-    convex = jnp.einsum("n..., ...t -> n...t", gamma_phi_gamma_x, gamma_phi_gamma_time)
-    return jnp.swapaxes(intercept + jnp.einsum("nk, t -> nkt",  slope, shifted_x_time) - convex, 0,1)
+
+    return jnp.swapaxes(intercept + jnp.einsum("nk, t -> nkt", slope, shifted_x_time) - gamma_phi_gamma_time, 0,1)

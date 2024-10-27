@@ -26,6 +26,18 @@ def process_data(df, output_metric, exposure, model, input_metrics):
     elif model == "exponential":
         metric_array = metric_df.to_numpy()
         exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
+        if exposure == "simple_exposure":
+            season_array = df[["id", "age", "season"]].pivot(columns="age",values="season",index="id").to_numpy()
+            retirement_array = np.where((season_array == "2020-21").sum(axis = 1) == 0)[0] 
+            entrance_array = np.where((season_array == "1996-97").sum(axis = 1) == 0)[0]
+            max_season_array = (21 - np.argmax(np.flip(~np.isnan(metric_array), axis = 1), axis = 1))
+            min_season_array = np.argmax(~np.isnan(metric_array), axis = 1)
+            for player_index, ret_index in zip(retirement_array, max_season_array[retirement_array]):
+                metric_array[player_index, ret_index:] = 0
+                exposure_array[player_index, ret_index:] = 1
+            for player_index, ent_index in zip (entrance_array, min_season_array[entrance_array]):
+                exposure_array[player_index, 0:ent_index] = 1 
+                metric_array[player_index, 0:ent_index] = 0
         offset = jnp.log(exposure_array)
         return offset, jnp.array(metric_array), X
     elif model == "binomial":

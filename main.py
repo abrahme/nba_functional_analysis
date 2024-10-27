@@ -7,7 +7,7 @@ import pickle
 import numpyro
 from numpyro.distributions import MatrixNormal
 from numpyro.diagnostics import print_summary
-from model.hsgp import eigenfunctions, make_convex_phi, sqrt_eigenvalues
+from model.hsgp import make_convex_phi
 # jax. config. update("jax_debug_infs", True)
 jax.config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, create_cp_data
@@ -24,10 +24,14 @@ if __name__ == "__main__":
     parser.add_argument("--output_path", help="where to store generated files", required = False, default="")
     parser.add_argument("--vectorized", help="whether to vectorize some chains so all gpus will be used", action="store_true")
     parser.add_argument("--run_neutra", help = "whether or not to run neural reparametrization", action="store_true")
+    parser.add_argument("--run_svi", help = "whether or not to run variational inference", action="store_true")
+    parser.add_argument("--init_path", help = "where to initialize mcmc from", required=False, default="")
     numpyro.set_platform("cuda")
     # numpyro.set_host_device_count(4)
     args = vars(parser.parse_args())
     neural_parametrization = args["run_neutra"]
+    svi_inference = args["run_svi"]
+    initial_params_path = args["init_path"]
     model_name = args["model_name"]
     basis_dims = args["basis_dims"]
     param_path = args["fixed_param_path"]
@@ -69,6 +73,7 @@ if __name__ == "__main__":
         raise ValueError("Model not implemented")
 
     model.initialize_priors()
+    initial_params = {}
     if "cp" in model_name:
         svi_run = model.run_inference(num_steps=1000000)
         samples = svi_run.params
@@ -96,6 +101,11 @@ if __name__ == "__main__":
             cov_cols = jnp.cov(X.T) + jnp.eye(r) * (1e-6)
             cholesky_cols = jnp.linalg.cholesky(cov_cols) + jnp.eye(r) * (1e-6)
             prior_dict["X"] = MatrixNormal(loc = X, scale_tril_column=cholesky_cols, scale_tril_row=cholesky_rows)
+        if initial_params_path:
+            with open(initial_params_path, "rb") as f_init:
+                initial_params = pickle.load(f_init)
+            f_init.close()
+        
         model.prior.update(prior_dict)
         distribution_families = set([data_entity["output"] for data_entity in data_set])
         distribution_indices = {family: jnp.array([index for index, data_entity in enumerate(data_set) if family == data_entity["output"]]) for family in distribution_families}
@@ -119,9 +129,9 @@ if __name__ == "__main__":
                 M_time = 5
                 phi_time = make_convex_phi(x_time, L_time, M_time)
                 hsgp_params["phi_x_time"] = phi_time
-                hsgp_params["shifted_x_time"] = x_time + L_time
                 hsgp_params["M_time"] = M_time
                 hsgp_params["L_time"] = L_time
+                hsgp_params["shifted_x_time"] = x_time + L_time
 
         if "gibbs" in model_name:
             if "convex" in model_name:
@@ -130,18 +140,24 @@ if __name__ == "__main__":
                 samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X", "lengthscale"], ["W","beta","sigma"]])  
             else:
                 samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X"], ["W","beta","sigma"]])  
+
         else:
             model_args = {"data_set": data_dict}
             if "convex" in model_name:
                 model_args.update({ "hsgp_params": hsgp_params})
-            if not neural_parametrization:
-                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args)
+            if svi_inference:
+                samples = model.run_svi_inference(num_steps=2000000, model_args=model_args, initial_values=initial_params)
+                samples = {key.replace("__loc",""): samples[key] for key in samples}
+            elif not neural_parametrization:
+                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
             else:
                 mcmc_run, neutra = model.run_neutra_inference(num_chains=4, num_samples=2000, num_warmup=1000, num_steps=1000000, guide_kwargs={}, model_args=model_args)
                 samples = mcmc_run.get_samples(group_by_chain=True)
         if neural_parametrization:
             samples = neutra.transform_sample(samples)
             print_summary(samples)
+        elif svi_inference:
+            pass
         else:
             print_summary(samples)
 
