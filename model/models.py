@@ -1,9 +1,11 @@
 from abc import abstractmethod, ABC
 import jax 
+import blackjax
 import numpy as np
 from numpyro import sample 
 from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, Distribution
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive, init_to_value
+from numpyro.infer.util import initialize_model
 from numpyro.infer.reparam import NeuTraReparam
 from numpyro.infer.autoguide import AutoDelta, AutoBNAFNormal, AutoDiagonalNormal
 from optax import linear_onecycle_schedule, adam
@@ -431,18 +433,40 @@ class ConvexTVRFLVM(TVRFLVM):
         return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args, initial_values)
     
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
-        guide = AutoDelta(self.model_fn, prefix="", **guide_kwargs)
-        print("Setup guide")
-        svi = SVI(self.model_fn, guide, optim=adam(.0000003), loss=Trace_ELBO(num_particles=10),
-                  )
-        print("Setup SVI")
+        # guide = AutoDelta(self.model_fn, prefix="", **guide_kwargs)
+        # print("Setup guide")
+        # svi = SVI(self.model_fn, guide, optim=adam(.0000003), loss=Trace_ELBO(num_particles=10),
+        #           )
+        # print("Setup SVI")
 
         
-        result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps,progress_bar = True, init_params=initial_values, **model_args)
+        # result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps,progress_bar = True, init_params=initial_values, **model_args)
     #     return guide.sample_posterior(
     #     jax.random.PRNGKey(0), result.params, sample_shape=(4,2000)
     # )
-        return result.params
+        # return result.params
+
+        rng_key = jax.random.PRNGKey(0)
+        param_info, potential_fn, postprocess_fn, *_ = initialize_model(
+            rng_key,
+            self.model_fn,
+            dynamic_args=True,  # <- this is important!
+            model_args = (model_args["data_set"], model_args["hsgp_params"])
+        )
+
+        pathfinder_state, _ = blackjax.vi.pathfinder.approximate(
+            rng_key=rng_key,
+            logdensity_fn= lambda x: -1*potential_fn(model_args["data_set"], model_args["hsgp_params"])(x),
+            initial_position=param_info.z,
+            num_samples = 1,
+            ftol=1e-4,
+        )
+        posterior_samples_pathfinder, _ = blackjax.vi.pathfinder.sample(
+            rng_key=rng_key,
+            state=pathfinder_state,
+            num_samples=5_000,
+        )
+        return jax.vmap(postprocess_fn(model_args["data_set"], model_args["hsgp_params"]))(posterior_samples_pathfinder)
 
     def run_neutra_inference(self, num_warmup, num_samples, num_chains, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
         return super().run_neutra_inference(num_warmup, num_samples, num_chains, num_steps, guide_kwargs, model_args)
