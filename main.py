@@ -105,6 +105,7 @@ if __name__ == "__main__":
             with open(initial_params_path, "rb") as f_init:
                 initial_params = pickle.load(f_init)
             f_init.close()
+            initial_params = {key: initial_params[key].mean((0,1)) if len(initial_params[key].shape) > 2 else initial_params[key] for key in initial_params}
         
         model.prior.update(prior_dict)
         distribution_families = set([data_entity["output"] for data_entity in data_set])
@@ -149,7 +150,7 @@ if __name__ == "__main__":
                 samples = model.run_svi_inference(num_steps=2000000, model_args=model_args, initial_values=initial_params)
                 samples = {key.replace("__loc",""): samples[key] for key in samples}
             elif not neural_parametrization:
-                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
+                samples = model.run_inference(num_chains=2, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
             else:
                 mcmc_run, neutra = model.run_neutra_inference(num_chains=4, num_samples=2000, num_warmup=1000, num_steps=1000000, guide_kwargs={}, model_args=model_args)
                 samples = mcmc_run.get_samples(group_by_chain=True)

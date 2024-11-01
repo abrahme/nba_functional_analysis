@@ -10,7 +10,7 @@ from shinywidgets import render_plotly
 from shiny.express import input, ui, render
 from visualization.visualization import plot_correlation_dendrogram, plot_mcmc_diagnostics, plot_posterior_predictive_career_trajectory, plot_scatter
 from data.data_utils import create_fda_data
-from model.hsgp import make_convex_phi, make_convex_f, eigenfunctions, sqrt_eigenvalues, make_psi_gamma, make_phi
+from model.hsgp import make_convex_phi,  diag_spectral_density
 jax.config.update("jax_enable_x64", True)
 jax.config.update("jax_platform_name", "cpu")
 
@@ -40,7 +40,7 @@ with open("model_output/latent_variable.pkl", "rb") as f:
     results_latent = pickle.load(f)
 f.close()
 
-with open("model_output/fixed_latent_convex_nba_tvrflvm.pkl", "rb") as f:
+with open("model_output/fixed_latent_convex_nba_tvrflvm_svi.pkl", "rb") as f:
     results = pickle.load(f)
 f.close()
 
@@ -51,37 +51,26 @@ x_time = basis - basis.mean()
 L_time = 1.5 * jnp.max(jnp.abs(x_time), 0, keepdims=True)
 shifted_x_time = x_time + L_time
 M_time = 5
-phi_time = make_convex_phi(x_time, L_time, M_time)
-psi_time = eigenfunctions(x_time, L_time, M_time)
-eig_val_time = jnp.square(sqrt_eigenvalues(M_time, L_time))
-psi_x_time_cross = (x_time + L_time)[..., None]  - psi_time / eig_val_time.T
-M = 35
+M = 50
 
 
 X = results_latent["X"]
+X = (X - X.mean(0))/(X.std(0))
+
+W = results["W"][0:1]
 weights = results["beta"][0:1]
-weights_time = results["beta_time"][0:1]
-alpha = results["alpha"][0:1]
-length_time = results["lengthscale"][0:1]
+alpha_time = results["alpha"][0:1]
+
+length_time = results["lengthscale_deriv"][0:1][..., None]
+
 intercept_samples = results["intercept"][0:1]
 slope_samples = results["slope"][0:1]
+spd = jnp.reshape(jnp.sqrt(diag_spectral_density(1, alpha_time, length_time, L_time, M_time)), (1, 2000, 1, M_time, len(metrics)))
+weights = weights * spd * .0001
+phi_time = make_convex_phi(x_time, L_time, M_time)
+left_result = jnp.einsum("tmz, ijlmk -> ijtklz", phi_time, weights) ### (t x M_time x M_time) , (M * 2, M _time, k) -> (t, k, M * 2, M_time)
+gamma_phi_gamma_time = jnp.einsum("iftkjz,iflzk -> iftklj", left_result, weights) ## -> (t, k , M *2, M*2)
 
-L = jnp.max(jnp.abs(X), 0, keepdims=True) * 1.5
-length = jnp.ones_like(L)
-psi_x = eigenfunctions(X, L, M)
-phi_x = make_phi(X, L, M) 
-
-batch_make_psi_gamma = jax.vmap(jax.vmap(lambda x: make_psi_gamma(psi_x, x)))
-
-slope = batch_make_psi_gamma(slope_samples)
-intercept = batch_make_psi_gamma(intercept_samples)[..., None]
-
-batch_make_convex_f = jax.vmap(jax.vmap(lambda alpha_time, length_time, weights_time, weights, slope, intercept: make_convex_f(phi_x, psi_x, psi_x_time_cross, phi_time, 
-                                                                                      shifted_x_time, L_time, M_time, alpha_time, 
-                                                                                      length_time, weights_time, L, M, 1, length, 
-                                                                                      weights, slope, intercept, (len(metrics),)  )))
-
-core_tensor = batch_make_convex_f(alpha, length_time, weights_time, weights, slope, intercept)
 
 # X_rflvm_aligned_mean = X[-1, -10, ...] ### TODO: align 
 X_rflvm_aligned = X
@@ -137,7 +126,13 @@ with ui.nav_panel("Player Embeddings & Trajectories"):
         @render_plotly
         def player_trajectory():
             player_index = int(input.player())
-            mu = core_tensor[:,:,:, player_index, ...]
+            wTx = jnp.einsum("r,...mr -> ...m", X[player_index], W)
+            psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)],-1) * (1/ jnp.sqrt(M))
+            phi_x = jnp.einsum("...m,...k -> ...mk", psi_x, psi_x)
+            slope = jnp.einsum("...m,...mk -> ...k",psi_x, slope_samples)
+            intercept = jnp.einsum("...m, ...mki -> ...ki", psi_x, intercept_samples)
+            gamma_phi_gamma_x = jnp.einsum("ij...,ijtk... -> ijkt", phi_x, gamma_phi_gamma_time)
+            mu = intercept + jnp.einsum("...k, t -> ...kt", slope, shifted_x_time) - gamma_phi_gamma_x
             return plot_posterior_predictive_career_trajectory(
                                                             player_index=player_index,
                                                             metrics=metrics, 
