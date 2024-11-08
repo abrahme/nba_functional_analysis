@@ -379,6 +379,7 @@ class ConvexTVRFLVM(TVRFLVM):
         self.prior["alpha"] = InverseGamma(1.0, 1.0)
         self.prior["intercept"] = Normal()
         self.prior["slope"] = Normal()
+        self.prior["sigma"] = InverseGamma(3, 120)
 
     def model_fn(self, data_set, hsgp_params) -> None:
         num_gaussians = data_set["gaussian"]["Y"].shape[0]
@@ -391,8 +392,6 @@ class ConvexTVRFLVM(TVRFLVM):
         W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(self.m, self.r))
 
         X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
-        X  = X - X.mean(0)
-        X = X / X.std(0)
         wTx = jnp.einsum("nr,mr -> nm", X, W)
         psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
         phi_x = jnp.einsum("...m,...k -> ...mk", psi_x, psi_x)
@@ -435,7 +434,7 @@ class ConvexTVRFLVM(TVRFLVM):
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
         guide = AutoDelta(self.model_fn, prefix="", **guide_kwargs)
         print("Setup guide")
-        svi = SVI(self.model_fn, guide, optim=adam(.0000003), loss=Trace_ELBO(num_particles=10),
+        svi = SVI(self.model_fn, guide, optim=adam(.000000000003), loss=Trace_ELBO(),
                   )
         print("Setup SVI")
 

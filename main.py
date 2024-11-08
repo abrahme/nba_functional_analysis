@@ -26,8 +26,8 @@ if __name__ == "__main__":
     parser.add_argument("--run_neutra", help = "whether or not to run neural reparametrization", action="store_true")
     parser.add_argument("--run_svi", help = "whether or not to run variational inference", action="store_true")
     parser.add_argument("--init_path", help = "where to initialize mcmc from", required=False, default="")
-    numpyro.set_platform("cuda")
-    # numpyro.set_host_device_count(4)
+    numpyro.set_platform("cpu")
+    numpyro.set_host_device_count(4)
     args = vars(parser.parse_args())
     neural_parametrization = args["run_neutra"]
     svi_inference = args["run_svi"]
@@ -127,7 +127,7 @@ if __name__ == "__main__":
                 hsgp_params = {}
                 x_time = basis - basis.mean()
                 L_time = 1.5 * jnp.max(jnp.abs(x_time), 0, keepdims=True)
-                M_time = 5
+                M_time = 15
                 phi_time = make_convex_phi(x_time, L_time, M_time)
                 hsgp_params["phi_x_time"] = phi_time
                 hsgp_params["M_time"] = M_time
