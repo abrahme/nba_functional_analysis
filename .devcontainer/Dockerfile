@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/jax:24.04-py3
+FROM nvcr.io/nvidia/jax:24.10-py3
 
 ### Environment variables
 ENV GITHUB_CLI_VERSION 2.30.0

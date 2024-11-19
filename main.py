@@ -26,8 +26,7 @@ if __name__ == "__main__":
     parser.add_argument("--run_neutra", help = "whether or not to run neural reparametrization", action="store_true")
     parser.add_argument("--run_svi", help = "whether or not to run variational inference", action="store_true")
     parser.add_argument("--init_path", help = "where to initialize mcmc from", required=False, default="")
-    numpyro.set_platform("cpu")
-    numpyro.set_host_device_count(4)
+    numpyro.set_platform("cuda")
     args = vars(parser.parse_args())
     neural_parametrization = args["run_neutra"]
     svi_inference = args["run_svi"]
@@ -105,8 +104,7 @@ if __name__ == "__main__":
             with open(initial_params_path, "rb") as f_init:
                 initial_params = pickle.load(f_init)
             f_init.close()
-            initial_params = {key: initial_params[key].mean((0,1)) if len(initial_params[key].shape) > 2 else initial_params[key] for key in initial_params}
-        
+            
         model.prior.update(prior_dict)
         distribution_families = set([data_entity["output"] for data_entity in data_set])
         distribution_indices = {family: jnp.array([index for index, data_entity in enumerate(data_set) if family == data_entity["output"]]) for family in distribution_families}
@@ -147,8 +145,7 @@ if __name__ == "__main__":
             if "convex" in model_name:
                 model_args.update({ "hsgp_params": hsgp_params})
             if svi_inference:
-                samples = model.run_svi_inference(num_steps=2000000, model_args=model_args, initial_values=initial_params)
-                samples = {key.replace("__loc",""): samples[key] for key in samples}
+                samples = model.run_svi_inference(num_steps=1000000, model_args=model_args, initial_values=initial_params)
             elif not neural_parametrization:
                 samples = model.run_inference(num_chains=2, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
             else:

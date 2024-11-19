@@ -379,7 +379,6 @@ class ConvexTVRFLVM(TVRFLVM):
         self.prior["alpha"] = InverseGamma(1.0, 1.0)
         self.prior["intercept"] = Normal()
         self.prior["slope"] = Normal()
-        self.prior["sigma"] = InverseGamma(3, 120)
 
     def model_fn(self, data_set, hsgp_params) -> None:
         num_gaussians = data_set["gaussian"]["Y"].shape[0]
@@ -392,6 +391,7 @@ class ConvexTVRFLVM(TVRFLVM):
         W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(self.m, self.r))
 
         X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
+        X = self._stabilize_x(X)
         wTx = jnp.einsum("nr,mr -> nm", X, W)
         psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
         phi_x = jnp.einsum("...m,...k -> ...mk", psi_x, psi_x)
@@ -404,9 +404,6 @@ class ConvexTVRFLVM(TVRFLVM):
         weights = weights * spd * .0001
         left_result = jnp.einsum("tmz, lmk -> tklz", phi_time, weights) ### (t x M_time x M_time) , (M * 2, M _time, k) -> (t, k, M * 2, M_time)
         gamma_phi_gamma_time = jnp.einsum("tkjz,lzk -> tklj", left_result, weights) ## -> (t, k , M *2, M*2)
-
-        # left_result_x = jnp.einsum("tklp, nl -> nktp", gamma_phi_gamma_time, psi_x)
-        # gamma_phi_gamma_x = jnp.einsum("nktp,np -> nkt",left_result_x, psi_x)
         gamma_phi_gamma_x = jnp.einsum("n...,tk... -> nkt", phi_x, gamma_phi_gamma_time)
         mu = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, intercept)
         sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
@@ -414,7 +411,7 @@ class ConvexTVRFLVM(TVRFLVM):
         for family in data_set:
             linear_predictor = mu[data_set[family]["indices"]]
             exposure = data_set[family]["exposure"]
-            obs = data_set[family]["Y"] 
+            obs = data_set[family]["Y"] / 1000 if family == "exponential" else data_set[family]["Y"]
             mask = data_set[family]["mask"]
             if family == "gaussian":
                 dist = Normal(linear_predictor[mask], expanded_sigmas[mask] /exposure[mask])
@@ -434,38 +431,12 @@ class ConvexTVRFLVM(TVRFLVM):
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
         guide = AutoDelta(self.model_fn, prefix="", **guide_kwargs)
         print("Setup guide")
-        svi = SVI(self.model_fn, guide, optim=adam(.000000000003), loss=Trace_ELBO(),
+        svi = SVI(self.model_fn, guide, optim=adam(.0000000003), loss=Trace_ELBO(num_particles=10),
                   )
         print("Setup SVI")
-
-        
         result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps,progress_bar = True, init_params=initial_values, **model_args)
-    #     return guide.sample_posterior(
-    #     jax.random.PRNGKey(0), result.params, sample_shape=(4,2000)
-    # )
         return result.params
 
-        # rng_key = jax.random.PRNGKey(0)
-        # param_info, potential_fn, postprocess_fn, *_ = initialize_model(
-        #     rng_key,
-        #     self.model_fn,
-        #     dynamic_args=True,  # <- this is important!
-        #     model_args = (model_args["data_set"], model_args["hsgp_params"])
-        # )
-
-        # pathfinder_state, _ = blackjax.vi.pathfinder.approximate(
-        #     rng_key=rng_key,
-        #     logdensity_fn= lambda x: -1*potential_fn(model_args["data_set"], model_args["hsgp_params"])(x),
-        #     initial_position=param_info.z,
-        #     num_samples = 1,
-        #     ftol=1e-4,
-        # )
-        # posterior_samples_pathfinder, _ = blackjax.vi.pathfinder.sample(
-        #     rng_key=rng_key,
-        #     state=pathfinder_state,
-        #     num_samples=5_000,
-        # )
-        # return jax.vmap(postprocess_fn(model_args["data_set"], model_args["hsgp_params"]))(posterior_samples_pathfinder)
 
     def run_neutra_inference(self, num_warmup, num_samples, num_chains, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
         return super().run_neutra_inference(num_warmup, num_samples, num_chains, num_steps, guide_kwargs, model_args)
