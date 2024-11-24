@@ -44,12 +44,12 @@ if __name__ == "__main__":
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
     data["retirement"] = 1
-    # metric_output = ["binomial", "exponential"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
-    metric_output = ["gaussian"]
-    # metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
-    metrics = ["obpm"]
-    # exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
-    exposure_list = ["minutes"]
+    metric_output = ["binomial", "exponential"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+    # metric_output = ["gaussian"]
+    metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
+    # metrics = ["obpm"]
+    exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
+    # exposure_list = ["minutes"]
     player_indices = [names.index(item) for item in players]
     
     if model_name == "gibbs_nba_rflvm":
