@@ -26,6 +26,7 @@ if __name__ == "__main__":
     parser.add_argument("--run_neutra", help = "whether or not to run neural reparametrization", action="store_true")
     parser.add_argument("--run_svi", help = "whether or not to run variational inference", action="store_true")
     parser.add_argument("--init_path", help = "where to initialize mcmc from", required=False, default="")
+    parser.add_argument("--player_names", help = "which players to run the model for", required=False, default = [], type = lambda x: x.split(","))
     numpyro.set_platform("cuda")
     args = vars(parser.parse_args())
     neural_parametrization = args["run_neutra"]
@@ -37,29 +38,34 @@ if __name__ == "__main__":
     vectorized = args["vectorized"]
     prior_x_path = args["prior_x_path"]
     output_path = args["output_path"] if args["output_path"] else f"model_output/{model_name}.pkl"
+    players = args["player_names"]
     data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
+    names = data.groupby("id")["name"].first().values.tolist()
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
     data["retirement"] = 1
-    metric_output = ["binomial", "exponential"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
-    metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
-    exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
+    # metric_output = ["binomial", "exponential"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+    metric_output = ["gaussian"]
+    # metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
+    metrics = ["obpm"]
+    # exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
+    exposure_list = ["minutes"]
+    player_indices = [names.index(item) for item in players]
     
-
     if model_name == "gibbs_nba_rflvm":
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
         model = GibbsRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
     elif model_name == "gibbs_nba_tvrflvm":
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
         model = GibbsTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
     elif model_name == "gibbs_nba_iftvrflvm":
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
         model = GibbsIFTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)    
     elif model_name == "exponential_cp":
-        exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics)
+        exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics, player_indices)
         model = NBAMixedOutputProbabilisticCPDecomposition(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
     elif "rflvm" in model_name:
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list)
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
         model = RFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
         if "convex" in model_name:
             model = ConvexTVRFLVM(latent_rank=basis_dims, rff_dim=50, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
@@ -84,6 +90,8 @@ if __name__ == "__main__":
             f_param.close()
             for param_name in results_param:
                 value = results_param[param_name]
+                if (param_name == "X") and (player_indices):
+                    value = results_param[param_name][jnp.array(player_indices)]
                 prior_dict[param_name] = numpyro.deterministic(param_name, value)
         if prior_x_path:
             with open(prior_x_path, "rb") as f_prior:

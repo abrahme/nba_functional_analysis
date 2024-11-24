@@ -249,14 +249,18 @@ def create_basis(data, dims):
     return covariate_X
 
 
-def create_fda_data(data, basis_dims, metric_output, metrics, exposure_list):
+def create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_index: list[int] = []):
     covariate_X = create_basis(data, basis_dims)
+    if player_index:
+        covariate_X = covariate_X[jnp.array(player_index)]
     data_set = []
     for output,metric,exposure_val in zip(metric_output, metrics, exposure_list):
         exposure, Y, _ = process_data(data, metric, exposure_val, output, ["position_group"])
+        if player_index:
+            exposure = exposure[jnp.array(player_index)]
+            Y = Y[jnp.array(player_index)]
         data_dict = {"metric":metric, "output": output, "exposure_data": exposure, "output_data": Y, "mask": jnp.isfinite(exposure)}
         data_set.append(data_dict)
-
     basis = jnp.arange(18,39)
 
     return covariate_X, data_set, basis
