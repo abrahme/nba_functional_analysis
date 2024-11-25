@@ -1,8 +1,36 @@
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
+from jax import random
+import jax.scipy.special as jsci
+from numpyro.distributions import Normal, Exponential
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.decomposition import PCA
+
+
+def generalized_beta_density(x, alpha, beta_, min_val, max_val):
+    y = (x - min_val)/(max_val - min_val)
+    return (jnp.power(y, alpha) * jnp.power(1 - y, beta_))/((max_val - min_val) *  jsci.beta(alpha, beta_))
+
+def create_convex_data(num_samples, noise_level = .01, exposure = 1, data_range = [0, 1], alpha = 2, beta = 2, key = random.PRNGKey(0)):
+    intercept = Normal().sample(key)
+    print(f"intercept: {intercept}")
+    multiplier = Exponential().sample(key)
+    print(f"multiplier : {multiplier}")
+    noise = Normal().sample(key, sample_shape=(num_samples,)) * (noise_level / exposure)
+    print(f"noise level: {noise_level}")
+    samples = jnp.linspace(data_range[0], data_range[1], num_samples)
+    L  = jnp.abs(np.diff(data_range)) * 1.5
+    y_vals = generalized_beta_density(samples, alpha, beta, data_range[0]*L, data_range[1] * L)
+
+    return samples, intercept, multiplier, noise, y_vals
+
+
+
+
+
+
+
 
 def process_data(df, output_metric, exposure, model, input_metrics):
 

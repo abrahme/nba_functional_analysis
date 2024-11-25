@@ -430,7 +430,7 @@ class ConvexTVRFLVM(TVRFLVM):
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
         guide = AutoDelta(self.model_fn, prefix="", **guide_kwargs)
         print("Setup guide")
-        svi = SVI(self.model_fn, guide, optim=adam(.003), loss=Trace_ELBO(num_particles=10),
+        svi = SVI(self.model_fn, guide, optim=adam(.000003), loss=Trace_ELBO(num_particles=10),
                   )
         print("Setup SVI")
         result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps,progress_bar = True, init_params=initial_values, **model_args)
@@ -442,7 +442,67 @@ class ConvexTVRFLVM(TVRFLVM):
 
     def predict(self, posterior_samples: dict, model_args):
         return super().predict(posterior_samples, model_args)
+    
 
+class ConvexGP(TVRFLVM):
+    def __init__(self, basis) -> None:
+        self.basis = basis
+        self.prior = {}
+        self.j = basis.shape[-1]
+    
+    def initialize_priors(self, *args, **kwargs) -> None:
+        self.prior["beta"] = Normal()
+        self.prior["sigma"] = InverseGamma(1.0, 1.0)
+        self.prior["lengthscale_deriv"] = InverseGamma(1.0, 1.0)
+        # self.prior["lengthscale_deriv"] = jnp.ones((1,))
+        self.prior["alpha"] = InverseGamma(1.0, 1.0)
+        self.prior["intercept"] = Normal()
+        self.prior["slope"] = Normal()
+
+
+    def model_fn(self, data_set, hsgp_params) -> None:
+
+        phi_time  = hsgp_params["phi_x_time"]
+        L_time = hsgp_params["L_time"]
+        M_time = hsgp_params["M_time"]
+        shifted_x_time = hsgp_params["shifted_x_time"]
+
+        slope = self.prior["slope"] if not isinstance(self.prior["slope"], Distribution) else sample("slope", self.prior["slope"])
+        ls_deriv = self.prior["lengthscale_deriv"] if not isinstance(self.prior["lengthscale_deriv"], Distribution) else sample("lengthscale_deriv", self.prior["lengthscale_deriv"], sample_shape=(1,))
+        intercept = self.prior["intercept"] if not isinstance(self.prior["intercept"], Distribution) else sample("intercept", self.prior["intercept"]) 
+        alpha_time = self.prior["alpha"] if not isinstance(self.prior["alpha"], Distribution) else sample("alpha", self.prior["alpha"])
+        spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
+        weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(M_time,))
+        weights = weights * spd 
+        gamma_phi_gamma_time = jnp.einsum("tmz, m, z -> t", phi_time, weights, weights) 
+        mu = intercept + slope * shifted_x_time - gamma_phi_gamma_time
+        sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"])
+        expanded_sigmas = sigmas * jnp.ones((self.j,)) 
+            
+        exposure = data_set["exposure"]
+        obs = data_set["Y"]
+        dist = Normal(mu, expanded_sigmas / exposure)
+        y = sample("gaussian", dist, obs)    
+    
+
+    def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args, initial_values={}):
+        return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args, initial_values)
+    
+    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
+        guide = AutoDelta(self.model_fn, prefix="", **guide_kwargs)
+        print("Setup guide")
+        svi = SVI(self.model_fn, guide, optim=adam(.000003), loss=Trace_ELBO(num_particles=10),
+                  )
+        print("Setup SVI")
+        result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps,progress_bar = True, init_params=initial_values, **model_args)
+        return result.params
+
+
+    def run_neutra_inference(self, num_warmup, num_samples, num_chains, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
+        return super().run_neutra_inference(num_warmup, num_samples, num_chains, num_steps, guide_kwargs, model_args)
+
+    def predict(self, posterior_samples: dict, model_args):
+        return super().predict(posterior_samples, model_args)
 
 
 class GibbsRFLVM(RFLVM):
