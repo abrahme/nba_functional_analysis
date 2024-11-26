@@ -452,7 +452,7 @@ class ConvexGP(TVRFLVM):
     
     def initialize_priors(self, *args, **kwargs) -> None:
         self.prior["beta"] = Normal()
-        self.prior["sigma"] = InverseGamma(1.0, 1.0)
+        self.prior["sigma"] = InverseGamma(100.0, 1.0)
         self.prior["lengthscale_deriv"] = InverseGamma(1.0, 1.0)
         # self.prior["lengthscale_deriv"] = jnp.ones((1,))
         self.prior["alpha"] = InverseGamma(1.0, 1.0)

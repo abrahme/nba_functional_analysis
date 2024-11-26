@@ -5,8 +5,9 @@ import jax.numpy as jnp
 import argparse
 import pickle
 import numpyro
+import matplotlib.pyplot as plt
 from numpyro.diagnostics import print_summary
-from model.hsgp import make_convex_phi
+from model.hsgp import make_convex_phi, diag_spectral_density
 jax.config.update("jax_enable_x64", True)
 from data.data_utils import create_convex_data
 from model.models import ConvexGP
@@ -32,7 +33,7 @@ if __name__ == "__main__":
     
     
     
-    samples, intercept, multiplier, noise, y_vals = create_convex_data(num_samples=10, alpha=4, data_range=[-10.5, 10.5])
+    samples, intercept, multiplier, noise, y_vals = create_convex_data(num_samples=10,  data_range=[-10.5, 10.5], noise_level=.001)
 
     basis = jnp.array(samples)
     obs = (y_vals) * multiplier + noise + intercept
@@ -66,7 +67,7 @@ if __name__ == "__main__":
     model_args = {"data_set": data_dict}
     model_args.update({ "hsgp_params": hsgp_params})
     if svi_inference:
-        samples = model.run_svi_inference(num_steps=10000000, model_args=model_args, initial_values=initial_params)
+        samples = model.run_svi_inference(num_steps=1000000, model_args=model_args, initial_values=initial_params)
     elif not neural_parametrization:
         samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
     else:
@@ -83,6 +84,22 @@ if __name__ == "__main__":
     with open(output_path, "wb") as f:
         pickle.dump(samples, f)
     f.close()
+
+    if svi_inference:
+        slope = samples["slope__loc"]
+        ls_deriv = samples["lengthscale_deriv__loc"]
+        intercept = samples["intercept__loc"]
+        alpha_time = samples["alpha__loc"]
+        spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
+        weights = samples["beta__loc"]
+        weights = weights * spd 
+        gamma_phi_gamma_time = jnp.einsum("tmz, m, z -> t", phi_time, weights, weights) 
+        mu = intercept + slope * (x_time + L_time) - gamma_phi_gamma_time
+
+        plt.plot(basis, obs)
+        plt.plot(basis, mu)
+        plt.savefig("model_output/model_plots/debug_predictions.png")
+
     
-        
+    
         
