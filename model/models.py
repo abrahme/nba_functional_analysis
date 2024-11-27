@@ -376,6 +376,7 @@ class ConvexTVRFLVM(TVRFLVM):
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
         self.prior["lengthscale_deriv"] = InverseGamma(1.0, 1.0)
+        self.prior["sigma"] = InverseGamma(120.0, 6.0)
         self.prior["alpha"] = InverseGamma(1.0, 1.0)
         self.prior["intercept"] = Normal()
         self.prior["slope"] = Normal()
@@ -395,12 +396,12 @@ class ConvexTVRFLVM(TVRFLVM):
         psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
         phi_x = jnp.einsum("...m,...k -> ...mk", psi_x, psi_x)
         slope = make_psi_gamma(psi_x, self.prior["slope"] if not isinstance(self.prior["slope"], Distribution) else sample("slope", self.prior["slope"], sample_shape=(self.m*2, num_metrics)))
-        # ls_deriv = self.prior["lengthscale_deriv"] if not isinstance(self.prior["lengthscale_deriv"], Distribution) else sample("lengthscale_deriv", self.prior["lengthscale_deriv"], sample_shape=(num_metrics,))
+        ls_deriv = self.prior["lengthscale_deriv"] if not isinstance(self.prior["lengthscale_deriv"], Distribution) else sample("lengthscale_deriv", self.prior["lengthscale_deriv"], sample_shape=(num_metrics,))
         intercept = make_psi_gamma(psi_x, self.prior["intercept"] if not isinstance(self.prior["intercept"], Distribution) else sample("intercept", self.prior["intercept"] , sample_shape=(2 * self.m, num_metrics, 1))) 
-        # alpha_time = self.prior["alpha"] if not isinstance(self.prior["alpha"], Distribution) else sample("alpha", self.prior["alpha"], sample_shape=(num_metrics, ))
-        # spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
+        alpha_time = self.prior["alpha"] if not isinstance(self.prior["alpha"], Distribution) else sample("alpha", self.prior["alpha"], sample_shape=(num_metrics, ))
+        spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
         weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.m * 2, M_time, num_metrics))
-        # weights = weights * spd * .0001
+        weights = weights * spd 
         left_result = jnp.einsum("tmz, lmk -> tklz", phi_time, weights) ### (t x M_time x M_time) , (M * 2, M _time, k) -> (t, k, M * 2, M_time)
         gamma_phi_gamma_time = jnp.einsum("tkjz,lzk -> tklj", left_result, weights) ## -> (t, k , M *2, M*2)
         gamma_phi_gamma_x = jnp.einsum("n...,tk... -> nkt", phi_x, gamma_phi_gamma_time)
@@ -430,7 +431,7 @@ class ConvexTVRFLVM(TVRFLVM):
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
         guide = AutoDelta(self.model_fn, prefix="", **guide_kwargs)
         print("Setup guide")
-        svi = SVI(self.model_fn, guide, optim=adam(.000003), loss=Trace_ELBO(num_particles=10),
+        svi = SVI(self.model_fn, guide, optim=adam(.003), loss=Trace_ELBO(num_particles=10),
                   )
         print("Setup SVI")
         result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps,progress_bar = True, init_params=initial_values, **model_args)
