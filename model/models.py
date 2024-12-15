@@ -1,13 +1,11 @@
 from abc import abstractmethod, ABC
 import jax 
-import blackjax
 import numpy as np
 from numpyro import sample 
 from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, Distribution
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive, init_to_value
-from numpyro.infer.util import initialize_model
 from numpyro.infer.reparam import NeuTraReparam
-from numpyro.infer.autoguide import AutoDelta, AutoBNAFNormal, AutoDiagonalNormal
+from numpyro.infer.autoguide import AutoDelta, AutoBNAFNormal
 from optax import linear_onecycle_schedule, adam
 from .hsgp import make_convex_f, make_psi_gamma, diag_spectral_density
 import jax.numpy as jnp
@@ -186,8 +184,8 @@ class RFLVMBase(ABC):
                         num_samples=num_samples,
                         num_chains = num_chains,
                         chain_method="parallel")
-            mcmc.run(key, **model_args)
-            return mcmc.get_samples(group_by_chain=True)
+            mcmc.run(key, **model_args, extra_fields=("potential_energy",))
+            return mcmc.get_samples(group_by_chain=True), mcmc.get_extra_fields(group_by_chain=True)
     @abstractmethod
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
         guide = AutoBNAFNormal(self.model_fn, prefix="", **guide_kwargs)
@@ -376,13 +374,13 @@ class ConvexTVRFLVM(TVRFLVM):
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
         self.prior["lengthscale_deriv"] = InverseGamma(1.0, 1.0)
-        self.prior["sigma"] = InverseGamma(120.0, 6.0)
+        self.prior["sigma"] = InverseGamma(1.0, 1.0)
         self.prior["alpha"] = InverseGamma(1.0, 1.0)
         self.prior["intercept"] = Normal()
         self.prior["slope"] = Normal()
 
     def model_fn(self, data_set, hsgp_params) -> None:
-        num_gaussians = data_set["gaussian"]["Y"].shape[0]
+        num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
         num_metrics = sum(len(data_set[family]["indices"]) for family in data_set)
 
         phi_time  = hsgp_params["phi_x_time"]
@@ -390,28 +388,26 @@ class ConvexTVRFLVM(TVRFLVM):
         M_time = hsgp_params["M_time"]
         shifted_x_time = hsgp_params["shifted_x_time"]
         W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(self.m, self.r))
-
         X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
         wTx = jnp.einsum("nr,mr -> nm", X, W)
         psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
-        phi_x = jnp.einsum("...m,...k -> ...mk", psi_x, psi_x)
         slope = make_psi_gamma(psi_x, self.prior["slope"] if not isinstance(self.prior["slope"], Distribution) else sample("slope", self.prior["slope"], sample_shape=(self.m*2, num_metrics)))
         ls_deriv = self.prior["lengthscale_deriv"] if not isinstance(self.prior["lengthscale_deriv"], Distribution) else sample("lengthscale_deriv", self.prior["lengthscale_deriv"], sample_shape=(num_metrics,))
         intercept = make_psi_gamma(psi_x, self.prior["intercept"] if not isinstance(self.prior["intercept"], Distribution) else sample("intercept", self.prior["intercept"] , sample_shape=(2 * self.m, num_metrics, 1))) 
         alpha_time = self.prior["alpha"] if not isinstance(self.prior["alpha"], Distribution) else sample("alpha", self.prior["alpha"], sample_shape=(num_metrics, ))
         spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
         weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.m * 2, M_time, num_metrics))
-        weights = weights * spd 
-        left_result = jnp.einsum("tmz, lmk -> tklz", phi_time, weights) ### (t x M_time x M_time) , (M * 2, M _time, k) -> (t, k, M * 2, M_time)
-        gamma_phi_gamma_time = jnp.einsum("tkjz,lzk -> tklj", left_result, weights) ## -> (t, k , M *2, M*2)
-        gamma_phi_gamma_x = jnp.einsum("n...,tk... -> nkt", phi_x, gamma_phi_gamma_time)
+        weights = weights * spd * .0001
+        gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
         mu = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, intercept)
-        sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
-        expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))
+        if num_gaussians > 0 :
+            sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
+            expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))
+
         for family in data_set:
             linear_predictor = mu[data_set[family]["indices"]]
             exposure = data_set[family]["exposure"]
-            obs = data_set[family]["Y"] / 1000 if family == "exponential" else data_set[family]["Y"]
+            obs = data_set[family]["Y"]
             mask = data_set[family]["mask"]
             if family == "gaussian":
                 dist = Normal(linear_predictor[mask], expanded_sigmas[mask] /exposure[mask])
@@ -429,12 +425,13 @@ class ConvexTVRFLVM(TVRFLVM):
         return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args, initial_values)
     
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
-        guide = AutoDelta(self.model_fn, prefix="", **guide_kwargs)
+        guide = AutoDelta(self.model_fn, prefix="", init_loc_fn = init_to_median, **guide_kwargs)
         print("Setup guide")
-        svi = SVI(self.model_fn, guide, optim=adam(.003), loss=Trace_ELBO(num_particles=10),
+        svi = SVI(self.model_fn, guide, optim=adam(.0003), loss=Trace_ELBO(num_particles=1)
                   )
         print("Setup SVI")
-        result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps,progress_bar = True, init_params=initial_values, **model_args)
+        result = svi.run(jax.random.PRNGKey(0),
+                          num_steps = num_steps,progress_bar = True, init_params=initial_values, **model_args)
         return result.params
 
 
@@ -455,7 +452,6 @@ class ConvexGP(TVRFLVM):
         self.prior["beta"] = Normal()
         self.prior["sigma"] = InverseGamma(100.0, 1.0)
         self.prior["lengthscale_deriv"] = InverseGamma(1.0, 1.0)
-        # self.prior["lengthscale_deriv"] = jnp.ones((1,))
         self.prior["alpha"] = InverseGamma(1.0, 1.0)
         self.prior["intercept"] = Normal()
         self.prior["slope"] = Normal()

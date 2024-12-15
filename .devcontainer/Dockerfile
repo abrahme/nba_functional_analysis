@@ -48,7 +48,8 @@ RUN pip install \
         plotly \
         shinywidgets \
         Jinja2 \
-        scikit-learn
+        scikit-learn \
+        kaleido
 
 # RUN pip install --upgrade "jax[cuda12]"
 

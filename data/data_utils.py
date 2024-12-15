@@ -48,10 +48,10 @@ def process_data(df, output_metric, exposure, model, input_metrics):
     if model == "poisson":
         metric_array = metric_df.to_numpy()
         exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
-        offset = jnp.log(exposure_array)
+        offset = jnp.log(exposure_array) 
         return offset, jnp.array(metric_array), X
     elif model == "exponential":
-        metric_array = metric_df.to_numpy()
+        metric_array = metric_df.to_numpy() 
         exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
         if exposure == "simple_exposure":
             season_array = df[["id", "age", "season"]].pivot(columns="age",values="season",index="id").to_numpy()
@@ -65,7 +65,7 @@ def process_data(df, output_metric, exposure, model, input_metrics):
             for player_index, ent_index in zip (entrance_array, min_season_array[entrance_array]):
                 exposure_array[player_index, 0:ent_index] = 1 
                 metric_array[player_index, 0:ent_index] = 0
-        offset = jnp.log(exposure_array)
+        offset = jnp.log(exposure_array) 
         return offset, jnp.array(metric_array), X
     elif model == "binomial":
         metric_array = metric_df.to_numpy()

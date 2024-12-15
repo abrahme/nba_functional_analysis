@@ -237,7 +237,13 @@ def make_convex_phi(x, L, M= 1):
     phi = broadcast_fill_diag(other_elements, diagonal_elements)
     return phi #should be t x m x m where t is the length of x and m is the number of eigen values (or M)
 
-
+def make_convex_gamma(x, L, M = 1):
+    assert len(x.shape) == 1 ### only have capacity for single dimension concavity
+    eig_vals = jnp.squeeze(sqrt_eigenvalues(L, M, 1))
+    eig_vals_square = jnp.power(eig_vals, 2)
+    x_shifted = x + L
+    outer_eig_time = jnp.einsum("t,m... -> tm...", x_shifted, eig_vals)
+    return  2 * (outer_eig_time - jnp.sin(outer_eig_time))/ (jnp.sqrt(L) * eig_vals_square)
 
 def make_gamma_phi_gamma(phi, gamma):
     right_result = jnp.einsum("njk,k... -> nj...", phi, gamma)
