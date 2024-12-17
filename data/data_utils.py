@@ -1,8 +1,35 @@
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
+from jax import random
+import jax.scipy.special as jsci
+from numpyro.distributions import Normal, Exponential
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.decomposition import PCA
+
+
+def generalized_beta_density(x, alpha, beta_, min_val, max_val):
+    y = (x - min_val)/(max_val - min_val)
+    return (jnp.power(y, alpha) * jnp.power(1 - y, beta_))/((max_val - min_val) *  jsci.beta(alpha, beta_))
+
+def create_convex_data(num_samples, noise_level = .01, exposure = 1, data_range = [0, 1], alpha = 2, beta = 5, key = random.PRNGKey(0)):
+    intercept = Normal().sample(key)
+    print(f"intercept: {intercept}")
+    multiplier = Exponential().sample(key)
+    print(f"multiplier : {multiplier}")
+    noise = Normal().sample(key, sample_shape=(num_samples,)) * (noise_level / exposure)
+    print(f"noise level: {noise_level}")
+    samples = jnp.linspace(data_range[0], data_range[1], num_samples)
+    y_vals = generalized_beta_density(samples, alpha, beta, data_range[0], data_range[1])
+
+    return samples, intercept, multiplier, noise, y_vals
+
+
+
+
+
+
+
 
 def process_data(df, output_metric, exposure, model, input_metrics):
 
@@ -21,12 +48,24 @@ def process_data(df, output_metric, exposure, model, input_metrics):
     if model == "poisson":
         metric_array = metric_df.to_numpy()
         exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
-        offset = jnp.log(exposure_array)
+        offset = jnp.log(exposure_array) 
         return offset, jnp.array(metric_array), X
     elif model == "exponential":
-        metric_array = metric_df.to_numpy()
+        metric_array = metric_df.to_numpy() 
         exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
-        offset = jnp.log(exposure_array)
+        if exposure == "simple_exposure":
+            season_array = df[["id", "age", "season"]].pivot(columns="age",values="season",index="id").to_numpy()
+            retirement_array = np.where((season_array == "2020-21").sum(axis = 1) == 0)[0] 
+            entrance_array = np.where((season_array == "1996-97").sum(axis = 1) == 0)[0]
+            max_season_array = (21 - np.argmax(np.flip(~np.isnan(metric_array), axis = 1), axis = 1))
+            min_season_array = np.argmax(~np.isnan(metric_array), axis = 1)
+            for player_index, ret_index in zip(retirement_array, max_season_array[retirement_array]):
+                metric_array[player_index, ret_index:] = 0
+                exposure_array[player_index, ret_index:] = 1
+            for player_index, ent_index in zip (entrance_array, min_season_array[entrance_array]):
+                exposure_array[player_index, 0:ent_index] = 1 
+                metric_array[player_index, 0:ent_index] = 0
+        offset = jnp.log(exposure_array) 
         return offset, jnp.array(metric_array), X
     elif model == "binomial":
         metric_array = metric_df.to_numpy()
@@ -237,14 +276,18 @@ def create_basis(data, dims):
     return covariate_X
 
 
-def create_fda_data(data, basis_dims, metric_output, metrics, exposure_list):
+def create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_index: list[int] = []):
     covariate_X = create_basis(data, basis_dims)
+    if player_index:
+        covariate_X = covariate_X[jnp.array(player_index)]
     data_set = []
     for output,metric,exposure_val in zip(metric_output, metrics, exposure_list):
         exposure, Y, _ = process_data(data, metric, exposure_val, output, ["position_group"])
+        if player_index:
+            exposure = exposure[jnp.array(player_index)]
+            Y = Y[jnp.array(player_index)]
         data_dict = {"metric":metric, "output": output, "exposure_data": exposure, "output_data": Y, "mask": jnp.isfinite(exposure)}
         data_set.append(data_dict)
-
     basis = jnp.arange(18,39)
 
     return covariate_X, data_set, basis

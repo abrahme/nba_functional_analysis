@@ -10,8 +10,9 @@ from shinywidgets import render_plotly
 from shiny.express import input, ui, render
 from visualization.visualization import plot_correlation_dendrogram, plot_mcmc_diagnostics, plot_posterior_predictive_career_trajectory, plot_scatter
 from data.data_utils import create_fda_data
+from model.hsgp import make_convex_phi,  diag_spectral_density
 jax.config.update("jax_enable_x64", True)
-jax.config.update("jax_platform_name", "cuda")
+jax.config.update("jax_platform_name", "cpu")
 
 
 
@@ -20,6 +21,10 @@ data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
 names = data.groupby("id")["name"].first().values
 
 metric_output = ["binomial", "exponential"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+basis = np.arange(18,39)
+x = basis - basis.mean()
+L = 1.3 * np.max(np.abs(x))
+
 
 metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
 exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
@@ -31,23 +36,50 @@ _ , outputs, _ = create_fda_data(data, basis_dims=3, metric_output=metric_output
                                      metrics = metrics
 , exposure_list =  exposure_list)
 
-with open("model_output/gibbs_nba_tvrflvm_test.pkl", "rb") as f:
+with open("model_output/latent_variable.pkl", "rb") as f:
+    results_latent = pickle.load(f)
+f.close()
+
+with open("model_output/fixed_latent_convex_nba_tvrflvm_svi.pkl", "rb") as f:
     results = pickle.load(f)
 f.close()
 
 inf_data = az.from_dict(results)
 
-W = results["W"]
-X = results["X"]
 
-X_rflvm_aligned_mean = X[-1, -10, ...] ### TODO: align 
+x_time = basis - basis.mean()
+L_time = 1.5 * jnp.max(jnp.abs(x_time), 0, keepdims=True)
+shifted_x_time = x_time + L_time
+M_time = 5
+M = 50
+
+
+X = results_latent["X"]
+X = (X - X.mean(0))/(X.std(0))
+
+W = results["W"][0:1]
+weights = results["beta"][0:1]
+alpha_time = results["alpha"][0:1]
+
+length_time = results["lengthscale_deriv"][0:1][..., None]
+
+intercept_samples = results["intercept"][0:1]
+slope_samples = results["slope"][0:1]
+spd = jnp.reshape(jnp.sqrt(diag_spectral_density(1, alpha_time, length_time, L_time, M_time)), (1, 2000, 1, M_time, len(metrics)))
+weights = weights * spd * .0001
+phi_time = make_convex_phi(x_time, L_time, M_time)
+left_result = jnp.einsum("tmz, ijlmk -> ijtklz", phi_time, weights) ### (t x M_time x M_time) , (M * 2, M _time, k) -> (t, k, M * 2, M_time)
+gamma_phi_gamma_time = jnp.einsum("iftkjz,iflzk -> iftklj", left_result, weights) ## -> (t, k , M *2, M*2)
+
+
+# X_rflvm_aligned_mean = X[-1, -10, ...] ### TODO: align 
 X_rflvm_aligned = X
 
-X_tsne = TSNE(n_components=3).fit_transform(X_rflvm_aligned_mean)
+X_tsne = TSNE(n_components=3).fit_transform(X_rflvm_aligned)
 knn = NearestNeighbors(n_neighbors=6).fit(X_tsne)
 
 
-parameters = list(results.keys()) + ["phi", "mu"]
+parameters = list(results.keys()) + ["mu"]
 
 agg_dict = {"obpm":"mean", "dbpm":"mean", "bpm":"mean", 
             "position_group": "max",
@@ -94,9 +126,13 @@ with ui.nav_panel("Player Embeddings & Trajectories"):
         @render_plotly
         def player_trajectory():
             player_index = int(input.player())
-            wTx = np.einsum("ijr,ijmr -> ijm", X_rflvm_aligned[:,:,player_index, :], W)
-            phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
-            mu = np.einsum("ijk,ijmkt -> ijmt", phi, results["beta"])
+            wTx = jnp.einsum("r,...mr -> ...m", X[player_index], W)
+            psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)],-1) * (1/ jnp.sqrt(M))
+            phi_x = jnp.einsum("...m,...k -> ...mk", psi_x, psi_x)
+            slope = jnp.einsum("...m,...mk -> ...k",psi_x, slope_samples)
+            intercept = jnp.einsum("...m, ...mki -> ...ki", psi_x, intercept_samples)
+            gamma_phi_gamma_x = jnp.einsum("ij...,ijtk... -> ijkt", phi_x, gamma_phi_gamma_time)
+            mu = intercept + jnp.einsum("...k, t -> ...kt", slope, shifted_x_time) - gamma_phi_gamma_x
             return plot_posterior_predictive_career_trajectory(
                                                             player_index=player_index,
                                                             metrics=metrics, 
@@ -104,68 +140,52 @@ with ui.nav_panel("Player Embeddings & Trajectories"):
                                                             posterior_mean_samples=mu,
                                                             observations=jnp.stack([output["output_data"] for output in outputs], axis = 1), 
                                                             exposures = jnp.stack([outputs[i]["exposure_data"] for i in range(len(metrics))],axis=0),
-                                                            posterior_variance_samples=jnp.stack([results["sigma_obpm"], results["sigma_dbpm"]], axis = 0))
+                                                            posterior_variance_samples=jnp.moveaxis(results["sigma"][0:1],-1, 0))
 
 
 
-with ui.nav_panel("MCMC Diagnostics"):
-    ui.input_select(id="model", label = "Select a model parameter", choices={index : name for index, name in enumerate(parameters) if ("sigma" in name) or (name == "lengthscale")})
+# with ui.nav_panel("MCMC Diagnostics"):
+#     ui.input_select(id="model", label = "Select a model parameter", choices={index : name for index, name in enumerate(parameters) if ("sigma" in name) or (name == "lengthscale") or ("f" in name)})
 
-    with ui.layout_column_wrap():
-        @render.plot
-        def plot_trace():
-            param_name = parameters[int(input.model())]
-            return plot_mcmc_diagnostics(inf_data, param_name, plot="trace" )
-        @render.table
-        def plot_summary():
-            param_name = parameters[int(input.model())]
-            return plot_mcmc_diagnostics(inf_data, param_name, plot="summary" )
+#     with ui.layout_column_wrap():
+#         @render.plot
+#         def plot_trace():
+#             param_name = parameters[int(input.model())]
+#             return plot_mcmc_diagnostics(inf_data, param_name, plot="trace" )
+#         @render.table
+#         def plot_summary():
+#             param_name = parameters[int(input.model())]
+#             return plot_mcmc_diagnostics(inf_data, param_name, plot="summary" )
     
-    ui.input_select(id="player_model", label = "Select a player", choices={index : name for index, name in enumerate(names)})
-    with ui.layout_column_wrap():
-        @render.plot
-        def plot_player_trace():
-            player_index = int(input.player_model())
-            results["X"] = X_rflvm_aligned[:,:,player_index,:]
-            inf_data = az.from_dict(results)
-            return plot_mcmc_diagnostics(inf_data, "X", plot = "trace")
+#     ui.input_select(id="player_model", label = "Select a player", choices={index : name for index, name in enumerate(names)})
+ 
+#     with ui.layout_column_wrap():
+#         ui.input_select(id="metric_mcmc", label = "Select a metric", choices = {index : name for index, name in enumerate(metrics)})
+#         ui.input_select(id="age", label = "Select an age", choices = {index : name for index, name in enumerate(range(18,39))})
+#     with ui.layout_column_wrap():
+#         @render.plot
+#         def plot_player_trace_mu():
+#             player_index = int(input.player_model())
+#             wTx = np.einsum("r,...mr -> ...m", X_rflvm_aligned[:,:,player_index,:], W)
+#             phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
+#             mu = np.einsum("k,ijk -> ij", phi, convex_beta[:, :, int(input.metric_mcmc()), :, int(input.age())])
+#             results["mu"] = mu
+#             inf_data = az.from_dict(results)
+#             return plot_mcmc_diagnostics(inf_data, "mu", plot = "trace")
         
-        @render.table
-        def plot_player_summary():
-            player_index = int(input.player_model())
-            results["X"] = X_rflvm_aligned[:,:,player_index,:]
-            inf_data = az.from_dict(results)
-            return plot_mcmc_diagnostics(inf_data, "X", plot = "summary")
-        
+#         @render.table
+#         def plot_player_summary_mu():
+#             player_index = int(input.player_model())
+#             wTx = np.einsum("r,...mr -> ...m", X_rflvm_aligned[:,:,player_index,:], W)
+#             phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
+#             mu = np.einsum("k,ijk -> ij", phi, convex_beta[:, :, int(input.metric_mcmc()), :, int(input.age())])
+#             results["mu"] = mu
+#             inf_data = az.from_dict(results)
+#             return plot_mcmc_diagnostics(inf_data, "mu", plot = "summary")
 
-    
-    with ui.layout_column_wrap():
-        ui.input_select(id="metric_mcmc", label = "Select a metric", choices = {index : name for index, name in enumerate(metrics)})
-        ui.input_select(id="age", label = "Select an age", choices = {index : name for index, name in enumerate(range(18,39))})
-    with ui.layout_column_wrap():
-        @render.plot
-        def plot_player_trace_mu():
-            player_index = int(input.player_model())
-            wTx = np.einsum("ijr,ijmr -> ijm", X_rflvm_aligned[:,:,player_index,:], W)
-            phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
-            mu = np.einsum("ijk,ijk -> ij", phi, results["beta"][:, :, int(input.metric_mcmc()), :, int(input.age())])
-            results["mu"] = mu
-            inf_data = az.from_dict(results)
-            return plot_mcmc_diagnostics(inf_data, "mu", plot = "trace")
-        
-        @render.table
-        def plot_player_summary_mu():
-            player_index = int(input.player_model())
-            wTx = np.einsum("ijr,ijmr -> ijm", X_rflvm_aligned[:,:,player_index,:], W)
-            phi = np.concatenate([np.cos(wTx), np.sin(wTx)], -1) * (1/ np.sqrt(100))
-            mu = np.einsum("ijk,ijk -> ij", phi, results["beta"][:, :, int(input.metric_mcmc()), :, int(input.age())])
-            results["mu"] = mu
-            inf_data = az.from_dict(results)
-            return plot_mcmc_diagnostics(inf_data, "mu", plot = "summary")
-
-with ui.nav_panel("Metric Correlations"):
-    ui.input_select(id="chain", label = "Select a chain", choices = {index : name for index, name in enumerate(range(1,5))})
-    @render_plotly
-    def plot_latent_space_dendrogram():
-        return plot_correlation_dendrogram(results["beta"][int(input.chain()), :, :, :, :].mean(axis = (0,3)), labels = metrics, title = "Metric Correlation")
+# with ui.nav_panel("Metric Correlations"):
+#     ui.input_select(id="chain", label = "Select a chain", choices = {index : name for index, name in enumerate(range(1,3))})
+#     @render_plotly
+#     def plot_latent_space_dendrogram():
+#         return plot_correlation_dendrogram(convex_beta[int(input.chain())-1, :, :, :, :].mean(axis = (0,3)), labels = metrics, title = "Metric Correlation")
 
