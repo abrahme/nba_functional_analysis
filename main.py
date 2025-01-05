@@ -44,11 +44,11 @@ if __name__ == "__main__":
     data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
     names = data.groupby("id")["name"].first().values.tolist()
 
-    data["minutes"] /= 1000
+    # data["minutes"] /= 1000
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
     data["retirement"] = 1
-    metric_output = ["binomial", "exponential"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+    metric_output = ["binomial", "poisson"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
     metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
     exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
     player_indices = [names.index(item) for item in players]
@@ -156,7 +156,7 @@ if __name__ == "__main__":
             if svi_inference:
                 samples = model.run_svi_inference(num_steps=1000000, model_args=model_args, initial_values=initial_params)
             elif not neural_parametrization:
-                samples, extra_fields = model.run_inference(num_chains=1, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
+                samples, extra_fields = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
             else:
                 mcmc_run, neutra = model.run_neutra_inference(num_chains=4, num_samples=2000, num_warmup=1000, num_steps=1000000, guide_kwargs={}, model_args=model_args)
                 samples = mcmc_run.get_samples(group_by_chain=True)
@@ -190,7 +190,7 @@ if __name__ == "__main__":
         gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
         mu = (make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept))[:, jnp.array(player_indices), :].squeeze()
         fig = plot_posterior_predictive_career_trajectory_map(player_indices[0], metrics, metric_output, mu, Y, exposures)
-        fig.write_image("model_output/model_plots/debug_predictions_svi_full.png", format = "png")
+        fig.write_image("model_output/model_plots/debug_predictions_svi_full_poisson_minutes.png", format = "png")
 
     
 

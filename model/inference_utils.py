@@ -139,8 +139,8 @@ def create_metric_trajectory_map(posterior_mean_map: jnp.ndarray, player_index, 
             obs_normal = obs
             gaussian_index += 1
         elif metric_output == "poisson":
-            posterior_predictions = 36.0 * jnp.exp(post) / 1000
-            obs_normal = 36.0 * (obs / (1000 * jnp.exp(exposure)))
+            posterior_predictions = 36.0 * jnp.exp(post) / 1
+            obs_normal = 36.0 * (obs / (1 * jnp.exp(exposure)))
         elif metric_output == "binomial":
             posterior_predictions = jsc.special.expit(post)
             obs_normal = obs / exposure ### per shot
