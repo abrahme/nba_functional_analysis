@@ -155,7 +155,39 @@ def create_metric_trajectory_map(posterior_mean_map: jnp.ndarray, player_index, 
     return obs_data, posterior_predictive
 
 
+def create_metric_trajectory_observations(player_index, observations, exposures, metric_outputs: list[str], metrics: list[str]):
+    gaussian_index = 0
+    minutes_index = metrics.index("minutes")
+    retirement_index = metrics.index("retirement")  ### 1 -> playing, 0 --> retired
 
+    ### first get retirement
+    obs_retirement = observations[player_index, retirement_index, :]
+
+    #### then sample minutes 
+    
+    
+    obs_min = observations[player_index, minutes_index, :]
+    obs_normalized = [obs_retirement, obs_min]
+    ### sample all the poisson metrics using posterior predictions log min as exposure, and sample obpm / dbpm using sqrt(minutes) as exposure
+    for metric_index, metric_output in enumerate(metric_outputs):
+        if (metric_index in [ minutes_index, retirement_index]) :
+            continue 
+        exposure  = exposures[metric_index, player_index, ...]
+        obs = observations[player_index, metric_index, :]
+        if metric_output == "gaussian":
+            obs_normal = obs
+            gaussian_index += 1
+        elif metric_output == "poisson":
+            obs_normal = 36.0 * (obs / jnp.exp(exposure))
+            obs_normal = obs_normal.at[jnp.where(obs_retirement == 0)].set(0)
+        elif metric_output == "binomial":
+            obs_normal = obs / exposure ### per shot
+        obs_normalized.append(obs_normal)
+
+
+    obs_data = {"y": jnp.stack(obs_normalized, axis = -1)}  ### has shape (time, metrics)
+
+    return obs_data   
 
 
 

@@ -49,7 +49,8 @@ RUN pip install \
         shinywidgets \
         Jinja2 \
         scikit-learn \
-        kaleido
+        kaleido \
+        tensorly
 
 # RUN pip install --upgrade "jax[cuda12]"
 

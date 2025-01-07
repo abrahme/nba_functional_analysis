@@ -1,0 +1,565 @@
+---
+title: "A Latent Variable Model for Multivariate Mixed Time-Series Data"
+subtitle: With Applications to Sports Production Curve Modeling
+author: Abhijit Brahme
+format: 
+    revealjs: 
+        incremental: true
+        smaller: true
+        scrollable: true
+        html-math-method: mathjax
+        theme: solarized
+server: shiny
+date: 2024-09-20
+bibliography: advancement.bib
+---
+
+
+```{python}
+#| context: setup
+#| include: false
+import pandas as pd
+import plotly.express as px
+import pickle
+from sklearn.manifold import TSNE
+from sklearn.decomposition import SparsePCA
+from sklearn.preprocessing import StandardScaler
+import numpy as np
+from shiny.express import input, render, ui
+from shinywidgets import render_plotly
+import numpyro
+from tensorly.decomposition import tucker
+numpyro.set_platform("cpu")
+```
+
+```{python}
+#| context: setup
+#| include: false
+#| cache: true
+from data.data_utils import create_fda_data
+data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
+names = data.groupby("id")["name"].first().values
+names_df = pd.DataFrame(names, columns = ["Name"])
+names_df["Player"] = range(len(names))
+metric_output = ["binomial", "exponential"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
+metric_df = pd.DataFrame(metrics, columns=["Statistic"])
+metric_df["Metric"] = range(len(metrics))
+basis = np.arange(18, 39)
+age_df = pd.DataFrame(range(18,39), columns = ["Age"])
+age_df["Time"] = age_df["Age"] - 18
+exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
+data["retirement"] = 1
+data["log_min"] = np.log(data["minutes"])
+data["simple_exposure"] = 1 
+_ , outputs, _ = create_fda_data(data, basis_dims=3, metric_output=metric_output, 
+                                     metrics = metrics
+, exposure_list =  exposure_list)
+observations = np.stack([output["output_data"] for output in outputs], axis = 1)
+exposures = np.stack([output["exposure_data"] for output in outputs], axis = 0)
+
+agg_dict = {"obpm":"mean", "dbpm":"mean", "bpm":"mean", 
+            "position_group": "max",
+        "minutes":"sum", "dreb": "sum", "fta":"sum", "ftm":"sum", "oreb":"sum",
+        "ast":"sum", "tov":"sum", "fg2m":"sum", "fg3m":"sum", "fg3a":"sum", "fg2a":"sum", "blk":"sum", "stl":"sum"}
+data["total_minutes"] = data["median_minutes_per_game"] * data["games"] 
+agged_data = data.groupby("id").agg(agg_dict).reset_index()
+agged_data["ft_pct"] = agged_data["ftm"] / agged_data["fta"]
+agged_data["fg2_pct"] = agged_data["fg2m"] / agged_data["fg2a"]
+agged_data["fg3_pct"] = agged_data["fg3m"] / agged_data["fg3a"]
+agged_data["dreb_rate"] = 36.0 * agged_data["dreb"] / agged_data["minutes"]
+agged_data["oreb_rate"] = 36.0 * agged_data["oreb"] / agged_data["minutes"]
+agged_data["ast_rate"] = 36.0 * agged_data["ast"] / agged_data["minutes"]
+agged_data["tov_rate"] = 36.0 * agged_data["tov"] / agged_data["minutes"]
+agged_data["blk_rate"] = 36.0 * agged_data["blk"] / agged_data["minutes"]
+agged_data["stl_rate"] = 36.0 * agged_data["stl"] / agged_data["minutes"]
+agged_data["ft_rate"] = 36.0 * agged_data["fta"] / agged_data["minutes"]
+agged_data["fg2_rate"] = 36.0 * agged_data["fg2a"] / agged_data["minutes"]
+agged_data["fg3_rate"] = 36.0 * agged_data["fg3a"] / agged_data["minutes"]
+agged_data.fillna(0, inplace=True)
+```
+
+
+```{python}
+#| context: setup
+#| include: false
+#| cache: true
+
+N, K, T = observations.shape
+
+edges = []
+nodes = []
+vals = []
+missing = []
+for player_index in range(N):
+    for metric_index in range(K):
+        for time_index in range(T):
+            cur_node = (player_index, metric_index, time_index)
+            nodes.append(cur_node)
+            missing.append(np.isfinite(exposures[metric_index, player_index, time_index]))
+            vals.append(observations[player_index, metric_index, time_index])
+
+            if player_index != N - 1:
+                edges.append((cur_node, (player_index + 1, metric_index ,time_index)))
+
+            if player_index != 0:
+                edges.append((cur_node, (player_index - 1, metric_index, time_index )))
+            
+            if metric_index != K - 1:
+                edges.append((cur_node, (player_index, metric_index + 1, time_index)))
+
+            if metric_index != 0:
+                edges.append((cur_node, (player_index, metric_index - 1, time_index)))
+
+            if time_index != T - 1:
+                edges.append((cur_node, (player_index, metric_index, time_index + 1)))
+
+            if time_index != 0:
+                edges.append((cur_node, (player_index, metric_index, time_index - 1)))
+
+nodes_df = pd.DataFrame(np.array([list(x) for x in zip(*nodes)]).T, columns=["Player", "Metric", "Time"])
+nodes_df["Value"] = vals
+nodes_df["Missing"] = missing
+
+final_data_plot_df = pd.merge(nodes_df, names_df).merge(metric_df).merge(age_df)
+
+```
+
+```{python}
+#| context: setup
+#| include: false
+#| cache: true
+
+import jax.numpy as jnp
+from model.hsgp import make_convex_f, diag_spectral_density, make_convex_phi, make_psi_gamma
+with open("model_output/latent_variable.pkl", "rb") as f:
+    results = pickle.load(f)
+f.close()
+
+X = results["X"]
+
+
+with open("model_output/fixed_latent_convex_nba_tvrflvm_svi_poisson_minutes.pkl", "rb") as f:
+    results_tvrflvm_svi = pickle.load(f)
+f.close()
+
+
+hsgp_params = {}
+x_time = basis - basis.mean()
+L_time = 1.5 * jnp.max(jnp.abs(x_time), 0, keepdims=True)
+M_time = 15
+phi_time = make_convex_phi(x_time, L_time, M_time)
+hsgp_params["phi_x_time"] = phi_time
+hsgp_params["M_time"] = M_time
+hsgp_params["L_time"] = L_time
+hsgp_params["shifted_x_time"] = x_time + L_time
+ls_deriv = results_tvrflvm_svi["lengthscale_deriv__loc"]
+alpha_time = results_tvrflvm_svi["alpha__loc"]
+shifted_x_time = hsgp_params["shifted_x_time"]
+spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
+weights = results_tvrflvm_svi["beta__loc"]
+weights = weights * spd * .0001
+W = results_tvrflvm_svi["W__loc"] 
+wTx = jnp.einsum("nr,mr -> nm", X, W)
+psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(50))
+slope = make_psi_gamma(psi_x, results_tvrflvm_svi["slope__loc"])
+intercept = make_psi_gamma(psi_x, results_tvrflvm_svi["intercept__loc"])
+gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
+mu = make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept)
+
+```
+
+```{python}
+
+
+U, _, _ = np.linalg.svd(X, full_matrices=False)
+L       = np.linalg.cholesky(np.cov(U.T) + 1e-6 * np.eye(7)).T
+aligned_X  = np.linalg.solve(L, U.T).T
+aligned_X /= np.std(X, axis=0)
+
+X_tsne = TSNE(n_components=3).fit_transform(aligned_X)
+
+
+scatter_df = pd.concat([pd.DataFrame(X_tsne, columns=[f"dim{i+1}" for i in range(3)]), agged_data], axis = 1)
+scatter_df["player_name"] = names
+```
+
+
+```{python}
+import jax.numpy as jnp
+
+core, factors = tucker(mu, rank= [16, X.shape[0], 3])
+print(core.shape)
+for factor in factors:
+    print(factor.shape)
+full_core = np.einsum("nkl,lj -> nkj", np.einsum("nc,kcl -> nkl", factors[0], core), factors[1])
+pos_indices = data.groupby("id")["position_group"].max().reset_index()
+positions = ["G", "F", "C"]
+tensor_decomps = {}
+tensor_decomps["global"] = {"core": core, "factors": factors, "full_core": full_core}
+for pos in positions:
+    core, factors = tucker(mu[:,pos_indices[pos_indices["position_group"] == "G"].index.values,:],
+                        rank = [16, X.shape[0], 3])
+    full_pos_core = np.einsum("nkl,lj -> nkj", np.einsum("nc,kcl -> nkl", factors[0], core), factors[1])
+    tensor_decomps[pos] = {"core": core, "factors": factors, "full_core": full_pos_core}
+
+```
+
+## Research Interests 
+
+::: {layout-ncol=2}
+![](images/noun-deep-learning-1705425.png)
+
+![](images/noun-scatter-graph-4768711.png)
+:::
+
+
+::: {.notes}
+Generally work at the intersection of more modern advances in machine learning and statistics. Trying to find connections between these advances, and 
+even instances where one field could help the other. 
+:::
+
+## Current Work
+
+1. Metric / Manifold Estimation from Trajectory Valued Data 
+    - Prof. Nina Mialone (Dept. of Electrical Engineering)
+2. Approximate HMC Methods
+    - Prof. Andrew Holbrook (UCLA, Dept of Public Health)
+3. **A Latent Variable Model for Modeling Multi-Dimensional Mixed Time-Series Data**
+    - **Prof. Alex Franks (Dept. of Statistics)**
+
+## Motivation 
+
+::: {.nonincremental}
+1. Successfully forecast player performance, especially young players
+2. Gain insight into how different observable metrics may peak at varying timepoints for certain groups of players
+3. Quantify a level of uncertainty regarding players' future performance
+4. Jointly model all of the above 
+::: 
+
+```{python}
+### combine with next slide maybe
+from visualization.visualization import plot_career_trajectory_observations
+ui.input_select(id="player_traj", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
+@render_plotly
+def plot_metric_arc():
+    return plot_career_trajectory_observations(int(input.player_traj()), metrics, metric_output, observations, exposures )
+
+```
+
+
+::: {.notes}
+The data are these time varying curves of specific observable and recorded metrics in basketball. Each one of these metrics is sort of an emission from an underlying latent
+state or ability. For example, we can look at LeBron James, who has had a long career and is in fact still playing. Some of these metrics are more "skill" based in that they aren't affected by physical aging. For example, the ability to make free-throws is not really an athletic feat. Whereas, things like getting rebounds or scoring, are affected by age. So for example, there is some variation amongst metrics themselves in where they peak, as well as variation within individuals, usually by position. 
+
+So, if we look at Stephen Curry by contrast, he is a smaller guard. He is shorter, and not as athletic as LeBron, and so drop-off in his athleticism will appear more sharp as it is not mitigated by physical strength or height. The model, nor the data, doesn't encode any of this explicitly, but the goal is to learn such variations through a latent embedding of players. We want to learn how to place players in some latent space where their position in the latent space tells us how they will age. 
+
+More so, we want to establish some measure of uncertainty about where players are placed. This is typically more important for rookies (new players) who just entered the league and we are sort of looking to model their future performance. Sort of an important task for team managers is to project performance and putting a level of uncertainty to an estimate is helpful in decision making. 
+
+Additionally, we want to be able to learn something about aging in general. How do different types of players age? How does that affect where they peak in certain metrics?
+So to do all of this, we want to model everything jointly. 
+
+:::
+
+
+## Data Overview
+
+::: {.nonincremental}
+1. $\approx$ 3,000 NBA players from years 1997 - 2021, from the ages of 18 - 39
+2. Longitudinal mixed tensor valued data $\mathcal{Y}$ of size $N$ by $T$ by $K$
+where $N$ is the number of players, $T$ is the number of years in a player's career, and $K$ are the number of production metric curves with $\mathcal{Y}_{ntk}$ is missing if player $n$ is not observed for metric $k$ at age $t$. 
+    - Non-missing entries are observations from exponential families (i.e Binomial, Gaussian, Exponential, Poisson, etc.)
+3. $\Omega$ is binary tensor of same size as $\mathcal{Y}$ indicating missingness. 
+:::
+
+```{python}
+#### change time to actual age 
+from visualization.visualization import plot_data_tensor
+@render_plotly
+def plot_data():
+    return plot_data_tensor(final_data_plot_df)
+```
+
+## Relevant Work
+
+1. Bayesian Hierarchical Framework
+    - Hierarchical aging model applied to hockey, golf, and baseball [@berry1999bridging]
+    - Gaussian Process regressions by different basketball positions [@page2013effect]
+    - Parametric curves analyzing pre and post peak-performance [@vaci2019large]
+
+2. Functional Data Analysis
+    - Functional principal components clustering [@wakim2014functional]
+    - Nearest Neighbor algorithm to characterize similarity between players [@natesilver538_2015]
+    - Production curves as a convex combination of curves from the same set of archetype [@vinue2015archetypoids]
+
+
+::: {.notes}
+So there's already been some kind of work in this area already. Some of this work is using specifically player positions to develop projections. But, these positions are kind of rigid in explaining the intricacies of basketball and similarities between players. We really want a continuous measure. 
+
+The paper that is most similar is this functional principal components clustering, but that works on the space of 1 metric / measure. and Nate silver's method. Again, they are not jointly learning these things. 
+:::
+
+
+
+
+
+## Modeling Setup
+Space of players live in low dimensional latent space $X \in \mathbb{R} ^{N \times D}$
+
+For a given time $t$, and metric $k$, $f^k_t \sim \mathcal{GP}(0, K_X)$ is a vector of size $N$, with $K_X$ capturing correlation across the $N$ dimension [@gundersen2020latent]
+
+:::{layout-ncol=2}
+![](images/pgm.svg){width=90%}
+
+
+\begin{pmatrix}
+  \vert & \vert & \cdots & \vert & \cdots & \vert  \\
+  \vert & \vert & \cdots & \vert & \cdots & \vert  \\
+  f^k_1 & f^k_2 & \cdots & f^k_i & \cdots & f^k_T  \\
+  \vert  & \vert & \cdots & \vert & \cdots & \vert \\
+  \vert  & \vert & \cdots  & \vert & \cdots  & \vert 
+\end{pmatrix}
+:::
+
+## Random Fourier Features 
+
+Attempt to approximate the inner product $k(x, y) = \langle \phi(x), \phi(y) \rangle$
+with a randomized map $z: \mathbb{R}^D \rightarrow \mathbb{R}^R$. Computational savings arise if $R << N$. 
+
+**Approximation of Gaussian Process can be turned into a linear operation, $f^k_{t}(X) \approx Z(X)^T\beta^k_{t}$ which is computationally beneficial if $N$ large.**
+
+In our case, we let $k(x,y) = k(x - y) = exp(\frac{-||x - y||^2}{2})$ be the standard radial basis kernel. 
+
+It can be shown that to produce the radial basis kernel, $\omega \sim \mathcal{N}_D(0, I_d)$. 
+
+Thus the map is composed of $z_{\omega_r} = [cos(\omega_r ^T x), sin(\omega_r ^ T x)]^T$. 
+
+$Z(X) = \frac{1}{\sqrt{R}}[z_{\omega_1}, z_{\omega_2}, \dots, z_{\omega_R}]^T$
+
+## Adjusted Modeling Setup
+
+![](images/pmg_corr.svg){fig-align="center"}
+
+## Distributional Assumptions
+
+We include the following metrics and distribution families:
+
+:::{layout-ncol=2}
+
+::: {.nonincremental}
+1. Poisson
+    - $\mathcal{R} =$ {FG2A, FG3A, FTA, BLK, OREB, DREB, TOV, AST, STL}
+2. Gaussian
+    - $\mathcal{G} =$ {DBPM, OBPM}
+3. Binomial
+    - $\mathcal{B} =$ {FG2M, FG3M, FTM}
+     - $\mathcal{A} =$ {FG2A, FG3A, FTA}
+4. Exponential
+    - $\mathcal{M} =$ {Minutes}
+5. Bernoulli
+    - $\mathcal{K} =$ {Retirement}
+:::
+
+\begin{align}
+Y^k_{t}  &\sim
+\begin{cases}
+Pois(Y^m_t e^{f^k_{t}}) \text{if } k \in \mathcal{R} \text{ , } \forall m \in \mathcal{M} \\
+Bin(Y^j_{t}, logit^{-1}(f^k_{t})) \text{ if } k \in \mathcal{B} \text{ , }  j \in \mathcal{A} \\
+\mathcal{N}(f^k_{t}, \frac{\sigma^2_k}{Y^m_t})  \text{ if } k \in \mathcal{G} \text{ , } \forall m \in \mathcal{M}\\
+Bern(logit^{-1}(f^k_t)) \text{ if } k \in \mathcal{K}\\
+Exp(e^{f^k_t}) \text{ if  } k \in \mathcal{M}
+\end{cases}
+\end{align}
+:::
+
+::: {.notes}
+One thing to take note of here is that we are handling exposure parameters properly here. So, for example the total rebounds is scaled by the number of minutes played that year. Similarly for the metrics like 3 point percentage, we include the number of attempts (which coincidentally is another metric). The gaussian metric's variance is scaled by the minutes played as well. So in this way we handle varying levels of playing time (something that other papers don't really look at.) 
+:::
+
+
+## Inferential Challenges 
+
+1. MCMC Convergence (multi-modal posterior)
+2. Identifiability (rotational / scale invariance of model)
+
+## Methods 
+
+In order to address identifiability issues and MCMC convergence, we propose the following scheme to estimate the latent space $X$ and functional coefficients $\beta_{rtk}$. 
+
+1. Initialize $X$ 
+    - Probabilistic Tensor Decomposition
+        - Helps better encapsulate similarities between players, so good to initialize with good similarity 
+2. Using the fixed $X$ from above, conduct inference on $\beta_{rtk}, \sigma_k, \omega_r$ 
+
+## Probabilistic Tensor Decomposition 
+
+:::{layout-ncol=2}
+![](images/cp_decomp.jpg){width=90%}
+
+:::
+
+This model seeks to factorize the  $N \times T \times K$ linear scale tensor $A$ using CP Decomposition. Since we have various outputs that are not normally distributed, this becomes a form of exponential family CP Decomposition.
+
+
+## Probabilistic Tensor Decomposition (contd.) 
+
+Let $\tilde{A}_{pit} = g_{pit}^{-1}(A_{pit})$, where $g_{pit}$ is the appropriate link function transforming the linear scale parameter into the appropriate exponential family parameterization. Consequently, $X, V, W, \mu$ are estimated by maximizing the following loss function using gradient descent. 
+
+$\max_{X, V, W, \mu} \sum_{p, i, t} log( F_{pit}( Y_{pit} | \tilde{A}_{pit} )) \cdot \Omega_{pit}$
+
+where $F_{pit}$ is the appropriate distribution density function associated with entry $Y_{pit}$. 
+
+This offers the following benefits:
+
+1. Latent space $X$ is created while accounting for sampling variability 
+2. Latent space is created while also accounting for correlations across each mode of the tensor, which is representative of the final model. 
+
+
+## Latent Space 
+
+```{python}
+from visualization.visualization import plot_scatter
+ui.input_select(id="player", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
+
+@render_plotly
+def plot_latent_space():
+    return plot_scatter(scatter_df,  "Latent Embedding", int(input.player()) )
+
+```
+
+
+## Projection Results 
+
+```{python}
+from visualization.visualization import plot_posterior_predictive_career_trajectory
+import jax.numpy as jnp
+ui.input_select(id="player_posterior", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
+
+
+@render_plotly
+def plot_posterior_predictive():
+    player_index = int(input.player_posterior())
+    wTx = jnp.einsum("r,ijmr -> ijm", aligned_X[player_index, :], W)
+    phi = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], -1) * (1/ jnp.sqrt(100))
+    mu = jnp.einsum("ijk,ijmkt -> ijmt", phi, results_tvrflvm["beta"])
+    
+    return plot_posterior_predictive_career_trajectory(
+                                                            player_index=player_index,
+                                                            metrics=metrics, 
+                                                            metric_outputs=metric_output,
+                                                            posterior_mean_samples=mu,
+                                                            observations=jnp.array(observations), 
+                                                            exposures = jnp.array(exposures),
+                                                            posterior_variance_samples=jnp.stack([results_tvrflvm["sigma_obpm"], results_tvrflvm["sigma_dbpm"]], axis = 0))
+
+```
+
+
+## Functional Basis 
+
+![](images/tuckerdecomp.png)
+
+Let $\mathcal{X}$ be the tensor of normalized gaussian-scale linear predictors of dimension $N \times T \times K$. 
+Then, $\mathcal{X}$ is decomposed into a "core" tensor $\mathcal{Y}$ of dimension $N \times M \times K$ and "factor" matrices $A \in \mathbb{R}^{N \times N}$, $B \in \mathbb{R}^{T \times M}$, $C \in \mathbb{R}^{K \times K}$. 
+
+These bases in $B$ represent the set of common curves across time present in all players. By ensuring that $A$ and $C$ are identity matrices, 
+the horizontal "slices" of the core tensor represent how much different metrics contributed to each basis **for each** slice (player). 
+
+## Functional Basis Results 
+
+```{python}
+
+with ui.layout_column_wrap():
+    @render_plotly
+    def plot_functional_bases_group():
+        dfs = []
+        for pos in positions:
+            factors = tensor_decomps[pos]["factors"]
+            funct_bases_df = pd.DataFrame(factors[1], columns = [f"Basis {i}" for i in range(1,4)])
+            funct_bases_df["Position"] = pos
+            funct_bases_df["Age"] = range(18,39)
+            dfs.append(funct_bases_df)
+        full_funct_bases = pd.concat(dfs)
+        funct_bases_melted = pd.melt(full_funct_bases, id_vars = ["Position", "Age"], value_vars = [f"Basis {i}" for i in range(1,4)],
+        var_name="basis_type", value_name="value")
+        fig = px.line(funct_bases_melted, x = "Age", y = "value", color="basis_type", facet_col="Position")
+        return fig
+    
+    @render_plotly
+    def plot_metric_weights_bases_group():
+        dfs = []
+        for pos in positions:
+            factors = tensor_decomps[pos]["factors"]
+            weights = tensor_decomps[pos]["full_core"].mean(0)
+            weights_df = pd.DataFrame(weights, columns = metrics)
+            weights_df["Position"] = pos
+            weights_df["Basis"] = range(1,4)
+            dfs.append(weights_df)
+ 
+        weights_df = pd.concat(dfs)
+        weights_df_melted = weights_df.melt(id_vars=["Basis", "Position"], var_name="Variable", value_name="Value")
+        fig = px.bar(weights_df_melted, facet_row="Basis",x="Variable", y = "Value", facet_col="Position")
+        return fig
+    
+```
+
+
+
+## Functional Basis Results (contd.)
+
+```{python}
+
+with ui.layout_column_wrap():
+    ui.input_select(id="player_functional", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
+with ui.layout_column_wrap():
+    @render_plotly
+    def plot_functional_bases():
+        player_index = int(input.player_functional())
+        full_core = tensor_decomps["global"]["full_core"]
+        factors = tensor_decomps["global"]["factors"]
+        explained_var = full_core[player_index].T.var(0)
+        funct_bases_df = pd.DataFrame(factors[1], columns = [f"Basis {i}: {explained_var[i-1]/16:.{3}}% EV" for i in range(1,4)])
+        funct_bases_df["Age"] = range(18,39)
+        funct_bases_melted = funct_bases_df.melt(id_vars="Age", var_name="Variable", value_name="Value")
+        fig = px.line(funct_bases_melted, x = "Age", y = "Value", color="Variable")
+        return fig
+    @render_plotly
+    def plot_metric_weights():
+        player_index = int(input.player_functional())
+        full_core = tensor_decomps["global"]["full_core"]
+        factors = tensor_decomps["global"]["factors"]
+        weights = full_core[player_index]  
+        weights_df = pd.DataFrame(weights, columns = metrics)
+        weights_df["Basis"] = range(1,4)
+        weights_df_melted = weights_df.melt(id_vars="Basis", var_name="Variable", value_name="Value")
+        fig = px.bar(weights_df_melted, facet_row="Basis",x="Variable", y = "Value")
+        return fig
+```
+
+
+## Future Work 
+
+
+1. Using a hybrid Gibbs-HMC routine, perform the following updates:
+    - Sample $X$, $\gamma$ while holding all other parameters fixed using HMC proposal step
+    - Conditional on the sampled $X$ and $\gamma$, sample the remaining parameters using HMC proposal step
+
+2. Posterior Coverage Tests
+    - Holdout forecasting performance
+
+# Questions ?
+
+# References
+
+::: {#refs}
+:::
+
+
+
+
+
+
+
+
+
+

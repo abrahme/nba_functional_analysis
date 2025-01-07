@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import plotly.express as px
 import numpy as np
 import arviz as az
-from model.inference_utils import create_metric_trajectory, create_metric_trajectory_map
+from model.inference_utils import create_metric_trajectory, create_metric_trajectory_map, create_metric_trajectory_observations
 
 def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str], metric_outputs: list[str], posterior_mean_samples, observations, exposures, posterior_variance_samples):
     """
@@ -89,6 +89,31 @@ def plot_posterior_predictive_career_trajectory_map( player_index, metrics: list
     
     return fig
 
+
+
+def plot_career_trajectory_observations( player_index, metrics: list[str], metric_outputs: list[str], observations, exposures):
+    """
+    plots the posterior predictive career trajectory 
+    """
+    fig = make_subplots(rows = 4, cols=4,  subplot_titles=metrics)
+    
+    observation_dict = create_metric_trajectory_observations(player_index,  observations, exposures, 
+                                                                metric_outputs=metric_outputs, metrics = metrics)
+
+ 
+    obs = observation_dict["y"]
+    x = list(range(18,39))
+    for index, metric in enumerate(metrics):
+        row = int(np.floor(index / 4)) + 1 
+        col = (index % 4) + 1
+        metric_type = metric_outputs[index]
+        metric = metric.upper()
+        if metric_type == "poisson":
+            metric += " per 36 min"
+        fig.add_trace(go.Scatter(x = x, y = obs[..., index], mode = "lines", 
+                                 name = "Observed", line_color = "blue", showlegend=False), row = row, col=col)
+    
+    return fig
 
 def plot_mcmc_diagnostics(inference_data, variable_name, plot = "trace"):
     if plot == "trace":
