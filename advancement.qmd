@@ -29,7 +29,7 @@ from shiny.express import input, render, ui
 from shinywidgets import render_plotly
 import numpyro
 from tensorly.decomposition import tucker
-numpyro.set_platform("cpu")
+numpyro.set_platform("cuda")
 ```
 
 ```{python}
@@ -189,9 +189,6 @@ scatter_df["player_name"] = names
 import jax.numpy as jnp
 
 core, factors = tucker(mu, rank= [16, X.shape[0], 3])
-print(core.shape)
-for factor in factors:
-    print(factor.shape)
 full_core = np.einsum("nkl,lj -> nkj", np.einsum("nc,kcl -> nkl", factors[0], core), factors[1])
 pos_indices = data.groupby("id")["position_group"].max().reset_index()
 positions = ["G", "F", "C"]
