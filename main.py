@@ -174,7 +174,6 @@ if __name__ == "__main__":
 
     if svi_inference:
         player_indices = [1323] ### curry
-        print(samples["sigma__loc"])
         ls_deriv = samples["lengthscale_deriv__loc"]
         alpha_time = samples["alpha__loc"]
         shifted_x_time = hsgp_params["shifted_x_time"]

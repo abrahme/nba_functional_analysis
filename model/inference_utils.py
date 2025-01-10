@@ -73,7 +73,7 @@ def create_metric_trajectory(posterior_mean_samples, player_index, observations,
     #### then sample minutes 
     
     post_min = posterior_mean_samples[..., minutes_index, :]
-    posterior_predictions_min = Exponential(rate = jnp.exp(post_min)).sample(key = key)
+    posterior_predictions_min = Poisson(rate = jnp.exp(post_min)).sample(key = key)
     posterior_predictions_min = posterior_predictions_min.at[jnp.where(posterior_predictions_retirement == 0)].set(0) ## fix the minutes to sample from zero inflated process
     obs_min = observations[player_index, minutes_index, :]
     posteriors = [jsc.special.expit(post_retirement), posterior_predictions_min]
@@ -93,7 +93,7 @@ def create_metric_trajectory(posterior_mean_samples, player_index, observations,
             obs_normal = obs
             gaussian_index += 1
         elif metric_output == "poisson":
-            dist = Poisson(rate = jnp.exp(post + jnp.log(Exponential(rate = jnp.exp(post_min)).sample(key = key))))
+            dist = Poisson(rate = jnp.exp(post + jnp.log(Poisson(rate = jnp.exp(post_min)).sample(key = key))))
             posterior_predictions = 36.0 * (dist.sample(key = key) / posterior_predictions_min) ### per 36 min statistics
             posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_retirement == 0)].set(0) ### set to 0 wherever 
             obs_normal = 36.0 * (obs / jnp.exp(exposure))

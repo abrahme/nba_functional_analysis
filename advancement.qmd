@@ -41,7 +41,7 @@ data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
 names = data.groupby("id")["name"].first().values
 names_df = pd.DataFrame(names, columns = ["Name"])
 names_df["Player"] = range(len(names))
-metric_output = ["binomial", "exponential"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+metric_output = ["binomial", "poisson"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
 metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
 metric_df = pd.DataFrame(metrics, columns=["Statistic"])
 metric_df["Metric"] = range(len(metrics))
@@ -57,7 +57,6 @@ _ , outputs, _ = create_fda_data(data, basis_dims=3, metric_output=metric_output
 , exposure_list =  exposure_list)
 observations = np.stack([output["output_data"] for output in outputs], axis = 1)
 exposures = np.stack([output["exposure_data"] for output in outputs], axis = 0)
-
 agg_dict = {"obpm":"mean", "dbpm":"mean", "bpm":"mean", 
             "position_group": "max",
         "minutes":"sum", "dreb": "sum", "fta":"sum", "ftm":"sum", "oreb":"sum",
@@ -143,6 +142,20 @@ with open("model_output/fixed_latent_convex_nba_tvrflvm_svi_poisson_minutes.pkl"
     results_tvrflvm_svi = pickle.load(f)
 f.close()
 
+# with open("model_output/fixed_latent_convex_nba_tvrflvm_mcmc_poisson_minutes.pkl", "rb") as f:
+#     results_tvrflvm = pickle.load(f)
+# f.close()
+
+def make_mu(ls_deriv, alpha_time, shifted_x_time, weights, W, slope_weights, intercept_weights, L_time, M_time, phi_time):
+    spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
+    weights = weights * spd * .0001
+    wTx = jnp.einsum("nr,mr -> nm", X, W)
+    psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(50))
+    slope = make_psi_gamma(psi_x, slope_weights)
+    intercept = make_psi_gamma(psi_x, intercept_weights)
+    gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
+    mu = make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept)
+    return mu
 
 hsgp_params = {}
 x_time = basis - basis.mean()
@@ -153,19 +166,12 @@ hsgp_params["phi_x_time"] = phi_time
 hsgp_params["M_time"] = M_time
 hsgp_params["L_time"] = L_time
 hsgp_params["shifted_x_time"] = x_time + L_time
-ls_deriv = results_tvrflvm_svi["lengthscale_deriv__loc"]
-alpha_time = results_tvrflvm_svi["alpha__loc"]
-shifted_x_time = hsgp_params["shifted_x_time"]
-spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
-weights = results_tvrflvm_svi["beta__loc"]
-weights = weights * spd * .0001
-W = results_tvrflvm_svi["W__loc"] 
-wTx = jnp.einsum("nr,mr -> nm", X, W)
-psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(50))
-slope = make_psi_gamma(psi_x, results_tvrflvm_svi["slope__loc"])
-intercept = make_psi_gamma(psi_x, results_tvrflvm_svi["intercept__loc"])
-gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
-mu = make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept)
+
+mu = make_mu(results_tvrflvm_svi["lengthscale_deriv__loc"], 
+results_tvrflvm_svi["alpha__loc"], hsgp_params["shifted_x_time"],
+results_tvrflvm_svi["beta__loc"], results_tvrflvm_svi["W__loc"], 
+results_tvrflvm_svi["slope__loc"], results_tvrflvm_svi["intercept__loc"], 
+L_time, M_time, phi_time)
 
 ```
 
@@ -187,9 +193,22 @@ scatter_df["player_name"] = names
 
 ```{python}
 import jax.numpy as jnp
+from scipy.special import expit
+def transform_mu(mu, metric_outputs):
+    transformed_mu = np.zeros_like(mu)
+    for index, output_type in enumerate(metric_outputs):
+        if output_type == "gaussian":
+            transform_function = lambda x: x 
+        elif output_type == "poisson":
+            transform_function = lambda x: np.exp(x)
+        elif output_type == "binomial":
+            transform_function = lambda x: expit(x)
+        transformed_mu[index] = transform_function(mu[index])
+    return transformed_mu
 
-mu_normalized = mu[2:]
-core, factors = tucker(mu_normalized, rank= [14, X.shape[0], 3])
+
+mu_normalized = transform_mu((mu - mu.mean((1,2), keepdims = True)) / (mu.std((1,2), keepdims = True)), metric_output)
+core, factors = tucker(mu_normalized, rank= [16, X.shape[0], 3])
 
 full_core = jnp.einsum("jzm, kj, nz -> kzm", core, factors[0], factors[1])
 pos_indices = data.groupby("id")["position_group"].max().reset_index()
@@ -198,9 +217,10 @@ tensor_decomps = {}
 tensor_decomps["global"] = {"core": core, "factors": factors, "full_core": full_core}
 for pos in positions:
     player_indices = pos_indices[pos_indices["position_group"] == pos].index.values
-    pos_mu = mu[:, player_indices ,:][2:]
-    core, factors = tucker(pos_mu,
-                        rank = [14, X.shape[0], 3])
+    pos_mu = mu[:, player_indices ,:]
+    pos_mu_normalized = transform_mu((pos_mu - pos_mu.mean((1,2), keepdims = True)) / (pos_mu.std((1,2), keepdims = True)), metric_output)
+    core, factors = tucker(pos_mu_normalized,
+                        rank = [16, X.shape[0], 3])
     full_pos_core = jnp.einsum("jzm, kj, nz -> kzm", core, factors[0], factors[1])
     tensor_decomps[pos] = {"core": core, "factors": factors, "full_core": full_pos_core}
 
@@ -432,27 +452,21 @@ def plot_latent_space():
 ## Projection Results 
 
 ```{python}
-# from visualization.visualization import plot_posterior_predictive_career_trajectory
-# import jax.numpy as jnp
-# ui.input_select(id="player_posterior", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
+from visualization.visualization import plot_posterior_predictive_career_trajectory_map
+import jax.numpy as jnp
 
+ui.input_select(id="player_posterior", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
 
-# @render_plotly
-# def plot_posterior_predictive():
-#     player_index = int(input.player_posterior())
-#     wTx = jnp.einsum("r,ijmr -> ijm", aligned_X[player_index, :], W)
-#     phi = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], -1) * (1/ jnp.sqrt(100))
-#     mu = jnp.einsum("ijk,ijmkt -> ijmt", phi, results_tvrflvm["beta"])
-    
-#     return plot_posterior_predictive_career_trajectory(
-#                                                             player_index=player_index,
-#                                                             metrics=metrics, 
-#                                                             metric_outputs=metric_output,
-#                                                             posterior_mean_samples=mu,
-#                                                             observations=jnp.array(observations), 
-#                                                             exposures = jnp.array(exposures),
-#                                                             posterior_variance_samples=jnp.stack([results_tvrflvm["sigma_obpm"], results_tvrflvm["sigma_dbpm"]], axis = 0))
-
+@render_plotly
+def plot_posterior_predictive_map():
+    player_index = int(input.player_posterior())
+    mu_player = mu[:, player_index, :]
+    return plot_posterior_predictive_career_trajectory_map(player_index=player_index,
+    metrics=metrics,
+    metric_outputs=metric_output, 
+    posterior_map=mu_player,
+    observations=jnp.array(np.swapaxes(observations, 0, 1)),
+    exposures=jnp.array(exposures))
 ```
 
 
@@ -483,7 +497,7 @@ with ui.layout_column_wrap():
         full_funct_bases = pd.concat(dfs)
         funct_bases_melted = pd.melt(full_funct_bases, id_vars = ["Position", "Age"], value_vars = [f"Basis {i}" for i in range(1,4)],
         var_name="basis_type", value_name="value")
-        fig = px.line(funct_bases_melted, x = "Age", y = "value", color="basis_type", facet_col="Position")
+        fig = px.line(funct_bases_melted, x = "Age", y = "value", color="Position", facet_col="basis_type")
         return fig
     
     @render_plotly
@@ -492,7 +506,7 @@ with ui.layout_column_wrap():
         for pos in positions:
             factors = tensor_decomps[pos]["factors"]
             weights = tensor_decomps[pos]["full_core"].mean(1).T
-            weights_df = pd.DataFrame(weights, columns = metrics[2:])
+            weights_df = pd.DataFrame(weights, columns = metrics)
             weights_df["Position"] = pos
             weights_df["Basis"] = range(1,4)
             dfs.append(weights_df)
@@ -530,7 +544,7 @@ with ui.layout_column_wrap():
         full_core = tensor_decomps["global"]["full_core"]
         factors = tensor_decomps["global"]["factors"]
         weights = full_core[:,player_index,:].T
-        weights_df = pd.DataFrame(weights, columns = metrics[2:])
+        weights_df = pd.DataFrame(weights, columns = metrics)
         weights_df["Basis"] = range(1,4)
         weights_df_melted = weights_df.melt(id_vars="Basis", var_name="Variable", value_name="Value")
         fig = px.bar(weights_df_melted, facet_row="Basis",x="Variable", y = "Value")
