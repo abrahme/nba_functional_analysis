@@ -10,7 +10,7 @@ format:
         html-math-method: mathjax
         theme: solarized
 server: shiny
-date: 2024-09-20
+date: 2025-01-09
 bibliography: advancement.bib
 ---
 
@@ -29,7 +29,7 @@ from shiny.express import input, render, ui
 from shinywidgets import render_plotly
 import numpyro
 from tensorly.decomposition import tucker
-numpyro.set_platform("cuda")
+numpyro.set_platform("cpu")
 ```
 
 ```{python}
@@ -188,16 +188,20 @@ scatter_df["player_name"] = names
 ```{python}
 import jax.numpy as jnp
 
-core, factors = tucker(mu, rank= [16, X.shape[0], 3])
-full_core = np.einsum("nkl,lj -> nkj", np.einsum("nc,kcl -> nkl", factors[0], core), factors[1])
+mu_normalized = mu[2:]
+core, factors = tucker(mu_normalized, rank= [14, X.shape[0], 3])
+
+full_core = jnp.einsum("jzm, kj, nz -> kzm", core, factors[0], factors[1])
 pos_indices = data.groupby("id")["position_group"].max().reset_index()
 positions = ["G", "F", "C"]
 tensor_decomps = {}
 tensor_decomps["global"] = {"core": core, "factors": factors, "full_core": full_core}
 for pos in positions:
-    core, factors = tucker(mu[:,pos_indices[pos_indices["position_group"] == "G"].index.values,:],
-                        rank = [16, X.shape[0], 3])
-    full_pos_core = np.einsum("nkl,lj -> nkj", np.einsum("nc,kcl -> nkl", factors[0], core), factors[1])
+    player_indices = pos_indices[pos_indices["position_group"] == pos].index.values
+    pos_mu = mu[:, player_indices ,:][2:]
+    core, factors = tucker(pos_mu,
+                        rank = [14, X.shape[0], 3])
+    full_pos_core = jnp.einsum("jzm, kj, nz -> kzm", core, factors[0], factors[1])
     tensor_decomps[pos] = {"core": core, "factors": factors, "full_core": full_pos_core}
 
 ```
@@ -428,26 +432,26 @@ def plot_latent_space():
 ## Projection Results 
 
 ```{python}
-from visualization.visualization import plot_posterior_predictive_career_trajectory
-import jax.numpy as jnp
-ui.input_select(id="player_posterior", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
+# from visualization.visualization import plot_posterior_predictive_career_trajectory
+# import jax.numpy as jnp
+# ui.input_select(id="player_posterior", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
 
 
-@render_plotly
-def plot_posterior_predictive():
-    player_index = int(input.player_posterior())
-    wTx = jnp.einsum("r,ijmr -> ijm", aligned_X[player_index, :], W)
-    phi = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], -1) * (1/ jnp.sqrt(100))
-    mu = jnp.einsum("ijk,ijmkt -> ijmt", phi, results_tvrflvm["beta"])
+# @render_plotly
+# def plot_posterior_predictive():
+#     player_index = int(input.player_posterior())
+#     wTx = jnp.einsum("r,ijmr -> ijm", aligned_X[player_index, :], W)
+#     phi = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], -1) * (1/ jnp.sqrt(100))
+#     mu = jnp.einsum("ijk,ijmkt -> ijmt", phi, results_tvrflvm["beta"])
     
-    return plot_posterior_predictive_career_trajectory(
-                                                            player_index=player_index,
-                                                            metrics=metrics, 
-                                                            metric_outputs=metric_output,
-                                                            posterior_mean_samples=mu,
-                                                            observations=jnp.array(observations), 
-                                                            exposures = jnp.array(exposures),
-                                                            posterior_variance_samples=jnp.stack([results_tvrflvm["sigma_obpm"], results_tvrflvm["sigma_dbpm"]], axis = 0))
+#     return plot_posterior_predictive_career_trajectory(
+#                                                             player_index=player_index,
+#                                                             metrics=metrics, 
+#                                                             metric_outputs=metric_output,
+#                                                             posterior_mean_samples=mu,
+#                                                             observations=jnp.array(observations), 
+#                                                             exposures = jnp.array(exposures),
+#                                                             posterior_variance_samples=jnp.stack([results_tvrflvm["sigma_obpm"], results_tvrflvm["sigma_dbpm"]], axis = 0))
 
 ```
 
@@ -472,7 +476,7 @@ with ui.layout_column_wrap():
         dfs = []
         for pos in positions:
             factors = tensor_decomps[pos]["factors"]
-            funct_bases_df = pd.DataFrame(factors[1], columns = [f"Basis {i}" for i in range(1,4)])
+            funct_bases_df = pd.DataFrame(factors[2], columns = [f"Basis {i}" for i in range(1,4)])
             funct_bases_df["Position"] = pos
             funct_bases_df["Age"] = range(18,39)
             dfs.append(funct_bases_df)
@@ -487,8 +491,8 @@ with ui.layout_column_wrap():
         dfs = []
         for pos in positions:
             factors = tensor_decomps[pos]["factors"]
-            weights = tensor_decomps[pos]["full_core"].mean(0)
-            weights_df = pd.DataFrame(weights, columns = metrics)
+            weights = tensor_decomps[pos]["full_core"].mean(1).T
+            weights_df = pd.DataFrame(weights, columns = metrics[2:])
             weights_df["Position"] = pos
             weights_df["Basis"] = range(1,4)
             dfs.append(weights_df)
@@ -514,8 +518,8 @@ with ui.layout_column_wrap():
         player_index = int(input.player_functional())
         full_core = tensor_decomps["global"]["full_core"]
         factors = tensor_decomps["global"]["factors"]
-        explained_var = full_core[player_index].T.var(0)
-        funct_bases_df = pd.DataFrame(factors[1], columns = [f"Basis {i}: {explained_var[i-1]/16:.{3}}% EV" for i in range(1,4)])
+        explained_var = full_core[:,player_index,:].T.var(0)
+        funct_bases_df = pd.DataFrame(factors[2], columns = [f"Basis {i}: {explained_var[i-1]/16:.{3}}% EV" for i in range(1,4)])
         funct_bases_df["Age"] = range(18,39)
         funct_bases_melted = funct_bases_df.melt(id_vars="Age", var_name="Variable", value_name="Value")
         fig = px.line(funct_bases_melted, x = "Age", y = "Value", color="Variable")
@@ -525,8 +529,8 @@ with ui.layout_column_wrap():
         player_index = int(input.player_functional())
         full_core = tensor_decomps["global"]["full_core"]
         factors = tensor_decomps["global"]["factors"]
-        weights = full_core[player_index]  
-        weights_df = pd.DataFrame(weights, columns = metrics)
+        weights = full_core[:,player_index,:].T
+        weights_df = pd.DataFrame(weights, columns = metrics[2:])
         weights_df["Basis"] = range(1,4)
         weights_df_melted = weights_df.melt(id_vars="Basis", var_name="Variable", value_name="Value")
         fig = px.bar(weights_df_melted, facet_row="Basis",x="Variable", y = "Value")
