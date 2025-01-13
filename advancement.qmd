@@ -543,8 +543,8 @@ with ui.layout_column_wrap():
         player_index = int(input.player_functional())
         full_core = tensor_decomps["global"]["full_core"]
         factors = tensor_decomps["global"]["factors"]
-        explained_var = full_core[:,player_index,:].T.var(0)
-        funct_bases_df = pd.DataFrame(factors[2], columns = [f"Basis {i}: {explained_var[i-1]/16:.{3}}% EV" for i in range(1,4)])
+        explained_var = full_core[:,player_index,:].T.var(1) / full_core[:,player_index,:].T.var(1).sum()
+        funct_bases_df = pd.DataFrame(factors[2], columns = [f"Basis {i}: {explained_var[i-1]:.{3}}% EV" for i in range(1,4)])
         funct_bases_df["Age"] = range(18,39)
         funct_bases_melted = funct_bases_df.melt(id_vars="Age", var_name="Variable", value_name="Value")
         fig = px.line(funct_bases_melted, x = "Age", y = "Value", color="Variable")
