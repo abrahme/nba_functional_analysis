@@ -130,6 +130,7 @@ final_data_plot_df = pd.merge(nodes_df, names_df).merge(metric_df).merge(age_df)
 #| cache: true
 
 import jax.numpy as jnp
+from jax import vmap
 from model.hsgp import make_convex_f, diag_spectral_density, make_convex_phi, make_psi_gamma
 with open("model_output/latent_variable.pkl", "rb") as f:
     results = pickle.load(f)
@@ -142,11 +143,11 @@ with open("model_output/fixed_latent_convex_nba_tvrflvm_svi_poisson_minutes.pkl"
     results_tvrflvm_svi = pickle.load(f)
 f.close()
 
-# with open("model_output/fixed_latent_convex_nba_tvrflvm_mcmc_poisson_minutes.pkl", "rb") as f:
-#     results_tvrflvm = pickle.load(f)
-# f.close()
+with open("model_output/fixed_latent_convex_nba_tvrflvm_mcmc_poisson_minutes.pkl", "rb") as f:
+    results_tvrflvm = pickle.load(f)
+f.close()
 
-def make_mu(ls_deriv, alpha_time, shifted_x_time, weights, W, slope_weights, intercept_weights, L_time, M_time, phi_time):
+def make_mu(X, ls_deriv, alpha_time, shifted_x_time, weights, W, slope_weights, intercept_weights, L_time, M_time, phi_time):
     spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
     weights = weights * spd * .0001
     wTx = jnp.einsum("nr,mr -> nm", X, W)
@@ -156,6 +157,11 @@ def make_mu(ls_deriv, alpha_time, shifted_x_time, weights, W, slope_weights, int
     gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
     mu = make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept)
     return mu
+
+def make_mu_vmap(ls_samples, alpha_samples, beta_samples, W_samples, slope_samples, intercept_samples, x_time_shifted, L, M, phi, X):
+    mu_vmap = vmap(vmap(lambda ls, alpha, beta, W, slope, intercept: make_mu(X, ls, alpha, x_time_shifted, beta, W, slope,
+    intercept, L, M, phi)))
+    return mu_vmap(ls_samples, alpha_samples, beta_samples, W_samples, slope_samples, intercept_samples)
 
 hsgp_params = {}
 x_time = basis - basis.mean()
@@ -167,7 +173,7 @@ hsgp_params["M_time"] = M_time
 hsgp_params["L_time"] = L_time
 hsgp_params["shifted_x_time"] = x_time + L_time
 
-mu = make_mu(results_tvrflvm_svi["lengthscale_deriv__loc"], 
+mu = make_mu(X, results_tvrflvm_svi["lengthscale_deriv__loc"], 
 results_tvrflvm_svi["alpha__loc"], hsgp_params["shifted_x_time"],
 results_tvrflvm_svi["beta__loc"], results_tvrflvm_svi["W__loc"], 
 results_tvrflvm_svi["slope__loc"], results_tvrflvm_svi["intercept__loc"], 
@@ -452,21 +458,26 @@ def plot_latent_space():
 ## Projection Results 
 
 ```{python}
-from visualization.visualization import plot_posterior_predictive_career_trajectory_map
+# from visualization.visualization import plot_posterior_predictive_career_trajectory_map
+from visualization.visualization import plot_posterior_predictive_career_trajectory
 import jax.numpy as jnp
 
 ui.input_select(id="player_posterior", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
 
 @render_plotly
-def plot_posterior_predictive_map():
+def plot_posterior_predictive():
     player_index = int(input.player_posterior())
-    mu_player = mu[:, player_index, :]
-    return plot_posterior_predictive_career_trajectory_map(player_index=player_index,
+    mu_mcmc_player = jnp.squeeze(make_mu_vmap(results_tvrflvm["lengthscale_deriv"],
+    results_tvrflvm["alpha"], results_tvrflvm["beta"], results_tvrflvm["W"], results_tvrflvm["slope"], results_tvrflvm["intercept"],
+    hsgp_params["shifted_x_time"], L_time, M_time, phi_time, X[player_index][None]))
+    return plot_posterior_predictive_career_trajectory(player_index=player_index,
     metrics=metrics,
     metric_outputs=metric_output, 
-    posterior_map=mu_player,
-    observations=jnp.array(np.swapaxes(observations, 0, 1)),
-    exposures=jnp.array(exposures))
+    posterior_mean_samples=mu_mcmc_player,
+    observations=jnp.array(observations),
+    exposures=jnp.array(exposures),
+    posterior_variance_samples=jnp.transpose(results_tvrflvm["sigma"], (2, 0, 1)))
+
 ```
 
 

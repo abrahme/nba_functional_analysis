@@ -4,7 +4,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 import jax.scipy as jsc
-from numpyro.distributions import Normal, Poisson, Exponential, Bernoulli
+from numpyro.distributions import Normal, Poisson, Bernoulli
 jax.config.update('jax_platform_name', 'cuda')
 
 def varimax(Phi, gamma = 1, q = 20):
