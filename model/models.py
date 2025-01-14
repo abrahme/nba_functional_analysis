@@ -2,7 +2,7 @@ from abc import abstractmethod, ABC
 import jax 
 import numpy as np
 from numpyro import sample 
-from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, Distribution
+from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, Distribution, NegativeBinomial2
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive, init_to_value
 from numpyro.infer.reparam import NeuTraReparam
 from numpyro.infer.autoguide import AutoDelta, AutoBNAFNormal
@@ -375,6 +375,7 @@ class ConvexTVRFLVM(TVRFLVM):
         super().initialize_priors(*args, **kwargs)
         self.prior["lengthscale_deriv"] = InverseGamma(1.0, 1.0)
         self.prior["sigma"] = InverseGamma(1.0, 1.0)
+        self.prior["concentration"] = InverseGamma(1.0, 1.0)
         self.prior["alpha"] = InverseGamma(1.0, 1.0)
         self.prior["intercept"] = Normal()
         self.prior["slope"] = Normal()
@@ -419,6 +420,10 @@ class ConvexTVRFLVM(TVRFLVM):
             elif family == "exponential":
                 rate = jnp.exp(linear_predictor[mask] + exposure[mask])
                 dist = Exponential(rate)
+            elif family == "negative-binomial":
+                concentration = self.prior["concentration"] if not isinstance(self.prior["concentration"], Distribution) else sample("concentration", self.prior["concentration"], sample_shape=(1,))
+                rate = jnp.exp(linear_predictor[mask] + exposure[mask])
+                dist = NegativeBinomial2(mean = rate, concentration=concentration)
             y = sample(f"likelihood_{family}", dist, obs[mask])
 
     def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args, initial_values={}):

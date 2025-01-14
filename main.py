@@ -48,7 +48,7 @@ if __name__ == "__main__":
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
     data["retirement"] = 1
-    metric_output = ["binomial", "poisson"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+    metric_output = ["binomial", "negative-binomial"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
     metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
     exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
     player_indices = [names.index(item) for item in players]
@@ -190,7 +190,7 @@ if __name__ == "__main__":
         gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
         mu = (make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept))[:, jnp.array(player_indices), :].squeeze()
         fig = plot_posterior_predictive_career_trajectory_map(player_indices[0], metrics, metric_output, mu, Y, exposures)
-        fig.write_image("model_output/model_plots/debug_predictions_svi_full_poisson_minutes.png", format = "png")
+        fig.write_image("model_output/model_plots/debug_predictions_svi_full_nb2_minutes.png", format = "png")
 
     
 
