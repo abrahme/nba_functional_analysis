@@ -12,8 +12,8 @@
   <meta name="generator" content="quarto-1.4.553">
 
   <meta name="author" content="Abhijit Brahme">
-  <meta name="dcterms.date" content="2025-01-09">
-  <title>A Latent Variable Model for Multivariate Mixed Time-Series Data</title>
+  <meta name="dcterms.date" content="2025-01-13">
+  <title>De-Mystifying Aging in Basketball</title>
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
@@ -352,8 +352,8 @@
     <div class="slides">
 
 <section id="title-slide" class="quarto-title-block center">
-  <h1 class="title">A Latent Variable Model for Multivariate Mixed Time-Series Data</h1>
-  <p class="subtitle">With Applications to Sports Production Curve Modeling</p>
+  <h1 class="title">De-Mystifying Aging in Basketball</h1>
+  <p class="subtitle">A Latent Variable Approach</p>
 
 <div class="quarto-title-authors">
 <div class="quarto-title-author">
@@ -363,7 +363,7 @@ Abhijit Brahme
 </div>
 </div>
 
-  <p class="date">2025-01-09</p>
+  <p class="date">2025-01-13</p>
 </section>
 <section id="research-interests" class="slide level2">
 <h2>Research Interests</h2>
@@ -391,8 +391,8 @@ Abhijit Brahme
           display:block!important;
       }</style></aside>
 </section>
-<section id="current-work" class="slide level2 scrollable">
-<h2>Current Work</h2>
+<section id="current-projects" class="slide level2 scrollable">
+<h2>Current Projects</h2>
 <ol type="1">
 <li class="fragment">Metric / Manifold Estimation from Trajectory Valued Data
 <ul>
@@ -413,13 +413,13 @@ Abhijit Brahme
 <div>
 <ol type="1">
 <li>Successfully forecast player performance, especially young players</li>
-<li>Gain insight into how different observable metrics may peak at varying timepoints for certain groups of players</li>
+<li>Gain insight into how different observable metrics may peak at varying timepoints for certain “types” of players</li>
 <li>Quantify a level of uncertainty regarding players’ future performance</li>
 <li>Jointly model all of the above</li>
 </ol>
 </div>
-<div id="221bccfb" class="cell" data-execution_count="7">
-<div class="cell-output cell-output-display no-overflow-x" data-execution_count="43">
+<div id="1ddb9840" class="cell" data-execution_count="7">
+<div class="cell-output cell-output-display no-overflow-x" data-execution_count="7">
 <div class="form-group shiny-input-container">
   <label class="control-label" id="player_traj-label" for="player_traj">Select a player</label>
   <div>
@@ -2778,27 +2778,6 @@ Abhijit Brahme
           display:block!important;
       }</style></aside>
 </section>
-<section id="data-overview" class="slide level2 scrollable">
-<h2>Data Overview</h2>
-<div>
-<ol type="1">
-<li><span class="math inline">\(\approx\)</span> 3,000 NBA players from years 1997 - 2021, from the ages of 18 - 39</li>
-<li>Longitudinal mixed tensor valued data <span class="math inline">\(\mathcal{Y}\)</span> of size <span class="math inline">\(N\)</span> by <span class="math inline">\(T\)</span> by <span class="math inline">\(K\)</span> where <span class="math inline">\(N\)</span> is the number of players, <span class="math inline">\(T\)</span> is the number of years in a player’s career, and <span class="math inline">\(K\)</span> are the number of production metric curves with <span class="math inline">\(\mathcal{Y}_{ntk}\)</span> is missing if player <span class="math inline">\(n\)</span> is not observed for metric <span class="math inline">\(k\)</span> at age <span class="math inline">\(t\)</span>.
-<ul>
-<li>Non-missing entries are observations from exponential families (i.e Binomial, Gaussian, Exponential, Poisson, etc.)</li>
-</ul></li>
-<li><span class="math inline">\(\Omega\)</span> is binary tensor of same size as <span class="math inline">\(\mathcal{Y}\)</span> indicating missingness.</li>
-</ol>
-</div>
-<div id="722c74cf" class="cell" data-execution_count="8">
-<div class="cell-output cell-output-display">
-<div id="plot_data" class="shiny-ipywidget-output shiny-report-size shiny-report-theme html-fill-item html-fill-container"></div><script type="application/json" data-html-dependency="">{"name": "ipywidget-libembed-amd", "version": "1.0.1", "source": {"package": "shinywidgets", "subdir": "static"}, "script": [{"src": "libembed-amd.js"}], "stylesheet": [], "meta": [], "all_files": false, "head": null}</script>
-<script type="application/json" data-html-dependency="">{"name": "ipywidget-output-binding", "version": "0.3.2", "source": {"package": "shinywidgets", "subdir": "static"}, "script": [{"src": "output.js"}], "stylesheet": [{"href": "shinywidgets.css", "rel": "stylesheet"}], "meta": [], "all_files": false, "head": null}</script>
-<script type="application/json" data-html-dependency="">{"name": "headcontent_64c93189711f8969640e7b8f06f689fadea80c2e", "version": "0.0", "source": null, "script": [], "stylesheet": [], "meta": [], "all_files": false, "head": "<script data-jupyter-widgets-cdn=\"https://cdn.jsdelivr.net/npm/\"><\/script>"}</script>
-<script type="application/json" data-html-dependency="">{"name": "htmltools-fill", "version": "0.5.8.9000", "source": {"package": "shiny", "subdir": "www/shared/htmltools/fill"}, "script": [], "stylesheet": [{"href": "fill.css", "rel": "stylesheet"}], "meta": [], "all_files": false, "head": null}</script>
-</div>
-</div>
-</section>
 <section id="relevant-work" class="slide level2 scrollable">
 <h2>Relevant Work</h2>
 <ol type="1">
@@ -2811,7 +2790,7 @@ Abhijit Brahme
 <li class="fragment">Functional Data Analysis
 <ul>
 <li class="fragment">Functional principal components clustering <span class="citation" data-cites="wakim2014functional">(<a href="#/references" role="doc-biblioref" onclick="">Wakim and Jin 2014</a>)</span></li>
-<li class="fragment">Nearest Neighbor algorithm to characterize similarity between players <span class="citation" data-cites="natesilver538_2015">(<a href="#/references" role="doc-biblioref" onclick="">Silver 2015</a>)</span></li>
+<li class="fragment"><strong>Nearest Neighbor algorithm to characterize similarity between players <span class="citation" data-cites="natesilver538_2015">(<a href="#/references" role="doc-biblioref" onclick="">Silver 2015</a>)</span></strong></li>
 <li class="fragment">Production curves as a convex combination of curves from the same set of archetype <span class="citation" data-cites="vinue2015archetypoids">(<a href="#/references" role="doc-biblioref" onclick="">Vinué, Epifanio, and Alemany 2015</a>)</span></li>
 </ul></li>
 </ol>
@@ -2830,40 +2809,27 @@ Abhijit Brahme
           display:block!important;
       }</style></aside>
 </section>
-<section id="modeling-setup" class="slide level2">
-<h2>Modeling Setup</h2>
-<p>Space of players live in low dimensional latent space <span class="math inline">\(X \in \mathbb{R} ^{N \times D}\)</span></p>
-<p>For a given time <span class="math inline">\(t\)</span>, and metric <span class="math inline">\(k\)</span>, <span class="math inline">\(f^k_t \sim \mathcal{GP}(0, K_X)\)</span> is a vector of size <span class="math inline">\(N\)</span>, with <span class="math inline">\(K_X\)</span> capturing correlation across the <span class="math inline">\(N\)</span> dimension <span class="citation" data-cites="gundersen2020latent">(<a href="#/references" role="doc-biblioref" onclick="">Gundersen, Zhang, and Engelhardt 2020</a>)</span></p>
-<div class="quarto-layout-panel" data-layout-ncol="2">
-<div class="quarto-layout-row">
-<div class="quarto-layout-cell" style="flex-basis: 50.0%;justify-content: center;">
-<p><img data-src="images/pgm.svg" style="width:90.0%"></p>
+<section id="data-overview" class="slide level2 scrollable">
+<h2>Data Overview</h2>
+<div>
+<ol type="1">
+<li><span class="math inline">\(\approx\)</span> 3,000 NBA players from years 1997 - 2021, from the ages of 18 - 39</li>
+<li>Longitudinal mixed tensor valued data <span class="math inline">\(\mathcal{Y}\)</span> of size <span class="math inline">\(N\)</span> by <span class="math inline">\(T\)</span> by <span class="math inline">\(K\)</span> where <span class="math inline">\(N\)</span> is the number of players, <span class="math inline">\(T\)</span> is the number of years in a player’s career, and <span class="math inline">\(K\)</span> are the number of production metric curves with <span class="math inline">\(\mathcal{Y}_{ntk}\)</span> is missing if player <span class="math inline">\(n\)</span> is not observed for metric <span class="math inline">\(k\)</span> at age <span class="math inline">\(t\)</span>.
+<ul>
+<li>Non-missing entries are observations from exponential families (i.e Binomial, Gaussian, Exponential, Poisson, etc.)</li>
+</ul></li>
+<li><span class="math inline">\(\Omega\)</span> is binary tensor of same size as <span class="math inline">\(\mathcal{Y}\)</span> indicating missingness.</li>
+</ol>
 </div>
-<div class="quarto-layout-cell" style="flex-basis: 50.0%;justify-content: flex-start;">
-<span class="math display">\[\begin{pmatrix}
-  \vert &amp; \vert &amp; \cdots &amp; \vert &amp; \cdots &amp; \vert  \\
-  \vert &amp; \vert &amp; \cdots &amp; \vert &amp; \cdots &amp; \vert  \\
-  f^k_1 &amp; f^k_2 &amp; \cdots &amp; f^k_i &amp; \cdots &amp; f^k_T  \\
-  \vert  &amp; \vert &amp; \cdots &amp; \vert &amp; \cdots &amp; \vert \\
-  \vert  &amp; \vert &amp; \cdots  &amp; \vert &amp; \cdots  &amp; \vert
-\end{pmatrix}\]</span>
-</div>
+<div id="cd842e02" class="cell" data-execution_count="8">
+<div class="cell-output cell-output-display">
+<div id="plot_data" class="shiny-ipywidget-output shiny-report-size shiny-report-theme html-fill-item html-fill-container"></div><script type="application/json" data-html-dependency="">{"name": "ipywidget-libembed-amd", "version": "1.0.1", "source": {"package": "shinywidgets", "subdir": "static"}, "script": [{"src": "libembed-amd.js"}], "stylesheet": [], "meta": [], "all_files": false, "head": null}</script>
+<script type="application/json" data-html-dependency="">{"name": "ipywidget-output-binding", "version": "0.3.2", "source": {"package": "shinywidgets", "subdir": "static"}, "script": [{"src": "output.js"}], "stylesheet": [{"href": "shinywidgets.css", "rel": "stylesheet"}], "meta": [], "all_files": false, "head": null}</script>
+<script type="application/json" data-html-dependency="">{"name": "headcontent_64c93189711f8969640e7b8f06f689fadea80c2e", "version": "0.0", "source": null, "script": [], "stylesheet": [], "meta": [], "all_files": false, "head": "<script data-jupyter-widgets-cdn=\"https://cdn.jsdelivr.net/npm/\"><\/script>"}</script>
+<script type="application/json" data-html-dependency="">{"name": "htmltools-fill", "version": "0.5.8.9000", "source": {"package": "shiny", "subdir": "www/shared/htmltools/fill"}, "script": [], "stylesheet": [{"href": "fill.css", "rel": "stylesheet"}], "meta": [], "all_files": false, "head": null}</script>
 </div>
 </div>
 </section>
-<section id="random-fourier-features" class="slide level2">
-<h2>Random Fourier Features</h2>
-<p>Attempt to approximate the inner product <span class="math inline">\(k(x, y) = \langle \phi(x), \phi(y) \rangle\)</span> with a randomized map <span class="math inline">\(z: \mathbb{R}^D \rightarrow \mathbb{R}^R\)</span>. Computational savings arise if <span class="math inline">\(R &lt;&lt; N\)</span>.</p>
-<p><strong>Approximation of Gaussian Process can be turned into a linear operation, <span class="math inline">\(f^k_{t}(X) \approx Z(X)^T\beta^k_{t}\)</span> which is computationally beneficial if <span class="math inline">\(N\)</span> large.</strong></p>
-<p>In our case, we let <span class="math inline">\(k(x,y) = k(x - y) = exp(\frac{-||x - y||^2}{2})\)</span> be the standard radial basis kernel.</p>
-<p>It can be shown that to produce the radial basis kernel, <span class="math inline">\(\omega \sim \mathcal{N}_D(0, I_d)\)</span>.</p>
-<p>Thus the map is composed of <span class="math inline">\(z_{\omega_r} = [cos(\omega_r ^T x), sin(\omega_r ^ T x)]^T\)</span>.</p>
-<p><span class="math inline">\(Z(X) = \frac{1}{\sqrt{R}}[z_{\omega_1}, z_{\omega_2}, \dots, z_{\omega_R}]^T\)</span></p>
-</section>
-<section id="adjusted-modeling-setup" class="slide level2">
-<h2>Adjusted Modeling Setup</h2>
-
-<img data-src="images/pmg_corr.svg" class="quarto-figure quarto-figure-center r-stretch"></section>
 <section id="distributional-assumptions" class="slide level2 scrollable">
 <h2>Distributional Assumptions</h2>
 <p>We include the following metrics and distribution families:</p>
@@ -2922,26 +2888,33 @@ Exp(e^{f^k_t}) \text{ if  } k \in \mathcal{M}
           display:block!important;
       }</style></aside>
 </section>
-<section id="inferential-challenges" class="slide level2 scrollable">
-<h2>Inferential Challenges</h2>
-<ol type="1">
-<li class="fragment">MCMC Convergence (multi-modal posterior)</li>
-<li class="fragment">Identifiability (rotational / scale invariance of model)</li>
-</ol>
-</section>
 <section id="methods" class="slide level2 scrollable">
 <h2>Methods</h2>
+
+<img data-src="images/pgm_methods_flow.svg" class="quarto-figure quarto-figure-center r-stretch"><aside class="notes">
 <p>In order to address identifiability issues and MCMC convergence, we propose the following scheme to estimate the latent space <span class="math inline">\(X\)</span> and functional coefficients <span class="math inline">\(\beta_{rtk}\)</span>.</p>
 <ol type="1">
-<li class="fragment">Initialize <span class="math inline">\(X\)</span>
+<li>Initialize <span class="math inline">\(X\)</span>
 <ul>
-<li class="fragment">Probabilistic Tensor Decomposition
+<li>Probabilistic Tensor Decomposition
 <ul>
-<li class="fragment">Helps better encapsulate similarities between players, so good to initialize with good similarity</li>
+<li>Helps better encapsulate similarities between players, so good to initialize with good similarity</li>
 </ul></li>
 </ul></li>
-<li class="fragment">Using the fixed <span class="math inline">\(X\)</span> from above, conduct inference on <span class="math inline">\(\beta_{rtk}, \sigma_k, \omega_r\)</span></li>
+<li>Using the fixed <span class="math inline">\(X\)</span> from above, conduct inference on <span class="math inline">\(\beta_{rtk}, \sigma_k, \omega_r\)</span></li>
 </ol>
+<p>Convex tensor decomposition decomposes one of the modes (time) into convex / concave functions over time.</p>
+<style type="text/css">
+        span.MJX_Assistive_MathML {
+          position:absolute!important;
+          clip: rect(1px, 1px, 1px, 1px);
+          padding: 1px 0 0 0!important;
+          border: 0!important;
+          height: 1px!important;
+          width: 1px!important;
+          overflow: hidden!important;
+          display:block!important;
+      }</style></aside>
 </section>
 <section id="probabilistic-tensor-decomposition" class="slide level2">
 <h2>Probabilistic Tensor Decomposition</h2>
@@ -2953,22 +2926,12 @@ Exp(e^{f^k_t}) \text{ if  } k \in \mathcal{M}
 </div>
 </div>
 <p>This model seeks to factorize the <span class="math inline">\(N \times T \times K\)</span> linear scale tensor <span class="math inline">\(A\)</span> using CP Decomposition. Since we have various outputs that are not normally distributed, this becomes a form of exponential family CP Decomposition.</p>
-</section>
-<section id="probabilistic-tensor-decomposition-contd." class="slide level2 scrollable">
-<h2>Probabilistic Tensor Decomposition (contd.)</h2>
-<p>Let <span class="math inline">\(\tilde{A}_{pit} = g_{pit}^{-1}(A_{pit})\)</span>, where <span class="math inline">\(g_{pit}\)</span> is the appropriate link function transforming the linear scale parameter into the appropriate exponential family parameterization. Consequently, <span class="math inline">\(X, V, W, \mu\)</span> are estimated by maximizing the following loss function using gradient descent.</p>
-<p><span class="math inline">\(\max_{X, V, W, \mu} \sum_{p, i, t} log( F_{pit}( Y_{pit} | \tilde{A}_{pit} )) \cdot \Omega_{pit}\)</span></p>
-<p>where <span class="math inline">\(F_{pit}\)</span> is the appropriate distribution density function associated with entry <span class="math inline">\(Y_{pit}\)</span>.</p>
-<p>This offers the following benefits:</p>
-<ol type="1">
-<li class="fragment">Latent space <span class="math inline">\(X\)</span> is created while accounting for sampling variability</li>
-<li class="fragment">Latent space is created while also accounting for correlations across each mode of the tensor, which is representative of the final model.</li>
-</ol>
+<p>Can simply think of this as <strong>Multi-modal PCA</strong>.</p>
 </section>
 <section id="latent-space" class="slide level2">
 <h2>Latent Space</h2>
-<div id="495a3138" class="cell" data-execution_count="9">
-<div class="cell-output cell-output-display no-overflow-x" data-execution_count="45">
+<div id="8ba4166d" class="cell" data-execution_count="9">
+<div class="cell-output cell-output-display no-overflow-x" data-execution_count="9">
 <div class="form-group shiny-input-container">
   <label class="control-label" id="player-label" for="player">Select a player</label>
   <div>
@@ -5313,8 +5276,8 @@ Exp(e^{f^k_t}) \text{ if  } k \in \mathcal{M}
 </section>
 <section id="projection-results" class="slide level2">
 <h2>Projection Results</h2>
-<div id="7cbffe22" class="cell" data-execution_count="10">
-<div class="cell-output cell-output-display no-overflow-x" data-execution_count="46">
+<div id="e0ad26ea" class="cell" data-execution_count="10">
+<div class="cell-output cell-output-display no-overflow-x" data-execution_count="10">
 <div class="form-group shiny-input-container">
   <label class="control-label" id="player_posterior-label" for="player_posterior">Select a player</label>
   <div>
@@ -7665,7 +7628,7 @@ Exp(e^{f^k_t}) \text{ if  } k \in \mathcal{M}
 </section>
 <section id="functional-basis-results" class="slide level2">
 <h2>Functional Basis Results</h2>
-<div id="0864f9c2" class="cell" data-execution_count="11">
+<div id="efc7db60" class="cell" data-execution_count="11">
 <div class="cell-output cell-output-display">
 <div id="plot_functional_bases_group" class="shiny-ipywidget-output shiny-report-size shiny-report-theme html-fill-item html-fill-container"></div><script type="application/json" data-html-dependency="">{"name": "ipywidget-libembed-amd", "version": "1.0.1", "source": {"package": "shinywidgets", "subdir": "static"}, "script": [{"src": "libembed-amd.js"}], "stylesheet": [], "meta": [], "all_files": false, "head": null}</script>
 <script type="application/json" data-html-dependency="">{"name": "ipywidget-output-binding", "version": "0.3.2", "source": {"package": "shinywidgets", "subdir": "static"}, "script": [{"src": "output.js"}], "stylesheet": [{"href": "shinywidgets.css", "rel": "stylesheet"}], "meta": [], "all_files": false, "head": null}</script>
@@ -7678,7 +7641,7 @@ Exp(e^{f^k_t}) \text{ if  } k \in \mathcal{M}
 <script type="application/json" data-html-dependency="">{"name": "headcontent_64c93189711f8969640e7b8f06f689fadea80c2e", "version": "0.0", "source": null, "script": [], "stylesheet": [], "meta": [], "all_files": false, "head": "<script data-jupyter-widgets-cdn=\"https://cdn.jsdelivr.net/npm/\"><\/script>"}</script>
 <script type="application/json" data-html-dependency="">{"name": "htmltools-fill", "version": "0.5.8.9000", "source": {"package": "shiny", "subdir": "www/shared/htmltools/fill"}, "script": [], "stylesheet": [{"href": "fill.css", "rel": "stylesheet"}], "meta": [], "all_files": false, "head": null}</script>
 </div>
-<div class="cell-output cell-output-display" data-execution_count="47">
+<div class="cell-output cell-output-display" data-execution_count="11">
 <div class="bslib-grid bslib-mb-spacing html-fill-item" style="grid-template-columns:repeat(auto-fit, minmax(min(200px, 100%), 1fr));grid-auto-rows:1fr;--bslib-grid-height:auto;--bslib-grid-height-mobile:auto;"></div><script type="application/json" data-html-dependency="">{"name": "bslib-components", "version": "0.7.0.9000", "source": {"package": "shiny", "subdir": "www/shared/bslib/components"}, "script": [{"src": "components.min.js"}, {"src": "web-components.min.js", "type": "module"}], "stylesheet": [{"href": "components.css", "rel": "stylesheet"}], "meta": [], "all_files": false, "head": null}</script>
 <script type="application/json" data-html-dependency="">{"name": "htmltools-fill", "version": "0.5.8.9000", "source": {"package": "shiny", "subdir": "www/shared/htmltools/fill"}, "script": [], "stylesheet": [{"href": "fill.css", "rel": "stylesheet"}], "meta": [], "all_files": false, "head": null}</script>
 </div>
@@ -7686,8 +7649,8 @@ Exp(e^{f^k_t}) \text{ if  } k \in \mathcal{M}
 </section>
 <section id="functional-basis-results-contd." class="slide level2">
 <h2>Functional Basis Results (contd.)</h2>
-<div id="1ecc2776" class="cell" data-execution_count="12">
-<div class="cell-output cell-output-display no-overflow-x" data-execution_count="48">
+<div id="d2b1716e" class="cell" data-execution_count="12">
+<div class="cell-output cell-output-display no-overflow-x" data-execution_count="12">
 <div class="bslib-grid bslib-mb-spacing html-fill-item" style="grid-template-columns:repeat(auto-fit, minmax(min(200px, 100%), 1fr));grid-auto-rows:1fr;--bslib-grid-height:auto;--bslib-grid-height-mobile:auto;">
   <div class="bslib-gap-spacing html-fill-container">
     <div class="form-group shiny-input-container">
@@ -10039,7 +10002,7 @@ Exp(e^{f^k_t}) \text{ if  } k \in \mathcal{M}
 <script type="application/json" data-html-dependency="">{"name": "headcontent_64c93189711f8969640e7b8f06f689fadea80c2e", "version": "0.0", "source": null, "script": [], "stylesheet": [], "meta": [], "all_files": false, "head": "<script data-jupyter-widgets-cdn=\"https://cdn.jsdelivr.net/npm/\"><\/script>"}</script>
 <script type="application/json" data-html-dependency="">{"name": "htmltools-fill", "version": "0.5.8.9000", "source": {"package": "shiny", "subdir": "www/shared/htmltools/fill"}, "script": [], "stylesheet": [{"href": "fill.css", "rel": "stylesheet"}], "meta": [], "all_files": false, "head": null}</script>
 </div>
-<div class="cell-output cell-output-display" data-execution_count="48">
+<div class="cell-output cell-output-display" data-execution_count="12">
 <div class="bslib-grid bslib-mb-spacing html-fill-item" style="grid-template-columns:repeat(auto-fit, minmax(min(200px, 100%), 1fr));grid-auto-rows:1fr;--bslib-grid-height:auto;--bslib-grid-height-mobile:auto;"></div><script type="application/json" data-html-dependency="">{"name": "bslib-components", "version": "0.7.0.9000", "source": {"package": "shiny", "subdir": "www/shared/bslib/components"}, "script": [{"src": "components.min.js"}, {"src": "web-components.min.js", "type": "module"}], "stylesheet": [{"href": "components.css", "rel": "stylesheet"}], "meta": [], "all_files": false, "head": null}</script>
 <script type="application/json" data-html-dependency="">{"name": "htmltools-fill", "version": "0.5.8.9000", "source": {"package": "shiny", "subdir": "www/shared/htmltools/fill"}, "script": [], "stylesheet": [{"href": "fill.css", "rel": "stylesheet"}], "meta": [], "all_files": false, "head": null}</script>
 </div>
@@ -10064,6 +10027,7 @@ Exp(e^{f^k_t}) \text{ if  } k \in \mathcal{M}
 
 </section>
 
+<section>
 <section id="references" class="title-slide slide level1 smaller scrollable">
 <h1>References</h1>
 <div id="refs" class="references csl-bib-body hanging-indent" data-entry-spacing="0" role="list">
@@ -10089,12 +10053,83 @@ Vinué, Guillermo, Irene Epifanio, and Sandra Alemany. 2015. <span>“Archetypoi
 Wakim, Alexander, and Jimmy Jin. 2014. <span>“Functional Data Analysis of Aging Curves in Sports.”</span> <em>arXiv Preprint arXiv:1403.7548</em>.
 </div>
 </div>
+</section>
+<section id="modeling-setup" class="slide level2 appendix">
+<h2>Modeling Setup</h2>
+<p>Space of players live in low dimensional latent space <span class="math inline">\(X \in \mathbb{R} ^{N \times D}\)</span></p>
+<p>For a given time <span class="math inline">\(t\)</span>, and metric <span class="math inline">\(k\)</span>, <span class="math inline">\(f^k_t \sim \mathcal{GP}(0, K_X)\)</span> is a vector of size <span class="math inline">\(N\)</span>, with <span class="math inline">\(K_X\)</span> capturing correlation across the <span class="math inline">\(N\)</span> dimension <span class="citation" data-cites="gundersen2020latent">(<a href="#/references" role="doc-biblioref" onclick="">Gundersen, Zhang, and Engelhardt 2020</a>)</span></p>
+<div class="quarto-layout-panel" data-layout-ncol="2">
+<div class="quarto-layout-row">
+<div class="quarto-layout-cell" style="flex-basis: 50.0%;justify-content: center;">
+<p><img data-src="images/pgm.svg" style="width:90.0%"></p>
+</div>
+<div class="quarto-layout-cell" style="flex-basis: 50.0%;justify-content: flex-start;">
+<span class="math display">\[\begin{pmatrix}
+  \vert &amp; \vert &amp; \cdots &amp; \vert &amp; \cdots &amp; \vert  \\
+  \vert &amp; \vert &amp; \cdots &amp; \vert &amp; \cdots &amp; \vert  \\
+  f^k_1 &amp; f^k_2 &amp; \cdots &amp; f^k_i &amp; \cdots &amp; f^k_T  \\
+  \vert  &amp; \vert &amp; \cdots &amp; \vert &amp; \cdots &amp; \vert \\
+  \vert  &amp; \vert &amp; \cdots  &amp; \vert &amp; \cdots  &amp; \vert
+\end{pmatrix}\]</span>
+</div>
+</div>
+</div>
+</section>
+<section id="random-fourier-features" class="slide level2 appendix">
+<h2>Random Fourier Features</h2>
+<p>Attempt to approximate the inner product <span class="math inline">\(k(x, y) = \langle \phi(x), \phi(y) \rangle\)</span> with a randomized map <span class="math inline">\(z: \mathbb{R}^D \rightarrow \mathbb{R}^R\)</span>. Computational savings arise if <span class="math inline">\(R &lt;&lt; N\)</span>.</p>
+<p><strong>Approximation of Gaussian Process can be turned into a linear operation, <span class="math inline">\(f^k_{t}(X) \approx Z(X)^T\beta^k_{t}\)</span> which is computationally beneficial if <span class="math inline">\(N\)</span> large.</strong></p>
+<p>In our case, we let <span class="math inline">\(k(x,y) = k(x - y) = exp(\frac{-||x - y||^2}{2})\)</span> be the standard radial basis kernel.</p>
+<p>It can be shown that to produce the radial basis kernel, <span class="math inline">\(\omega \sim \mathcal{N}_D(0, I_d)\)</span>.</p>
+<p>Thus the map is composed of <span class="math inline">\(z_{\omega_r} = [cos(\omega_r ^T x), sin(\omega_r ^ T x)]^T\)</span>.</p>
+<p><span class="math inline">\(Z(X) = \frac{1}{\sqrt{R}}[z_{\omega_1}, z_{\omega_2}, \dots, z_{\omega_R}]^T\)</span></p>
+</section>
+<section id="adjusted-modeling-setup" class="slide level2 appendix">
+<h2>Adjusted Modeling Setup</h2>
+
+<img data-src="images/pmg_corr.svg" class="quarto-figure quarto-figure-center r-stretch"></section>
+<section id="probabilistic-tensor-decomposition-contd." class="slide level2 appendix scrollable">
+<h2>Probabilistic Tensor Decomposition (contd.)</h2>
+<p>Let <span class="math inline">\(\tilde{A}_{pit} = g_{pit}^{-1}(A_{pit})\)</span>, where <span class="math inline">\(g_{pit}\)</span> is the appropriate link function transforming the linear scale parameter into the appropriate exponential family parameterization. Consequently, <span class="math inline">\(X, V, W, \mu\)</span> are estimated by maximizing the following loss function using gradient descent.</p>
+<p><span class="math inline">\(\max_{X, V, W, \mu} \sum_{p, i, t} log( F_{pit}( Y_{pit} | \tilde{A}_{pit} )) \cdot \Omega_{pit}\)</span></p>
+<p>where <span class="math inline">\(F_{pit}\)</span> is the appropriate distribution density function associated with entry <span class="math inline">\(Y_{pit}\)</span>.</p>
+<p>This offers the following benefits:</p>
+<ol type="1">
+<li class="fragment">Latent space <span class="math inline">\(X\)</span> is created while accounting for sampling variability</li>
+<li class="fragment">Latent space is created while also accounting for correlations across each mode of the tensor, which is representative of the final model.</li>
+</ol>
+</section>
+<section id="enforcing-convexity" class="slide level2 appendix">
+<h2>Enforcing Convexity</h2>
+<p>Considering we only wish our function <span class="math inline">\(f(x,t)\)</span> to be convex in the <span class="math inline">\(t\)</span> argument, we wish to find all set of <span class="math inline">\(f(x,t)\)</span> such that <span class="math inline">\(\frac{\partial ^2 f(x,t)}{\partial t^2} \geq 0\)</span>. As such, our desired function has the form</p>
+<p><span class="math inline">\(f(x,t) = D(x) + C(x)(t-a) + \int_{a}^t \int_{a}^s \frac{\partial ^2 f(x,z)}{\partial z^2}dzds\)</span></p>
+<p>where <span class="math inline">\(D\)</span> and <span class="math inline">\(C\)</span> are constants of integration w.r.t <span class="math inline">\(t\)</span> which could also depend on <span class="math inline">\(x\)</span>.</p>
+<p>Key idea: model <span class="math inline">\(\frac{\partial ^2 f(x,t)}{\partial t^2}\)</span> as the square of a Gaussian Process (<span class="math inline">\(g(x,t)\)</span>) approximated by basis functions.</p>
+</section>
+<section id="enforcing-convexity-concavity-contd." class="slide level2 appendix scrollable">
+<h2>Enforcing Convexity / Concavity (contd.)</h2>
+<ol type="1">
+<li class="fragment"><span class="math inline">\(g(x,t) \approx \sum_{i=1}^M \beta_i(t) \phi_i(x)\)</span> using RFF approximation.
+<ul>
+<li class="fragment">Here, <span class="math inline">\(\beta_i(t)\)</span> are <span class="math inline">\(t\)</span> - dependent coefficients of the basis expansion of <span class="math inline">\(x\)</span>.</li>
+<li class="fragment">Can be shown that <span class="math inline">\(Cov(g(x,t)) \approx K_x \bigotimes K_t\)</span> if <span class="math inline">\(\beta_i(t) \sim \mathcal{GP}(0, K_t)\)</span></li>
+</ul></li>
+<li class="fragment"><span class="math inline">\(\beta_i(t) \approx \sum_{l=1}^K S(\sqrt{\lambda_l})^{1/2} \alpha_l^i \psi_l(t)\)</span> using the Hilbert Space Approximation
+<ul>
+<li class="fragment">Substitute in the above equation, and still <span class="math inline">\(Cov(g(x,t)) \approx K_x \bigotimes K_t\)</span> if <span class="math inline">\(\beta_i(t) \sim \mathcal{GP}(0, K_t)\)</span></li>
+</ul></li>
+<li class="fragment">We can compute the previous integral since <span class="math inline">\(\psi_l(t)\)</span> are sinusoidal functions.
+<ul>
+<li class="fragment"><strong>resulting function is not necessarily a gaussian process</strong></li>
+<li class="fragment"><strong>convexity only guaranteed in the Gaussian response case, as exponential link functions are not guaranteed to preserve the result</strong></li>
+</ul></li>
+</ol>
 <div class="quarto-auto-generated-content">
 <div class="footer footer-default">
 
 </div>
 </div>
-</section>
+</section></section>
     </div>
   </div>
 

@@ -1,6 +1,6 @@
 ---
-title: "A Latent Variable Model for Multivariate Mixed Time-Series Data"
-subtitle: With Applications to Sports Production Curve Modeling
+title: "De-Mystifying Aging in Basketball"
+subtitle: A Latent Variable Approach
 author: Abhijit Brahme
 format: 
     revealjs: 
@@ -10,7 +10,7 @@ format:
         html-math-method: mathjax
         theme: solarized
 server: shiny
-date: 2025-01-09
+date: 2025-01-13
 bibliography: advancement.bib
 ---
 
@@ -246,7 +246,8 @@ Generally work at the intersection of more modern advances in machine learning a
 even instances where one field could help the other. 
 :::
 
-## Current Work
+
+## Current Projects
 
 1. Metric / Manifold Estimation from Trajectory Valued Data 
     - Prof. Nina Mialone (Dept. of Electrical Engineering)
@@ -259,7 +260,7 @@ even instances where one field could help the other.
 
 ::: {.nonincremental}
 1. Successfully forecast player performance, especially young players
-2. Gain insight into how different observable metrics may peak at varying timepoints for certain groups of players
+2. Gain insight into how different observable metrics may peak at varying timepoints for certain "types" of players
 3. Quantify a level of uncertainty regarding players' future performance
 4. Jointly model all of the above 
 ::: 
@@ -288,6 +289,25 @@ So to do all of this, we want to model everything jointly.
 
 :::
 
+## Relevant Work
+
+1. Bayesian Hierarchical Framework
+    - Hierarchical aging model applied to hockey, golf, and baseball [@berry1999bridging]
+    - Gaussian Process regressions by different basketball positions [@page2013effect]
+    - Parametric curves analyzing pre and post peak-performance [@vaci2019large]
+
+2. Functional Data Analysis
+    - Functional principal components clustering [@wakim2014functional]
+    - **Nearest Neighbor algorithm to characterize similarity between players [@natesilver538_2015]**
+    - Production curves as a convex combination of curves from the same set of archetype [@vinue2015archetypoids]
+
+
+::: {.notes}
+So there's already been some kind of work in this area already. Some of this work is using specifically player positions to develop projections. But, these positions are kind of rigid in explaining the intricacies of basketball and similarities between players. We really want a continuous measure. 
+
+The paper that is most similar is this functional principal components clustering, but that works on the space of 1 metric / measure. and Nate silver's method. Again, they are not jointly learning these things. 
+:::
+
 
 ## Data Overview
 
@@ -307,65 +327,7 @@ def plot_data():
     return plot_data_tensor(final_data_plot_df)
 ```
 
-## Relevant Work
 
-1. Bayesian Hierarchical Framework
-    - Hierarchical aging model applied to hockey, golf, and baseball [@berry1999bridging]
-    - Gaussian Process regressions by different basketball positions [@page2013effect]
-    - Parametric curves analyzing pre and post peak-performance [@vaci2019large]
-
-2. Functional Data Analysis
-    - Functional principal components clustering [@wakim2014functional]
-    - Nearest Neighbor algorithm to characterize similarity between players [@natesilver538_2015]
-    - Production curves as a convex combination of curves from the same set of archetype [@vinue2015archetypoids]
-
-
-::: {.notes}
-So there's already been some kind of work in this area already. Some of this work is using specifically player positions to develop projections. But, these positions are kind of rigid in explaining the intricacies of basketball and similarities between players. We really want a continuous measure. 
-
-The paper that is most similar is this functional principal components clustering, but that works on the space of 1 metric / measure. and Nate silver's method. Again, they are not jointly learning these things. 
-:::
-
-
-
-
-
-## Modeling Setup
-Space of players live in low dimensional latent space $X \in \mathbb{R} ^{N \times D}$
-
-For a given time $t$, and metric $k$, $f^k_t \sim \mathcal{GP}(0, K_X)$ is a vector of size $N$, with $K_X$ capturing correlation across the $N$ dimension [@gundersen2020latent]
-
-:::{layout-ncol=2}
-![](images/pgm.svg){width=90%}
-
-
-\begin{pmatrix}
-  \vert & \vert & \cdots & \vert & \cdots & \vert  \\
-  \vert & \vert & \cdots & \vert & \cdots & \vert  \\
-  f^k_1 & f^k_2 & \cdots & f^k_i & \cdots & f^k_T  \\
-  \vert  & \vert & \cdots & \vert & \cdots & \vert \\
-  \vert  & \vert & \cdots  & \vert & \cdots  & \vert 
-\end{pmatrix}
-:::
-
-## Random Fourier Features 
-
-Attempt to approximate the inner product $k(x, y) = \langle \phi(x), \phi(y) \rangle$
-with a randomized map $z: \mathbb{R}^D \rightarrow \mathbb{R}^R$. Computational savings arise if $R << N$. 
-
-**Approximation of Gaussian Process can be turned into a linear operation, $f^k_{t}(X) \approx Z(X)^T\beta^k_{t}$ which is computationally beneficial if $N$ large.**
-
-In our case, we let $k(x,y) = k(x - y) = exp(\frac{-||x - y||^2}{2})$ be the standard radial basis kernel. 
-
-It can be shown that to produce the radial basis kernel, $\omega \sim \mathcal{N}_D(0, I_d)$. 
-
-Thus the map is composed of $z_{\omega_r} = [cos(\omega_r ^T x), sin(\omega_r ^ T x)]^T$. 
-
-$Z(X) = \frac{1}{\sqrt{R}}[z_{\omega_1}, z_{\omega_2}, \dots, z_{\omega_R}]^T$
-
-## Adjusted Modeling Setup
-
-![](images/pmg_corr.svg){fig-align="center"}
 
 ## Distributional Assumptions
 
@@ -402,21 +364,23 @@ Exp(e^{f^k_t}) \text{ if  } k \in \mathcal{M}
 ::: {.notes}
 One thing to take note of here is that we are handling exposure parameters properly here. So, for example the total rebounds is scaled by the number of minutes played that year. Similarly for the metrics like 3 point percentage, we include the number of attempts (which coincidentally is another metric). The gaussian metric's variance is scaled by the minutes played as well. So in this way we handle varying levels of playing time (something that other papers don't really look at.) 
 :::
-
-
-## Inferential Challenges 
-
-1. MCMC Convergence (multi-modal posterior)
-2. Identifiability (rotational / scale invariance of model)
+ 
 
 ## Methods 
 
+![](images/pgm_methods_flow.svg){fig-align="center"}
+
+::: {.notes}
 In order to address identifiability issues and MCMC convergence, we propose the following scheme to estimate the latent space $X$ and functional coefficients $\beta_{rtk}$. 
 
 1. Initialize $X$ 
     - Probabilistic Tensor Decomposition
         - Helps better encapsulate similarities between players, so good to initialize with good similarity 
 2. Using the fixed $X$ from above, conduct inference on $\beta_{rtk}, \sigma_k, \omega_r$ 
+
+Convex tensor decomposition decomposes one of the modes (time) into convex / concave functions over time. 
+:::
+
 
 ## Probabilistic Tensor Decomposition 
 
@@ -427,19 +391,8 @@ In order to address identifiability issues and MCMC convergence, we propose the 
 
 This model seeks to factorize the  $N \times T \times K$ linear scale tensor $A$ using CP Decomposition. Since we have various outputs that are not normally distributed, this becomes a form of exponential family CP Decomposition.
 
+Can simply think of this as **Multi-modal PCA**. 
 
-## Probabilistic Tensor Decomposition (contd.) 
-
-Let $\tilde{A}_{pit} = g_{pit}^{-1}(A_{pit})$, where $g_{pit}$ is the appropriate link function transforming the linear scale parameter into the appropriate exponential family parameterization. Consequently, $X, V, W, \mu$ are estimated by maximizing the following loss function using gradient descent. 
-
-$\max_{X, V, W, \mu} \sum_{p, i, t} log( F_{pit}( Y_{pit} | \tilde{A}_{pit} )) \cdot \Omega_{pit}$
-
-where $F_{pit}$ is the appropriate distribution density function associated with entry $Y_{pit}$. 
-
-This offers the following benefits:
-
-1. Latent space $X$ is created while accounting for sampling variability 
-2. Latent space is created while also accounting for correlations across each mode of the tensor, which is representative of the final model. 
 
 
 ## Latent Space 
@@ -456,7 +409,6 @@ def plot_latent_space():
 
 
 ## Projection Results 
-
 ```{python}
 # from visualization.visualization import plot_posterior_predictive_career_trajectory_map
 from visualization.visualization import plot_posterior_predictive_career_trajectory
@@ -480,7 +432,6 @@ def plot_posterior_predictive():
 
 ```
 
-
 ## Functional Basis 
 
 ![](images/tuckerdecomp.png)
@@ -489,7 +440,8 @@ Let $\mathcal{X}$ be the tensor of normalized gaussian-scale linear predictors o
 Then, $\mathcal{X}$ is decomposed into a "core" tensor $\mathcal{Y}$ of dimension $N \times M \times K$ and "factor" matrices $A \in \mathbb{R}^{N \times N}$, $B \in \mathbb{R}^{T \times M}$, $C \in \mathbb{R}^{K \times K}$. 
 
 These bases in $B$ represent the set of common curves across time present in all players. By ensuring that $A$ and $C$ are identity matrices, 
-the horizontal "slices" of the core tensor represent how much different metrics contributed to each basis **for each** slice (player). 
+the horizontal "slices" of the core tensor represent how much different metrics contributed to each basis **for each** slice (player).
+ 
 
 ## Functional Basis Results 
 
@@ -565,13 +517,13 @@ with ui.layout_column_wrap():
 
 ## Future Work 
 
-
 1. Using a hybrid Gibbs-HMC routine, perform the following updates:
     - Sample $X$, $\gamma$ while holding all other parameters fixed using HMC proposal step
     - Conditional on the sampled $X$ and $\gamma$, sample the remaining parameters using HMC proposal step
 
 2. Posterior Coverage Tests
     - Holdout forecasting performance
+
 
 # Questions ?
 
@@ -580,6 +532,77 @@ with ui.layout_column_wrap():
 ::: {#refs}
 :::
 
+
+## Modeling Setup {.appendix}
+Space of players live in low dimensional latent space $X \in \mathbb{R} ^{N \times D}$
+
+For a given time $t$, and metric $k$, $f^k_t \sim \mathcal{GP}(0, K_X)$ is a vector of size $N$, with $K_X$ capturing correlation across the $N$ dimension [@gundersen2020latent]
+
+:::{layout-ncol=2}
+![](images/pgm.svg){width=90%}
+
+
+\begin{pmatrix}
+  \vert & \vert & \cdots & \vert & \cdots & \vert  \\
+  \vert & \vert & \cdots & \vert & \cdots & \vert  \\
+  f^k_1 & f^k_2 & \cdots & f^k_i & \cdots & f^k_T  \\
+  \vert  & \vert & \cdots & \vert & \cdots & \vert \\
+  \vert  & \vert & \cdots  & \vert & \cdots  & \vert 
+\end{pmatrix}
+:::
+
+## Random Fourier Features {.appendix}
+
+Attempt to approximate the inner product $k(x, y) = \langle \phi(x), \phi(y) \rangle$
+with a randomized map $z: \mathbb{R}^D \rightarrow \mathbb{R}^R$. Computational savings arise if $R << N$. 
+
+**Approximation of Gaussian Process can be turned into a linear operation, $f^k_{t}(X) \approx Z(X)^T\beta^k_{t}$ which is computationally beneficial if $N$ large.**
+
+In our case, we let $k(x,y) = k(x - y) = exp(\frac{-||x - y||^2}{2})$ be the standard radial basis kernel. 
+
+It can be shown that to produce the radial basis kernel, $\omega \sim \mathcal{N}_D(0, I_d)$. 
+
+Thus the map is composed of $z_{\omega_r} = [cos(\omega_r ^T x), sin(\omega_r ^ T x)]^T$. 
+
+$Z(X) = \frac{1}{\sqrt{R}}[z_{\omega_1}, z_{\omega_2}, \dots, z_{\omega_R}]^T$
+
+## Adjusted Modeling Setup {.appendix}
+
+![](images/pmg_corr.svg){fig-align="center"}
+
+
+## Probabilistic Tensor Decomposition (contd.) {.appendix}
+
+Let $\tilde{A}_{pit} = g_{pit}^{-1}(A_{pit})$, where $g_{pit}$ is the appropriate link function transforming the linear scale parameter into the appropriate exponential family parameterization. Consequently, $X, V, W, \mu$ are estimated by maximizing the following loss function using gradient descent. 
+
+$\max_{X, V, W, \mu} \sum_{p, i, t} log( F_{pit}( Y_{pit} | \tilde{A}_{pit} )) \cdot \Omega_{pit}$
+
+where $F_{pit}$ is the appropriate distribution density function associated with entry $Y_{pit}$. 
+
+This offers the following benefits:
+
+1. Latent space $X$ is created while accounting for sampling variability 
+2. Latent space is created while also accounting for correlations across each mode of the tensor, which is representative of the final model. 
+
+## Enforcing Convexity {.appendix}
+Considering we only wish our function $f(x,t)$ to be convex in the $t$ argument, we wish to find all set of $f(x,t)$ such that $\frac{\partial ^2 f(x,t)}{\partial t^2} \geq 0$. As such, our desired function has the form
+
+$f(x,t) = D(x) + C(x)(t-a) + \int_{a}^t \int_{a}^s \frac{\partial ^2 f(x,z)}{\partial z^2}dzds$
+
+where $D$ and $C$ are constants of integration w.r.t $t$ which could also depend on $x$.
+
+Key idea: model $\frac{\partial ^2 f(x,t)}{\partial t^2}$ as the square of a Gaussian Process ($g(x,t)$) approximated by basis functions. 
+
+## Enforcing Convexity / Concavity (contd.) {.appendix}
+
+1. $g(x,t) \approx \sum_{i=1}^M \beta_i(t) \phi_i(x)$ using RFF approximation. 
+    - Here, $\beta_i(t)$ are $t$ - dependent coefficients of the basis expansion of $x$. 
+    - Can be shown that $Cov(g(x,t)) \approx K_x \bigotimes K_t$ if $\beta_i(t) \sim \mathcal{GP}(0, K_t)$
+2. $\beta_i(t) \approx \sum_{l=1}^K S(\sqrt{\lambda_l})^{1/2} \alpha_l^i \psi_l(t)$ using the Hilbert Space Approximation
+    - Substitute in the above equation, and still $Cov(g(x,t)) \approx K_x \bigotimes K_t$ if $\beta_i(t) \sim \mathcal{GP}(0, K_t)$
+3. We can compute the previous integral since $\psi_l(t)$ are sinusoidal functions. 
+    - **resulting function is not necessarily a gaussian process**
+    - **convexity only guaranteed in the Gaussian response case, as exponential link functions are not guaranteed to preserve the result**
 
 
 
