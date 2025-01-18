@@ -427,6 +427,7 @@ def plot_posterior_predictive():
     metric_outputs=metric_output, 
     posterior_mean_samples=mu_mcmc_player,
     observations=jnp.array(observations),
+    exposure_names=exposure_list,
     exposures=jnp.array(exposures),
     posterior_variance_samples=jnp.transpose(results_tvrflvm["sigma"], (2, 0, 1)))
 

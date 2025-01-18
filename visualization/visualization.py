@@ -7,14 +7,14 @@ import numpy as np
 import arviz as az
 from model.inference_utils import create_metric_trajectory, create_metric_trajectory_map, create_metric_trajectory_observations
 
-def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str], metric_outputs: list[str], posterior_mean_samples, observations, exposures, posterior_variance_samples):
+def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str], metric_outputs: list[str], exposure_names: list[str], posterior_mean_samples, observations, exposures, posterior_variance_samples):
     """
     plots the posterior predictive career trajectory 
     """
     fig = make_subplots(rows = 4, cols=4,  subplot_titles=metrics)
     
     observation_dict, posterior_dict = create_metric_trajectory(posterior_mean_samples, player_index,  observations, exposures, 
-                                                                metric_outputs=metric_outputs, metrics = metrics, posterior_variance_samples=posterior_variance_samples)
+                                                                metric_outputs=metric_outputs, metrics = metrics, exposure_names=exposure_names, posterior_variance_samples=posterior_variance_samples)
 
  
     obs = observation_dict["y"]
