@@ -19,6 +19,7 @@ bibliography: advancement.bib
 #| context: setup
 #| include: false
 import pandas as pd
+import ridgeplot as rp
 import plotly.express as px
 import pickle
 from sklearn.manifold import TSNE
@@ -84,43 +85,43 @@ agged_data.fillna(0, inplace=True)
 #| include: false
 #| cache: true
 
-N, K, T = observations.shape
+# N, K, T = observations.shape
 
-edges = []
-nodes = []
-vals = []
-missing = []
-for player_index in range(N):
-    for metric_index in range(K):
-        for time_index in range(T):
-            cur_node = (player_index, metric_index, time_index)
-            nodes.append(cur_node)
-            missing.append(np.isfinite(exposures[metric_index, player_index, time_index]))
-            vals.append(observations[player_index, metric_index, time_index])
+# edges = []
+# nodes = []
+# vals = []
+# missing = []
+# for player_index in range(N):
+#     for metric_index in range(K):
+#         for time_index in range(T):
+#             cur_node = (player_index, metric_index, time_index)
+#             nodes.append(cur_node)
+#             missing.append(np.isfinite(exposures[metric_index, player_index, time_index]))
+#             vals.append(observations[player_index, metric_index, time_index])
 
-            if player_index != N - 1:
-                edges.append((cur_node, (player_index + 1, metric_index ,time_index)))
+#             if player_index != N - 1:
+#                 edges.append((cur_node, (player_index + 1, metric_index ,time_index)))
 
-            if player_index != 0:
-                edges.append((cur_node, (player_index - 1, metric_index, time_index )))
+#             if player_index != 0:
+#                 edges.append((cur_node, (player_index - 1, metric_index, time_index )))
             
-            if metric_index != K - 1:
-                edges.append((cur_node, (player_index, metric_index + 1, time_index)))
+#             if metric_index != K - 1:
+#                 edges.append((cur_node, (player_index, metric_index + 1, time_index)))
 
-            if metric_index != 0:
-                edges.append((cur_node, (player_index, metric_index - 1, time_index)))
+#             if metric_index != 0:
+#                 edges.append((cur_node, (player_index, metric_index - 1, time_index)))
 
-            if time_index != T - 1:
-                edges.append((cur_node, (player_index, metric_index, time_index + 1)))
+#             if time_index != T - 1:
+#                 edges.append((cur_node, (player_index, metric_index, time_index + 1)))
 
-            if time_index != 0:
-                edges.append((cur_node, (player_index, metric_index, time_index - 1)))
+#             if time_index != 0:
+#                 edges.append((cur_node, (player_index, metric_index, time_index - 1)))
 
-nodes_df = pd.DataFrame(np.array([list(x) for x in zip(*nodes)]).T, columns=["Player", "Metric", "Time"])
-nodes_df["Value"] = vals
-nodes_df["Missing"] = missing
+# nodes_df = pd.DataFrame(np.array([list(x) for x in zip(*nodes)]).T, columns=["Player", "Metric", "Time"])
+# nodes_df["Value"] = vals
+# nodes_df["Missing"] = missing
 
-final_data_plot_df = pd.merge(nodes_df, names_df).merge(metric_df).merge(age_df)
+# final_data_plot_df = pd.merge(nodes_df, names_df).merge(metric_df).merge(age_df)
 
 ```
 
@@ -199,9 +200,9 @@ scatter_df["player_name"] = names
 
 ```{python}
 import jax.numpy as jnp
+import jax
 from scipy.special import expit
 def transform_mu(mu, metric_outputs):
-    transformed_mu = np.zeros_like(mu)
     for index, output_type in enumerate(metric_outputs):
         if output_type == "gaussian":
             transform_function = lambda x: x 
@@ -209,26 +210,69 @@ def transform_mu(mu, metric_outputs):
             transform_function = lambda x: np.exp(x)
         elif output_type == "binomial":
             transform_function = lambda x: expit(x)
-        transformed_mu[index] = transform_function(mu[index])
-    return transformed_mu
+        mu = mu.at[index].set(transform_function(mu[index]))
+    return mu
 
 
-mu_normalized = transform_mu((mu - mu.mean((1,2), keepdims = True)) / (mu.std((1,2), keepdims = True)), metric_output)
-core, factors = tucker(mu_normalized, rank= [16, X.shape[0], 3])
+def make_mu_mcmc_max(X, ls_deriv, alpha_time, shifted_x_time, weights, W, slope_weights, intercept_weights, L_time, M_time, phi_time):
+    spd = jax.vmap(jax.vmap(lambda a, ls: jnp.sqrt(diag_spectral_density(1, a, ls, L_time, M_time))))(alpha_time, ls_deriv)
+    weights = weights * spd[:,:,None,...] * .0001
 
-full_core = jnp.einsum("jzm, kj, nz -> kzm", core, factors[0], factors[1])
-pos_indices = data.groupby("id")["position_group"].max().reset_index()
+    wTx = jnp.einsum("nr,...mr -> ...nm", X, W)
+
+    psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], -1) * (1/ jnp.sqrt(50))
+    slope = jnp.einsum("ijnm, ijm... -> ijn...", psi_x, slope_weights)
+    intercept = jnp.einsum("ijnm, ijm... -> ijn...",psi_x, intercept_weights)
+    gamma_phi_gamma_x = jnp.einsum("...nm, ...mdk, tdz, ...jzk, ...nj -> ...nkt", psi_x, weights, phi_time, weights, psi_x)
+    mu = jnp.swapaxes(intercept + jnp.einsum("...nk, t -> ...nkt", slope, shifted_x_time) - gamma_phi_gamma_x, 2,3)
+    return None, jnp.argmax(jnp.squeeze(mu), -1) + 18
+
+_, peaks = jax.lax.scan(lambda _, xs: make_mu_mcmc_max(xs[None], results_tvrflvm["lengthscale_deriv"], results_tvrflvm["alpha"],
+hsgp_params["shifted_x_time"],
+results_tvrflvm["beta"], results_tvrflvm["W"], 
+results_tvrflvm["slope"], results_tvrflvm["intercept"], 
+L_time, M_time, phi_time
+), init=None, xs = X
+)
+
+peaks = jnp.swapaxes(peaks, 0, -1)
 positions = ["G", "F", "C"]
-tensor_decomps = {}
-tensor_decomps["global"] = {"core": core, "factors": factors, "full_core": full_core}
+pos_indices = data.groupby("id")["position_group"].max().reset_index()
+position_samples_list = []
 for pos in positions:
     player_indices = pos_indices[pos_indices["position_group"] == pos].index.values
-    pos_mu = mu[:, player_indices ,:]
-    pos_mu_normalized = transform_mu((pos_mu - pos_mu.mean((1,2), keepdims = True)) / (pos_mu.std((1,2), keepdims = True)), metric_output)
-    core, factors = tucker(pos_mu_normalized,
-                        rank = [16, X.shape[0], 3])
-    full_pos_core = jnp.einsum("jzm, kj, nz -> kzm", core, factors[0], factors[1])
-    tensor_decomps[pos] = {"core": core, "factors": factors, "full_core": full_pos_core}
+    player_samples = peaks[..., player_indices].mean(-1).reshape((len(metrics), -1))
+    pos_samples_df = pd.DataFrame(player_samples.T, columns=metrics).melt(value_name="peak", var_name="metric")
+    pos_samples_df["position"] = pos
+    position_samples_list.append(pos_samples_df)
+
+position_samples_df = pd.concat(position_samples_list)
+
+samples_ridgeplot = [
+    [
+        position_samples_df[(position_samples_df["position"] == pos) & (position_samples_df["metric"] == metric)]["peak"]
+        for pos in positions   
+    ]
+    for metric in metrics
+]
+
+
+# mu_normalized = transform_mu((mu - mu.mean((1,2), keepdims = True)) / (mu.std((1,2), keepdims = True)), metric_output)
+# core, factors = tucker(mu_normalized, rank= [16, X.shape[0], 3])
+
+# full_core = jnp.einsum("jzm, kj, nz -> kzm", core, factors[0], factors[1])
+# pos_indices = data.groupby("id")["position_group"].max().reset_index()
+# positions = ["G", "F", "C"]
+# tensor_decomps = {}
+# tensor_decomps["global"] = {"core": core, "factors": factors, "full_core": full_core}
+# for pos in positions:
+#     player_indices = pos_indices[pos_indices["position_group"] == pos].index.values
+#     pos_mu = mu[:, player_indices ,:]
+#     pos_mu_normalized = transform_mu((pos_mu - pos_mu.mean((1,2), keepdims = True)) / (pos_mu.std((1,2), keepdims = True)), metric_output)
+#     core, factors = tucker(pos_mu_normalized,
+#                         rank = [16, X.shape[0], 3])
+#     full_pos_core = jnp.einsum("jzm, kj, nz -> kzm", core, factors[0], factors[1])
+#     tensor_decomps[pos] = {"core": core, "factors": factors, "full_core": full_pos_core}
 
 ```
 
@@ -267,11 +311,11 @@ even instances where one field could help the other.
 
 ```{python}
 ### combine with next slide maybe
-from visualization.visualization import plot_career_trajectory_observations
-ui.input_select(id="player_traj", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
-@render_plotly
-def plot_metric_arc():
-    return plot_career_trajectory_observations(int(input.player_traj()), metrics, metric_output, observations, exposures )
+# from visualization.visualization import plot_career_trajectory_observations
+# ui.input_select(id="player_traj", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
+# @render_plotly
+# def plot_metric_arc():
+#     return plot_career_trajectory_observations(int(input.player_traj()), metrics, metric_output, observations, exposures )
 
 ```
 
@@ -321,10 +365,10 @@ where $N$ is the number of players, $T$ is the number of years in a player's car
 
 ```{python}
 #### change time to actual age 
-from visualization.visualization import plot_data_tensor
-@render_plotly
-def plot_data():
-    return plot_data_tensor(final_data_plot_df)
+# from visualization.visualization import plot_data_tensor
+# @render_plotly
+# def plot_data():
+#     return plot_data_tensor(final_data_plot_df)
 ```
 
 
@@ -398,12 +442,12 @@ Can simply think of this as **Multi-modal PCA**.
 ## Latent Space 
 
 ```{python}
-from visualization.visualization import plot_scatter
-ui.input_select(id="player", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
+# from visualization.visualization import plot_scatter
+# ui.input_select(id="player", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
 
-@render_plotly
-def plot_latent_space():
-    return plot_scatter(scatter_df,  "Latent Embedding", int(input.player()) )
+# @render_plotly
+# def plot_latent_space():
+#     return plot_scatter(scatter_df,  "Latent Embedding", int(input.player()) )
 
 ```
 
@@ -414,22 +458,50 @@ def plot_latent_space():
 from visualization.visualization import plot_posterior_predictive_career_trajectory
 import jax.numpy as jnp
 
-ui.input_select(id="player_posterior", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
+# ui.input_select(id="player_posterior", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
 
+# @render_plotly
+# def plot_posterior_predictive():
+#     player_index = int(input.player_posterior())
+#     mu_mcmc_player = jnp.squeeze(make_mu_vmap(results_tvrflvm["lengthscale_deriv"],
+#     results_tvrflvm["alpha"], results_tvrflvm["beta"], results_tvrflvm["W"], results_tvrflvm["slope"], results_tvrflvm["intercept"],
+#     hsgp_params["shifted_x_time"], L_time, M_time, phi_time, X[player_index][None]))
+#     return plot_posterior_predictive_career_trajectory(player_index=player_index,
+#     metrics=metrics,
+#     metric_outputs=metric_output, 
+#     posterior_mean_samples=mu_mcmc_player,
+#     observations=jnp.array(observations),
+#     exposure_names=exposure_list,
+#     exposures=jnp.array(exposures),
+#     posterior_variance_samples=jnp.transpose(results_tvrflvm["sigma"], (2, 0, 1)))
+
+```
+
+## Posterior Distribution of Peak(s)
+
+```{python}
 @render_plotly
-def plot_posterior_predictive():
-    player_index = int(input.player_posterior())
-    mu_mcmc_player = jnp.squeeze(make_mu_vmap(results_tvrflvm["lengthscale_deriv"],
-    results_tvrflvm["alpha"], results_tvrflvm["beta"], results_tvrflvm["W"], results_tvrflvm["slope"], results_tvrflvm["intercept"],
-    hsgp_params["shifted_x_time"], L_time, M_time, phi_time, X[player_index][None]))
-    return plot_posterior_predictive_career_trajectory(player_index=player_index,
-    metrics=metrics,
-    metric_outputs=metric_output, 
-    posterior_mean_samples=mu_mcmc_player,
-    observations=jnp.array(observations),
-    exposure_names=exposure_list,
-    exposures=jnp.array(exposures),
-    posterior_variance_samples=jnp.transpose(results_tvrflvm["sigma"], (2, 0, 1)))
+def post_dist_peak():
+    fig = rp.ridgeplot(
+    samples=samples_ridgeplot,
+    labels=metrics,
+    colorscale= ["orangered", "deepskyblue", "greens"],
+    bandwidth=4)
+
+    fig.update_layout(
+    title="Distribution of Peak Performance by Position",
+    height=650,
+    width=950,
+    font_size=14,
+    plot_bgcolor="rgb(245, 245, 245)",
+    xaxis_gridcolor="white",
+    yaxis_gridcolor="white",
+    xaxis_gridwidth=2,
+    yaxis_title="Metric",
+    xaxis_title="Peak Age",
+    showlegend=False,
+        )
+    return fig
 
 ```
 
@@ -448,37 +520,37 @@ the horizontal "slices" of the core tensor represent how much different metrics 
 
 ```{python}
 
-with ui.layout_column_wrap():
-    @render_plotly
-    def plot_functional_bases_group():
-        dfs = []
-        for pos in positions:
-            factors = tensor_decomps[pos]["factors"]
-            funct_bases_df = pd.DataFrame(factors[2], columns = [f"Basis {i}" for i in range(1,4)])
-            funct_bases_df["Position"] = pos
-            funct_bases_df["Age"] = range(18,39)
-            dfs.append(funct_bases_df)
-        full_funct_bases = pd.concat(dfs)
-        funct_bases_melted = pd.melt(full_funct_bases, id_vars = ["Position", "Age"], value_vars = [f"Basis {i}" for i in range(1,4)],
-        var_name="basis_type", value_name="value")
-        fig = px.line(funct_bases_melted, x = "Age", y = "value", color="Position", facet_col="basis_type")
-        return fig
+# with ui.layout_column_wrap():
+#     @render_plotly
+#     def plot_functional_bases_group():
+#         dfs = []
+#         for pos in positions:
+#             factors = tensor_decomps[pos]["factors"]
+#             funct_bases_df = pd.DataFrame(factors[2], columns = [f"Basis {i}" for i in range(1,4)])
+#             funct_bases_df["Position"] = pos
+#             funct_bases_df["Age"] = range(18,39)
+#             dfs.append(funct_bases_df)
+#         full_funct_bases = pd.concat(dfs)
+#         funct_bases_melted = pd.melt(full_funct_bases, id_vars = ["Position", "Age"], value_vars = [f"Basis {i}" for i in range(1,4)],
+#         var_name="basis_type", value_name="value")
+#         fig = px.line(funct_bases_melted, x = "Age", y = "value", color="Position", facet_col="basis_type")
+#         return fig
     
-    @render_plotly
-    def plot_metric_weights_bases_group():
-        dfs = []
-        for pos in positions:
-            factors = tensor_decomps[pos]["factors"]
-            weights = tensor_decomps[pos]["full_core"].mean(1).T
-            weights_df = pd.DataFrame(weights, columns = metrics)
-            weights_df["Position"] = pos
-            weights_df["Basis"] = range(1,4)
-            dfs.append(weights_df)
+#     @render_plotly
+#     def plot_metric_weights_bases_group():
+#         dfs = []
+#         for pos in positions:
+#             factors = tensor_decomps[pos]["factors"]
+#             weights = tensor_decomps[pos]["full_core"].mean(1).T
+#             weights_df = pd.DataFrame(weights, columns = metrics)
+#             weights_df["Position"] = pos
+#             weights_df["Basis"] = range(1,4)
+#             dfs.append(weights_df)
  
-        weights_df = pd.concat(dfs)
-        weights_df_melted = weights_df.melt(id_vars=["Basis", "Position"], var_name="Variable", value_name="Value")
-        fig = px.bar(weights_df_melted, facet_row="Basis",x="Variable", y = "Value", facet_col="Position")
-        return fig
+#         weights_df = pd.concat(dfs)
+#         weights_df_melted = weights_df.melt(id_vars=["Basis", "Position"], var_name="Variable", value_name="Value")
+#         fig = px.bar(weights_df_melted, facet_row="Basis",x="Variable", y = "Value", facet_col="Position")
+#         return fig
     
 ```
 
@@ -488,31 +560,31 @@ with ui.layout_column_wrap():
 
 ```{python}
 
-with ui.layout_column_wrap():
-    ui.input_select(id="player_functional", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
-with ui.layout_column_wrap():
-    @render_plotly
-    def plot_functional_bases():
-        player_index = int(input.player_functional())
-        full_core = tensor_decomps["global"]["full_core"]
-        factors = tensor_decomps["global"]["factors"]
-        explained_var = full_core[:,player_index,:].T.var(1) / full_core[:,player_index,:].T.var(1).sum()
-        funct_bases_df = pd.DataFrame(factors[2], columns = [f"Basis {i}: {explained_var[i-1]:.{3}}% EV" for i in range(1,4)])
-        funct_bases_df["Age"] = range(18,39)
-        funct_bases_melted = funct_bases_df.melt(id_vars="Age", var_name="Variable", value_name="Value")
-        fig = px.line(funct_bases_melted, x = "Age", y = "Value", color="Variable")
-        return fig
-    @render_plotly
-    def plot_metric_weights():
-        player_index = int(input.player_functional())
-        full_core = tensor_decomps["global"]["full_core"]
-        factors = tensor_decomps["global"]["factors"]
-        weights = full_core[:,player_index,:].T
-        weights_df = pd.DataFrame(weights, columns = metrics)
-        weights_df["Basis"] = range(1,4)
-        weights_df_melted = weights_df.melt(id_vars="Basis", var_name="Variable", value_name="Value")
-        fig = px.bar(weights_df_melted, facet_row="Basis",x="Variable", y = "Value")
-        return fig
+# with ui.layout_column_wrap():
+#     ui.input_select(id="player_functional", label = "Select a player", choices = {index : name for index, name in enumerate(names)})
+# with ui.layout_column_wrap():
+#     @render_plotly
+#     def plot_functional_bases():
+#         player_index = int(input.player_functional())
+#         full_core = tensor_decomps["global"]["full_core"]
+#         factors = tensor_decomps["global"]["factors"]
+#         explained_var = full_core[:,player_index,:].T.var(1) / full_core[:,player_index,:].T.var(1).sum()
+#         funct_bases_df = pd.DataFrame(factors[2], columns = [f"Basis {i}: {explained_var[i-1]:.{3}}% EV" for i in range(1,4)])
+#         funct_bases_df["Age"] = range(18,39)
+#         funct_bases_melted = funct_bases_df.melt(id_vars="Age", var_name="Variable", value_name="Value")
+#         fig = px.line(funct_bases_melted, x = "Age", y = "Value", color="Variable")
+#         return fig
+#     @render_plotly
+#     def plot_metric_weights():
+#         player_index = int(input.player_functional())
+#         full_core = tensor_decomps["global"]["full_core"]
+#         factors = tensor_decomps["global"]["factors"]
+#         weights = full_core[:,player_index,:].T
+#         weights_df = pd.DataFrame(weights, columns = metrics)
+#         weights_df["Basis"] = range(1,4)
+#         weights_df_melted = weights_df.melt(id_vars="Basis", var_name="Variable", value_name="Value")
+#         fig = px.bar(weights_df_melted, facet_row="Basis",x="Variable", y = "Value")
+#         return fig
 ```
 
 

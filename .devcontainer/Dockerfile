@@ -50,7 +50,8 @@ RUN pip install \
         Jinja2 \
         scikit-learn \
         kaleido \
-        tensorly
+        tensorly \ 
+        ridgeplot
 
 # RUN pip install --upgrade "jax[cuda12]"
 
