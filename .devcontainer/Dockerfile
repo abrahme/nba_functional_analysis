@@ -51,7 +51,10 @@ RUN pip install \
         scikit-learn \
         kaleido \
         tensorly \ 
-        ridgeplot
+        ridgeplot \
+        ipykernel \
+        nbformat \
+        nbclient 
 
 # RUN pip install --upgrade "jax[cuda12]"
 
