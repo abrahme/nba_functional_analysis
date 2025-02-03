@@ -151,25 +151,31 @@ L_time, M_time, phi_time, hsgp_params["shifted_x_time"])
 
 print("produced mu samples")
 
+
 peaks = jnp.argmax(mu_mcmc, -1) + 18
+decay =  (jnp.take_along_axis(mu_mcmc, jnp.minimum(peaks - 18 + 3,20)[..., None], axis = -1).squeeze() - jnp.max(mu_mcmc, -1)) / jnp.minimum(3, (39 - peaks))
 # peaks = jnp.argmax(transform_mu(mu_svi,metric_output), -1) + 18
 print(f"calculated the peak of samples resulting in size {peaks.shape}")
 positions = ["G", "F", "C"]
 # positions = ["G"]
 pos_indices = data.drop_duplicates(subset=["id","position_group","name"]).reset_index()
 position_samples_list = []
+position_samples_decay_list = []
 for pos in positions:
     player_indices = pos_indices[pos_indices["position_group"] == pos].index.values
-    print(peaks[..., player_indices].mean(-1).shape)
     player_samples = jnp.vstack(peaks[..., player_indices].mean(-1))
-    print(player_samples.shape)
+    player_samples_decay = jnp.vstack(decay[..., player_indices].mean(-1))
     print(f"indexed position: {pos} and reshaped to size {player_samples.shape}")
+    pos_samples_decay_df = pd.DataFrame(player_samples_decay, columns= metrics).melt(value_name = "decay", var_name="metric")
+    pos_samples_decay_df["position"] = pos
     pos_samples_df = pd.DataFrame(player_samples, columns=metrics).melt(value_name="peak", var_name="metric")
     pos_samples_df["position"] = pos
     position_samples_list.append(pos_samples_df)
+    position_samples_decay_list.append(pos_samples_decay_df)
 
 
 position_samples_df = pd.concat(position_samples_list)
+position_samples_decay_df = pd.concat(position_samples_decay_list)
 
 
 
@@ -180,6 +186,15 @@ samples_ridgeplot = [
     ]
     for metric in metrics
 ]
+
+samples_ridgeplot_decay = [
+    [
+        position_samples_decay_df[(position_samples_decay_df["position"] == pos) & (position_samples_decay_df["metric"] == metric)]["decay"].to_numpy()
+        for pos in positions   
+    ]
+    for metric in metrics
+]
+
 print("setup samples for plotting")
    
 
@@ -189,7 +204,8 @@ fig = rp.ridgeplot(
     colorscale= ["deepskyblue", "orangered", "green"],
     colormode="trace-index-row-wise",
     spacing=.5,
-    norm = "probability"
+    norm = "probability",
+    
     )
 
 fig.update_layout(
@@ -208,4 +224,35 @@ showlegend=False,
 
 
 fig.write_image("model_output/model_plots/debug_peak_position_full_poisson_minutes.png", format = "png")
+
+
+
+fig = rp.ridgeplot(
+    samples=samples_ridgeplot_decay,
+    labels=metrics,
+    colorscale= ["deepskyblue", "orangered", "green"],
+    colormode="trace-index-row-wise",
+    spacing=.5,
+    norm = "probability",
+    
+    )
+
+fig.update_layout(
+title="Distribution of Decay after Peak Performance by Position",
+height=650,
+width=950,
+font_size=14,
+plot_bgcolor="rgb(245, 245, 245)",
+xaxis_gridcolor="white",
+yaxis_gridcolor="white",
+xaxis_gridwidth=2,
+yaxis_title="Metric",
+xaxis_title="Decay Rate",
+showlegend=False,
+    )
+
+
+fig.write_image("model_output/model_plots/debug_decay_position_full_poisson_minutes.png", format = "png")
 print("finished plotting the samples")
+
+
