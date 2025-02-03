@@ -12,6 +12,8 @@ import jax.numpy as jnp
 from jax import vmap
 from scipy.special import expit
 from model.hsgp import make_convex_f, diag_spectral_density, make_convex_phi, make_psi_gamma
+from model.inference_utils import create_metric_trajectory_all
+
 
 
 def transform_mu(mu, metric_outputs):
@@ -49,6 +51,8 @@ def make_mu(X, ls_deriv, alpha_time, shifted_x_time, weights, W, slope_weights, 
 
 
 
+
+
 ### set up 
 from data.data_utils import create_fda_data
 data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
@@ -64,6 +68,7 @@ age_df = pd.DataFrame(range(18,39), columns = ["Age"])
 age_df["Time"] = age_df["Age"] - 18
 exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
 data["retirement"] = 1
+print(f"mean age of retirement: {data.groupby('id')['age'].max().median()}")
 data["log_min"] = np.log(data["minutes"])
 data["simple_exposure"] = 1 
 _ , outputs, _ = create_fda_data(data, basis_dims=3, metric_output=metric_output, 
@@ -130,38 +135,43 @@ hsgp_params["shifted_x_time"] = x_time + L_time
 # results_tvrflvm["slope"][:, ::8, ...], results_tvrflvm["intercept"][:, ::8, ...], 
 # L_time, M_time, phi_time, hsgp_params["shifted_x_time"])
 
-# mu_mcmc = make_mu_mcmc(X, results_tvrflvm["lengthscale_deriv"], 
-# results_tvrflvm["alpha"],
-# results_tvrflvm["beta"], results_tvrflvm["W"], 
-# results_tvrflvm["slope"], results_tvrflvm["intercept"], 
-# L_time, M_time, phi_time, hsgp_params["shifted_x_time"])
+mu_mcmc = make_mu_mcmc(X, results_tvrflvm["lengthscale_deriv"], 
+results_tvrflvm["alpha"],
+results_tvrflvm["beta"], results_tvrflvm["W"], 
+results_tvrflvm["slope"], results_tvrflvm["intercept"], 
+L_time, M_time, phi_time, hsgp_params["shifted_x_time"])
 
-
-mu_svi = make_mu(X, results_tvrflvm_svi["lengthscale_deriv__loc"], 
-results_tvrflvm_svi["alpha__loc"], hsgp_params["shifted_x_time"],
-results_tvrflvm_svi["beta__loc"], results_tvrflvm_svi["W__loc"], 
-results_tvrflvm_svi["slope__loc"], results_tvrflvm_svi["intercept__loc"], 
-L_time, M_time, phi_time)
+# posterior_mcmc = create_metric_trajectory_all(mu_mcmc, observations, exposures, metric_output, metrics, exposure_list, jnp.transpose(results_tvrflvm["sigma"], (2, 0, 1)))
+# print(posterior_mcmc.shape)
+# mu_svi = make_mu(X, results_tvrflvm_svi["lengthscale_deriv__loc"], 
+# results_tvrflvm_svi["alpha__loc"], hsgp_params["shifted_x_time"],
+# results_tvrflvm_svi["beta__loc"], results_tvrflvm_svi["W__loc"], 
+# results_tvrflvm_svi["slope__loc"], results_tvrflvm_svi["intercept__loc"], 
+# L_time, M_time, phi_time)
 
 print("produced mu samples")
 
-# peaks = jnp.argmax(mu_mcmc, -1) + 18
-peaks = jnp.argmax(mu_svi, -1) + 18
+peaks = jnp.argmax(mu_mcmc, -1) + 18
+# peaks = jnp.argmax(transform_mu(mu_svi,metric_output), -1) + 18
 print(f"calculated the peak of samples resulting in size {peaks.shape}")
 positions = ["G", "F", "C"]
+# positions = ["G"]
 pos_indices = data.drop_duplicates(subset=["id","position_group","name"]).reset_index()
 position_samples_list = []
 for pos in positions:
     player_indices = pos_indices[pos_indices["position_group"] == pos].index.values
-    
-    player_samples = peaks[..., player_indices].reshape((len(metrics), -1))
+    print(peaks[..., player_indices].mean(-1).shape)
+    player_samples = jnp.vstack(peaks[..., player_indices].mean(-1))
+    print(player_samples.shape)
     print(f"indexed position: {pos} and reshaped to size {player_samples.shape}")
-    pos_samples_df = pd.DataFrame(player_samples.T, columns=metrics).melt(value_name="peak", var_name="metric")
+    pos_samples_df = pd.DataFrame(player_samples, columns=metrics).melt(value_name="peak", var_name="metric")
     pos_samples_df["position"] = pos
     position_samples_list.append(pos_samples_df)
 
 
 position_samples_df = pd.concat(position_samples_list)
+
+
 
 samples_ridgeplot = [
     [
@@ -171,17 +181,15 @@ samples_ridgeplot = [
     for metric in metrics
 ]
 print("setup samples for plotting")
-
+   
 
 fig = rp.ridgeplot(
     samples=samples_ridgeplot,
     labels=metrics,
     colorscale= ["deepskyblue", "orangered", "green"],
     colormode="trace-index-row-wise",
-    # colormode="row-index",
     spacing=.5,
-    # nbins=10,
-    # norm = "probability"
+    norm = "probability"
     )
 
 fig.update_layout(
@@ -197,6 +205,7 @@ yaxis_title="Metric",
 xaxis_title="Peak Age",
 showlegend=False,
     )
-fig.write_image("model_output/model_plots/debug_peak_position_full_poisson_minutes.png", format = "png")
 
+
+fig.write_image("model_output/model_plots/debug_peak_position_full_poisson_minutes.png", format = "png")
 print("finished plotting the samples")

@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 import jax.scipy as jsc
 from numpyro.distributions import Normal, Poisson, Bernoulli, BinomialLogits
-jax.config.update('jax_platform_name', 'cuda')
+# jax.config.update('jax_platform_name', 'cuda')
 
 def varimax(Phi, gamma = 1, q = 20):
     p,k = Phi.shape
@@ -59,6 +59,54 @@ def match_align(Phi):
 
     return Phi_star
 
+def create_metric_trajectory_all(posterior_mean_samples, observations, exposures, metric_outputs: list[str], metrics: list[str], exposure_names: list[str], posterior_variance_samples = None):
+    key = jax.random.key(0)
+    gaussian_index = 0
+    obs_exposure_map = {m: e for m, e in zip(metrics, exposure_names)}
+    minutes_index = metrics.index("minutes")
+    retirement_index = metrics.index("retirement")  ### 1 -> playing, 0 --> retired
+    ### first sample retirement
+    post_retirement = posterior_mean_samples[..., retirement_index, :, :]
+
+    posterior_predictions_retirement = Bernoulli(logits=post_retirement).sample(key = key) 
+
+    #### then sample minutes 
+    post_min = posterior_mean_samples[..., minutes_index, :, :]
+    posterior_predictions_min = Poisson(rate = jnp.exp(post_min)).sample(key = key)
+    posterior_predictions_min = posterior_predictions_min.at[jnp.where(posterior_predictions_retirement == 0)].set(0) ## fix the minutes to sample from zero inflated process
+    obs_min = observations[:, minutes_index, :]
+    posterior_predictions_min_exposure = jnp.where(~jnp.isnan(obs_min)[None, None, ...], obs_min[None,None,...], posterior_predictions_min)
+    posteriors = {"retirement": posterior_predictions_retirement, "minutes":posterior_predictions_min}
+    ### sample all the poisson metrics using posterior predictions log min as exposure, and sample obpm / dbpm using sqrt(minutes) as exposure
+    for metric_index, metric_output in enumerate(metric_outputs):
+        metric = metrics[metric_index]
+        if (metric_index in [minutes_index, retirement_index]) :
+            continue 
+        exposure  = exposures[metric_index, ...]
+        post = posterior_mean_samples[..., metric_index, :, :]
+        if metric_output == "gaussian":
+            scale = posterior_variance_samples[gaussian_index][..., None, None] / jnp.sqrt(posterior_predictions_min_exposure)
+            dist = Normal()
+            posterior_predictions = (dist.sample(key = key, sample_shape=post.shape) * scale + post)
+            posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_retirement == 0)].set(-2.0)
+            gaussian_index += 1
+        elif metric_output == "poisson":
+            dist = Poisson(rate = jnp.exp(post) * posterior_predictions_min_exposure)
+            posterior_predictions = 36.0 * (dist.sample(key = key) / posterior_predictions_min_exposure) ### per 36 min statistics
+            posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_retirement == 0)].set(0) ### set to 0 wherever 
+
+        elif metric_output == "binomial":
+            exp_name = obs_exposure_map[metric]
+            exp_values = posteriors[exp_name]
+            counts = (jnp.where(~jnp.isnan(exposure)[None, None, ...], exposure[None,None,...], exp_values)) * (posterior_predictions_min_exposure / 36)
+            dist = BinomialLogits(logits = post, total_count = jnp.astype(counts, jnp.int32)) 
+            posterior_predictions = dist.sample(key = key) / counts
+            posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_retirement == 0)].set(0)
+
+
+        posteriors[metric] = posterior_predictions
+        
+    return jnp.stack([p for _, p in posteriors.items()], axis = -1)
 
 def create_metric_trajectory(posterior_mean_samples, player_index, observations, exposures, metric_outputs: list[str], metrics: list[str], exposure_names: list[str], posterior_variance_samples = None):
     key = jax.random.key(0)
