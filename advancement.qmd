@@ -30,7 +30,7 @@ from shiny.express import input, render, ui
 from shinywidgets import render_plotly
 import numpyro
 from tensorly.decomposition import tucker
-numpyro.set_platform("cpu")
+import jax 
 ```
 
 ```{python}
