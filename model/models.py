@@ -54,12 +54,10 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
             if output_type == "gaussian":
                 self.num_gaussian += 1
                 self.gaussian_variance_indices[..., i] = self.num_gaussian - 1
-        self.gate_index = feature_name.index("retirement")
         self.gaussian_variance_indices = jnp.array(self.gaussian_variance_indices)
         self.gaussian_indices = (self.output == 1) & self.missing
         self.poisson_indices = (self.output == 2) & self.missing
         self.binomial_indices = (self.output == 3) & self.missing
-        self.exponential_indices = (self.output == 4) & self.missing
 
     
     def initialize_priors(self) -> None:
@@ -79,7 +77,7 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
     def model_fn(self) -> None:
         alpha = sample("alpha", self.prior["alpha"], sample_shape=(self.t, self.k)) ### mean across the time points and the metrics
         V = sample("V", self.prior["V"], sample_shape=(self.t, self.r))
-        U = sample("U", self.prior["U"], sample_shape=(self.n, self.r ))
+        U = sample("U", self.prior["U"], sample_shape=(self.n, self.r))
         W = sample("W", self.prior["W"], sample_shape=(self.k, self.r))
         sigma = sample("sigma", self.prior["sigma"], sample_shape=(self.num_gaussian,))
         weights = sample("lambda", self.prior["lambda"])
@@ -93,11 +91,10 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
         y_binomial = sample("likelihood_binomial", Binomial(total_count=self.exposure[self.binomial_indices].flatten(), 
                                                             logits = y[self.binomial_indices].flatten()), 
                                                             obs=self.X[self.binomial_indices].flatten())
-        y_exponential = sample("likelihood_exponential",Exponential(rate = jnp.exp(y[self.exponential_indices].flatten())), obs = self.X[self.exponential_indices].flatten())
 
-    def run_inference(self, num_steps):
-        svi = SVI(self.model_fn, AutoDelta(self.model_fn), optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO())
-        result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps)
+    def run_inference(self, num_steps, initial_values:dict = {}):
+        svi = SVI(self.model_fn, AutoDelta(self.model_fn, prefix=""), optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO())
+        result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps, init_params=initial_values)
         return result
 
     def predict(self, posterior_samples: dict, model_args):

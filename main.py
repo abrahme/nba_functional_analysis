@@ -44,7 +44,6 @@ if __name__ == "__main__":
     data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
     names = data.groupby("id")["name"].first().values.tolist()
 
-    # data["minutes"] /= 1000
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
     data["retirement"] = 1
@@ -63,13 +62,13 @@ if __name__ == "__main__":
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
         model = GibbsIFTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)    
     elif model_name == "exponential_cp":
-        exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics, player_indices)
+        exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics)
         model = NBAMixedOutputProbabilisticCPDecomposition(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
     elif "rflvm" in model_name:
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
         model = RFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
         if "convex" in model_name:
-            model = ConvexTVRFLVM(latent_rank=basis_dims, rff_dim=50, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+            model = ConvexTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
         elif "iftvrflvm" in model_name:
             model = IFTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
         elif "tvrflvm" in model_name:
@@ -81,7 +80,12 @@ if __name__ == "__main__":
     model.initialize_priors()
     initial_params = {}
     if "cp" in model_name:
-        svi_run = model.run_inference(num_steps=1000000)
+        if initial_params_path:
+            with open(initial_params_path, "rb") as f_init:
+                initial_params = pickle.load(f_init)
+            f_init.close()
+            # initial_params = {key.replace("__loc",""):val for key,val in initial_params.items()}
+        svi_run = model.run_inference(num_steps=10000000, initial_values=initial_params)
         samples = svi_run.params
     elif "rflvm" in model_name:
         prior_dict = {}
@@ -172,6 +176,11 @@ if __name__ == "__main__":
         pickle.dump(samples, f)
     f.close()
 
+    if model_name == "exponential_cp":
+        with open(f"model_output/latent_variable_{basis_dims}.pkl", "wb") as f:
+            pickle.dump({"X": samples["U__loc"]}, f)
+        f.close()
+
     if svi_inference:
         player_indices = [1323] ### curry
         print(samples["sigma__loc"])
@@ -184,13 +193,13 @@ if __name__ == "__main__":
         W = samples["W__loc"] 
         X = results_param["X"]
         wTx = jnp.einsum("nr,mr -> nm", X, W)
-        psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(50))
+        psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(100))
         slope = make_psi_gamma(psi_x, samples["slope__loc"])
         intercept = make_psi_gamma(psi_x, samples["intercept__loc"])
         gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
         mu = (make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept))[:, jnp.array(player_indices), :].squeeze()
         fig = plot_posterior_predictive_career_trajectory_map(player_indices[0], metrics, metric_output, mu, Y, exposures)
-        fig.write_image("model_output/model_plots/debug_predictions_svi_full_poisson_minutes.png", format = "png")
+        fig.write_image("model_output/model_plots/debug_predictions_svi_full_poisson_minutes_dim_15.png", format = "png")
 
     
 
