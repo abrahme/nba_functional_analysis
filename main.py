@@ -29,6 +29,7 @@ if __name__ == "__main__":
     parser.add_argument("--run_svi", help = "whether or not to run variational inference", action="store_true")
     parser.add_argument("--init_path", help = "where to initialize mcmc from", required=False, default="")
     parser.add_argument("--player_names", help = "which players to run the model for", required=False, default = [], type = lambda x: x.split(","))
+    parser.add_argument("--position_group", help = "which position group to run the model for", required = True, choices=["G", "F", "C", "all"])
     numpyro.set_platform("cuda")
     args = vars(parser.parse_args())
     neural_parametrization = args["run_neutra"]
@@ -41,17 +42,24 @@ if __name__ == "__main__":
     prior_x_path = args["prior_x_path"]
     output_path = args["output_path"] if args["output_path"] else f"model_output/{model_name}.pkl"
     players = args["player_names"]
+    position_group = args["position_group"]
     data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
     names = data.groupby("id")["name"].first().values.tolist()
-
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
     data["retirement"] = 1
     metric_output = ["binomial", "poisson"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
     metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
     exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
-    player_indices = [names.index(item) for item in players]
-    
+
+    if players:
+        player_indices = [names.index(item) for item in players]
+    elif position_group in ["G","F","C"]:
+        all_indices = data.drop_duplicates(subset=["position_group","name","id"]).reset_index()
+        player_indices = all_indices[all_indices["position_group"] == position_group].index.values.tolist()
+    else:
+        player_indices = []
+        
     if model_name == "gibbs_nba_rflvm":
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
         model = GibbsRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
@@ -84,8 +92,7 @@ if __name__ == "__main__":
             with open(initial_params_path, "rb") as f_init:
                 initial_params = pickle.load(f_init)
             f_init.close()
-            # initial_params = {key.replace("__loc",""):val for key,val in initial_params.items()}
-        svi_run = model.run_inference(num_steps=10000000, initial_values=initial_params)
+        svi_run = model.run_inference(num_steps=1000000, initial_values=initial_params)
         samples = svi_run.params
     elif "rflvm" in model_name:
         prior_dict = {}

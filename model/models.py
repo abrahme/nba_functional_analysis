@@ -93,7 +93,10 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
                                                             obs=self.X[self.binomial_indices].flatten())
 
     def run_inference(self, num_steps, initial_values:dict = {}):
-        svi = SVI(self.model_fn, AutoDelta(self.model_fn, prefix=""), optim=adam(learning_rate=linear_onecycle_schedule(100, .5)), loss=Trace_ELBO())
+        optimizer = adam(learning_rate = linear_onecycle_schedule(100, .5))
+        svi = SVI(self.model_fn, AutoDelta(self.model_fn, prefix=""),
+                   optim=optimizer,
+                     loss=Trace_ELBO())
         result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps, init_params=initial_values)
         return result
 
