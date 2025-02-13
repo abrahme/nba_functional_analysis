@@ -24,14 +24,7 @@ def create_convex_data(num_samples, noise_level = .01, exposure = 1, data_range 
 
     return samples, intercept, multiplier, noise, y_vals
 
-
-
-
-
-
-
-
-def process_data(df, output_metric, exposure, model, input_metrics):
+def process_data(df, output_metric, exposure, model, input_metrics, player_indices:list = []):
 
     agg_dict = {input_metric:"max" for input_metric in input_metrics}
     df = df.sort_values(by=["id","year"])
@@ -48,8 +41,7 @@ def process_data(df, output_metric, exposure, model, input_metrics):
     if model == "poisson":
         metric_array = metric_df.to_numpy()
         exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
-        offset = jnp.log(exposure_array) 
-        return offset, jnp.array(metric_array), X
+        adj_exp_array = jnp.log(exposure_array) 
     elif model == "exponential":
         metric_array = metric_df.to_numpy() 
         exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
@@ -65,8 +57,7 @@ def process_data(df, output_metric, exposure, model, input_metrics):
             for player_index, ent_index in zip (entrance_array, min_season_array[entrance_array]):
                 exposure_array[player_index, 0:ent_index] = 1 
                 metric_array[player_index, 0:ent_index] = 0
-        offset = jnp.log(exposure_array) 
-        return offset, jnp.array(metric_array), X
+        adj_exp_array = jnp.log(exposure_array) 
     elif model == "binomial":
         metric_array = metric_df.to_numpy()
         exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
@@ -82,14 +73,17 @@ def process_data(df, output_metric, exposure, model, input_metrics):
             for player_index, ent_index in zip (entrance_array, min_season_array[entrance_array]):
                 exposure_array[player_index, 0:ent_index] = 1 
                 metric_array[player_index, 0:ent_index] = 0
-        trials = jnp.array(exposure_array)
-        return trials, jnp.array(metric_array), X
+        adj_exp_array = jnp.array(exposure_array)
     elif model == "gaussian":
         metric_array = metric_df.to_numpy()
         exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
-        variance_scale = jnp.sqrt(exposure_array)
-        return variance_scale, jnp.array(metric_array), X
-    return ValueError
+        adj_exp_array = jnp.sqrt(exposure_array)
+
+    if player_indices:
+        array_indices = jnp.array(player_indices)
+        return adj_exp_array[array_indices], jnp.array(metric_array)[array_indices], X
+    else:
+        return adj_exp_array, jnp.array(metric_array), X
 
 def process_data_time(df, output_metric, exposure, model):
     df = df.sort_values(by=["id","year"])
@@ -175,7 +169,7 @@ def create_pca_data(df, metric_output, exposure_list, metrics):
 
     return jnp.hstack(exposures), jnp.hstack(masks), jnp.hstack(data), jnp.hstack(outputs)
 
-def create_cp_data(df, metric_output, exposure_list, metrics):
+def create_cp_data(df, metric_output, exposure_list, metrics, player_indices:list = []):
     """
     metric_output: list of [poisson, gaussian, binomial]
     exposure_list: list indicating which column to use as an exposure
@@ -186,7 +180,7 @@ def create_cp_data(df, metric_output, exposure_list, metrics):
     data = []
     outputs = []
     for output, metric, exposure_val in zip(metric_output, metrics, exposure_list):
-        exposure, Y, _ = process_data(df, metric, exposure_val, output, [])
+        exposure, Y, _ = process_data(df, metric, exposure_val, output, [], player_indices)
         data.append(Y)
         masks.append(jnp.isfinite(exposure))
         exposures.append(exposure)
