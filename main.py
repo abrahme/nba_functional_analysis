@@ -70,7 +70,7 @@ if __name__ == "__main__":
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
         model = GibbsIFTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)    
     elif model_name == "exponential_cp":
-        exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics)
+        exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics, player_indices)
         model = NBAMixedOutputProbabilisticCPDecomposition(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
     elif "rflvm" in model_name:
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
@@ -165,7 +165,7 @@ if __name__ == "__main__":
             if "convex" in model_name:
                 model_args.update({ "hsgp_params": hsgp_params})
             if svi_inference:
-                samples = model.run_svi_inference(num_steps=1000000, model_args=model_args, initial_values=initial_params)
+                samples = model.run_svi_inference(num_steps=5000000, model_args=model_args, initial_values=initial_params)
             elif not neural_parametrization:
                 samples, extra_fields = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
             else:
@@ -183,10 +183,6 @@ if __name__ == "__main__":
         pickle.dump(samples, f)
     f.close()
 
-    if model_name == "exponential_cp":
-        with open(f"model_output/latent_variable_{basis_dims}.pkl", "wb") as f:
-            pickle.dump({"X": samples["U__loc"]}, f)
-        f.close()
 
     if svi_inference:
         player_indices = [1323] ### curry
