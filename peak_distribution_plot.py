@@ -98,25 +98,8 @@ agged_data.fillna(0, inplace=True)
 
 print("setup data")
 
+positions = ["G", "F", "C"]
 
-
-with open("model_output/latent_variable.pkl", "rb") as f:
-    results = pickle.load(f)
-f.close()
-
-X = results["X"]
-
-
-with open("model_output/fixed_latent_convex_nba_tvrflvm_mcmc_poisson_minutes.pkl", "rb") as f:
-    results_tvrflvm = pickle.load(f)
-f.close()
-
-
-with open("model_output/fixed_latent_convex_nba_tvrflvm_svi_poisson_minutes.pkl", "rb") as f:
-    results_tvrflvm_svi = pickle.load(f)
-f.close()
-
-print("loaded all samples")
 
 hsgp_params = {}
 x_time = basis - basis.mean()
@@ -128,43 +111,56 @@ hsgp_params["M_time"] = M_time
 hsgp_params["L_time"] = L_time
 hsgp_params["shifted_x_time"] = x_time + L_time
 
-### thin for every 8th sample (so 4 chains  x 250 samples)
-# mu_mcmc = make_mu_mcmc(X, results_tvrflvm["lengthscale_deriv"][:, ::8, ...], 
-# results_tvrflvm["alpha"][:, ::8, ...],
-# results_tvrflvm["beta"][:, ::8, ...], results_tvrflvm["W"][:, ::8, ...], 
-# results_tvrflvm["slope"][:, ::8, ...], results_tvrflvm["intercept"][:, ::8, ...], 
-# L_time, M_time, phi_time, hsgp_params["shifted_x_time"])
+X_pos = {}
+mu_mcmc_pos = {}
+peaks_pos = {}
+decay_pos = {}
+results_tvrflvm_pos = {}
+results_tvrflvm_svi_pos = {}
 
-mu_mcmc = make_mu_mcmc(X, results_tvrflvm["lengthscale_deriv"], 
-results_tvrflvm["alpha"],
-results_tvrflvm["beta"], results_tvrflvm["W"], 
-results_tvrflvm["slope"], results_tvrflvm["intercept"], 
-L_time, M_time, phi_time, hsgp_params["shifted_x_time"])
-
-# posterior_mcmc = create_metric_trajectory_all(mu_mcmc, observations, exposures, metric_output, metrics, exposure_list, jnp.transpose(results_tvrflvm["sigma"], (2, 0, 1)))
-# print(posterior_mcmc.shape)
-# mu_svi = make_mu(X, results_tvrflvm_svi["lengthscale_deriv__loc"], 
-# results_tvrflvm_svi["alpha__loc"], hsgp_params["shifted_x_time"],
-# results_tvrflvm_svi["beta__loc"], results_tvrflvm_svi["W__loc"], 
-# results_tvrflvm_svi["slope__loc"], results_tvrflvm_svi["intercept__loc"], 
-# L_time, M_time, phi_time)
-
-print("produced mu samples")
-
-
-peaks = jnp.argmax(mu_mcmc, -1) + 18
-decay =  (jnp.take_along_axis(mu_mcmc, jnp.minimum(peaks - 18 + 3,20)[..., None], axis = -1).squeeze() - jnp.max(mu_mcmc, -1)) / jnp.minimum(3, (39 - peaks))
-# peaks = jnp.argmax(transform_mu(mu_svi,metric_output), -1) + 18
-print(f"calculated the peak of samples resulting in size {peaks.shape}")
-positions = ["G", "F", "C"]
-# positions = ["G"]
-pos_indices = data.drop_duplicates(subset=["id","position_group","name"]).reset_index()
 position_samples_list = []
 position_samples_decay_list = []
+
 for pos in positions:
-    player_indices = pos_indices[pos_indices["position_group"] == pos].index.values
-    player_samples = jnp.vstack(peaks[..., player_indices].mean(-1))
-    player_samples_decay = jnp.vstack(decay[..., player_indices].mean(-1))
+    with open(f"model_output/latent_variable_{pos}.pkl", "rb") as f:
+        results = pickle.load(f)
+    f.close()
+
+    X_pos[pos] = results["X"]
+
+
+    with open("model_output/fixed_latent_convex_nba_tvrflvm_mcmc_poisson_minutes.pkl", "rb") as f:
+        results_tvrflvm = pickle.load(f)
+    f.close()
+
+    results_tvrflvm_pos[pos] = results_tvrflvm
+
+
+    with open("model_output/fixed_latent_convex_nba_tvrflvm_svi_poisson_minutes.pkl", "rb") as f:
+        results_tvrflvm_svi = pickle.load(f)
+    f.close()
+
+    results_tvrflvm_svi[pos] = results_tvrflvm_svi
+
+    print(f"loaded all samples for {pos}")
+
+    mu_mcmc = make_mu_mcmc(X_pos[pos], results_tvrflvm["lengthscale_deriv"], 
+        results_tvrflvm["alpha"],
+        results_tvrflvm["beta"], results_tvrflvm["W"], 
+        results_tvrflvm["slope"], results_tvrflvm["intercept"], 
+        L_time, M_time, phi_time, hsgp_params["shifted_x_time"])
+    print(f"produced mu samples for {pos}")
+    mu_mcmc_pos[pos] = mu_mcmc
+
+    
+    peaks = jnp.argmax(mu_mcmc, -1) + 18
+    peaks_pos[pos] = peaks
+    decay_pos[pos] =  (jnp.take_along_axis(mu_mcmc, jnp.minimum(peaks - 18 + 3,20)[..., None], axis = -1).squeeze() - jnp.max(mu_mcmc, -1)) / jnp.minimum(3, (39 - peaks))
+    print(f"calculated the peak of samples in position {pos} resulting in size {peaks.shape}")
+
+
+    player_samples = jnp.vstack(peaks.mean(-1))
+    player_samples_decay = jnp.vstack(decay_pos[pos].mean(-1))
     print(f"indexed position: {pos} and reshaped to size {player_samples.shape}")
     pos_samples_decay_df = pd.DataFrame(player_samples_decay, columns= metrics).melt(value_name = "decay", var_name="metric")
     pos_samples_decay_df["position"] = pos
@@ -172,7 +168,6 @@ for pos in positions:
     pos_samples_df["position"] = pos
     position_samples_list.append(pos_samples_df)
     position_samples_decay_list.append(pos_samples_decay_df)
-
 
 position_samples_df = pd.concat(position_samples_list)
 position_samples_decay_df = pd.concat(position_samples_decay_list)
@@ -223,7 +218,7 @@ showlegend=False,
     )
 
 
-fig.write_image("model_output/model_plots/debug_peak_position_full_poisson_minutes.png", format = "png")
+fig.write_image("model_output/model_plots/debug_peak_position_full_poisson_minutes_by_position.png", format = "png")
 
 
 
@@ -252,7 +247,7 @@ showlegend=False,
     )
 
 
-fig.write_image("model_output/model_plots/debug_decay_position_full_poisson_minutes.png", format = "png")
+fig.write_image("model_output/model_plots/debug_decay_position_full_poisson_minutes_by_position.png", format = "png")
 print("finished plotting the samples")
 
 
