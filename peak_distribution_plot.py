@@ -5,27 +5,30 @@ import pickle
 from sklearn.manifold import TSNE
 from sklearn.decomposition import SparsePCA
 from sklearn.preprocessing import StandardScaler
+from scipy.stats import gaussian_kde
 import numpy as np
 from tensorly.decomposition import tucker
 import jax 
 import jax.numpy as jnp
+import jax.scipy.special as jsci
 from jax import vmap
-from scipy.special import expit
+
 from model.hsgp import make_convex_f, diag_spectral_density, make_convex_phi, make_psi_gamma
 from model.inference_utils import create_metric_trajectory_all
 
 
 
 def transform_mu(mu, metric_outputs):
+    transformed_mu = np.zeros_like(mu)
     for index, output_type in enumerate(metric_outputs):
         if output_type == "gaussian":
             transform_function = lambda x: x 
         elif output_type == "poisson":
-            transform_function = lambda x: np.exp(x)
+            transform_function = lambda x: jnp.exp(x) 
         elif output_type == "binomial":
-            transform_function = lambda x: expit(x)
-        mu = mu.at[index].set(transform_function(mu[index]))
-    return mu
+            transform_function = lambda x: jsci.expit(x)
+        transformed_mu[:,:,index,...] = transform_function(mu[:,:,index,...])
+    return transformed_mu
 
 def make_mu_mcmc(X, ls_deriv, alpha_time, weights, W, slope_weights, intercept_weights, L_time, M_time, phi_time, shifted_x_time):
     spd = jax.vmap(jax.vmap(lambda a, ls: jnp.sqrt(diag_spectral_density(1, a, ls, L_time, M_time))))(alpha_time, ls_deriv)
@@ -117,6 +120,7 @@ peaks_pos = {}
 decay_pos = {}
 results_tvrflvm_pos = {}
 results_tvrflvm_svi_pos = {}
+transformed_mu_mcmc_pos = {}
 
 position_samples_list = []
 position_samples_decay_list = []
@@ -150,19 +154,26 @@ for pos in positions:
         results_tvrflvm["slope"], results_tvrflvm["intercept"], 
         L_time, M_time, phi_time, hsgp_params["shifted_x_time"])
     print(f"produced mu samples for {pos}")
-    mu_mcmc_pos[pos] = mu_mcmc
+    transformed_mu_mcmc = transform_mu(mu_mcmc, metric_output)
 
     
-    peaks = jnp.argmax(mu_mcmc, -1) + 18
+    peaks = jnp.argmax(transformed_mu_mcmc, -1) + 18
     peaks_pos[pos] = peaks
-    decay_pos[pos] =  (jnp.take_along_axis(mu_mcmc, jnp.minimum(peaks - 18 + 3,20)[..., None], axis = -1).squeeze() - jnp.max(mu_mcmc, -1)) / jnp.minimum(3, (39 - peaks))
+    decay_pos[pos] =  (jnp.take_along_axis(transformed_mu_mcmc, jnp.minimum(peaks - 18 + 3,20)[..., None], axis = -1).squeeze() - jnp.max(transformed_mu_mcmc, -1)) / jnp.minimum(3, (39 - peaks))
     print(f"calculated the peak of samples in position {pos} resulting in size {peaks.shape}")
 
 
     player_samples = jnp.vstack(peaks.mean(-1))
     player_samples_decay = jnp.vstack(decay_pos[pos].mean(-1))
+    min_sample_decay, max_sample_decay = jnp.min(player_samples_decay, axis =  0), jnp.max(player_samples_decay, axis = 0)
+    player_samples_decay_kde = np.zeros((100, len(metrics)))
+    player_samples_decay_kde_input = np.zeros((100, len(metrics)))
+    for index, _ in enumerate(metrics):
+        metric_kde = gaussian_kde(player_samples_decay[:, index])
+        player_samples_decay_kde_input[:, index] = jnp.linspace(min_sample_decay[index], max_sample_decay[index], 100)
+        player_samples_decay_kde[:, index] = metric_kde.evaluate(player_samples_decay_kde_input[:, index])
     print(f"indexed position: {pos} and reshaped to size {player_samples.shape}")
-    pos_samples_decay_df = pd.DataFrame(player_samples_decay, columns= metrics).melt(value_name = "decay", var_name="metric")
+    pos_samples_decay_df = pd.DataFrame(player_samples_decay_kde, columns= metrics).melt(value_name = "density", var_name="metric").merge(pd.DataFrame(player_samples_decay_kde_input, columns= metrics).melt(value_name = "decay", var_name="metric"))
     pos_samples_decay_df["position"] = pos
     pos_samples_df = pd.DataFrame(player_samples, columns=metrics).melt(value_name="peak", var_name="metric")
     pos_samples_df["position"] = pos
@@ -182,13 +193,13 @@ samples_ridgeplot = [
     for metric in metrics
 ]
 
-samples_ridgeplot_decay = [
-    [
-        position_samples_decay_df[(position_samples_decay_df["position"] == pos) & (position_samples_decay_df["metric"] == metric)]["decay"].to_numpy()
-        for pos in positions   
-    ]
-    for metric in metrics
-]
+# samples_ridgeplot_decay = [
+#     [
+#         position_samples_decay_df[(position_samples_decay_df["position"] == pos) & (position_samples_decay_df["metric"] == metric)]["decay"].to_numpy()
+#         for pos in positions   
+#     ]
+#     for metric in metrics[2:]
+# ]
 
 print("setup samples for plotting")
    
@@ -218,35 +229,38 @@ showlegend=False,
     )
 
 
+
 fig.write_image("model_output/model_plots/debug_peak_position_full_poisson_minutes_by_position.png", format = "png")
 
 
 
-fig = rp.ridgeplot(
-    samples=samples_ridgeplot_decay,
-    labels=metrics,
-    colorscale= ["deepskyblue", "orangered", "green"],
-    colormode="trace-index-row-wise",
-    spacing=.5,
-    norm = "probability",
+# fig = rp.ridgeplot(
+#     samples=samples_ridgeplot_decay,
+#     labels=metrics[2:],
+#     colorscale= ["deepskyblue", "orangered", "green"],
+#     colormode="trace-index-row-wise",
+#     spacing=.5,
+#     norm = "probability",
     
-    )
+#     )
 
-fig.update_layout(
-title="Distribution of Decay after Peak Performance by Position",
-height=650,
-width=950,
-font_size=14,
-plot_bgcolor="rgb(245, 245, 245)",
-xaxis_gridcolor="white",
-yaxis_gridcolor="white",
-xaxis_gridwidth=2,
-yaxis_title="Metric",
-xaxis_title="Decay Rate",
-showlegend=False,
-    )
+# fig.update_layout(
+# title="Distribution of Decay after Peak Performance by Position",
+# height=650,
+# width=950,
+# font_size=14,
+# plot_bgcolor="rgb(245, 245, 245)",
+# xaxis_gridcolor="white",
+# yaxis_gridcolor="white",
+# xaxis_gridwidth=2,
+# yaxis_title="Metric",
+# xaxis_title="Decay Rate",
+# showlegend=False,
+#     )
 
 
+fig = px.line(pos_samples_decay_df, x = "decay", y="density", facet_col="metric", color="position", facet_col_wrap=4 )
+fig.update_xaxes(matches= None)
 fig.write_image("model_output/model_plots/debug_decay_position_full_poisson_minutes_by_position.png", format = "png")
 print("finished plotting the samples")
 
