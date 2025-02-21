@@ -126,7 +126,9 @@ mu_mcmc = make_mu_mcmc(results["X"], results_tvrflvm["lengthscale_deriv"],
 
 transformed_mu_mcmc = transform_mu(mu_mcmc, metric_output)
 peaks = jnp.argmax(transformed_mu_mcmc, -1) + 18
-decay = (jnp.take_along_axis(transformed_mu_mcmc, jnp.minimum(peaks - 18 + 3,20)[..., None], axis = -1).squeeze() - jnp.max(transformed_mu_mcmc, -1)) / jnp.minimum(3, (38 - peaks))
+peak_val = jnp.take_along_axis(transformed_mu_mcmc, (peaks - 18)[..., None], axis = -1).squeeze()
+decay = (jnp.take_along_axis(transformed_mu_mcmc, jnp.minimum(peaks - 18 + 3,20)[..., None], axis = -1).squeeze() - peak_val) / peak_val
+
 decay = decay.at[jnp.isinf(decay)].set(jnp.nan)
 # X_pos = {}
 # mu_mcmc_pos = {}
@@ -308,8 +310,6 @@ for index, metric in enumerate(metrics):
         pos_metric_df = position_samples_decay_kde_df[(position_samples_decay_kde_df["position"] == pos) 
                                                       & (position_samples_decay_kde_df["metric"] == metric)]
         x = pos_metric_df["x"]
-        if (metric_type == "poisson") & (metric != "minutes"):
-            x *= 36
         y = pos_metric_df["density"]
         fig.add_trace(go.Scatter(x = x, y = y, mode = "lines", 
                                 name = pos, line_color = colors[i], showlegend=False), row = row, col=col)
