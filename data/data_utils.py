@@ -24,7 +24,7 @@ def create_convex_data(num_samples, noise_level = .01, exposure = 1, data_range 
 
     return samples, intercept, multiplier, noise, y_vals
 
-def process_data(df, output_metric, exposure, model, input_metrics, player_indices:list = []):
+def process_data(df, output_metric, exposure, model, input_metrics, player_indices:list = [], normalize = False):
 
     agg_dict = {input_metric:"max" for input_metric in input_metrics}
     df = df.sort_values(by=["id","year"])
@@ -41,7 +41,10 @@ def process_data(df, output_metric, exposure, model, input_metrics, player_indic
     if model == "poisson":
         metric_array = metric_df.to_numpy()
         exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
-        adj_exp_array = jnp.log(exposure_array) 
+        if normalize:
+            metric_array_obs = metric_array / exposure_array
+            metric_array = (metric_array_obs - np.nanmean(metric_array_obs))/np.nanstd(metric_array_obs)
+        adj_exp_array = jnp.log(exposure_array) if not normalize else jnp.sqrt(exposure_array)
     elif model == "exponential":
         metric_array = metric_df.to_numpy() 
         exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
@@ -73,9 +76,14 @@ def process_data(df, output_metric, exposure, model, input_metrics, player_indic
             for player_index, ent_index in zip (entrance_array, min_season_array[entrance_array]):
                 exposure_array[player_index, 0:ent_index] = 1 
                 metric_array[player_index, 0:ent_index] = 0
-        adj_exp_array = jnp.array(exposure_array)
+        if normalize:
+            metric_array_obs = metric_array / exposure_array
+            metric_array = (metric_array_obs - np.nanmean(metric_array_obs)) / np.nanstd(metric_array_obs)
+        adj_exp_array = jnp.array(exposure_array) if not normalize else jnp.sqrt(exposure_array)
     elif model == "gaussian":
         metric_array = metric_df.to_numpy()
+        if normalize:
+            metric_array = (metric_array - np.nanmean(metric_array)) / (np.nanstd(metric_array))
         exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
         adj_exp_array = jnp.sqrt(exposure_array)
 
@@ -169,7 +177,7 @@ def create_pca_data(df, metric_output, exposure_list, metrics):
 
     return jnp.hstack(exposures), jnp.hstack(masks), jnp.hstack(data), jnp.hstack(outputs)
 
-def create_cp_data(df, metric_output, exposure_list, metrics, player_indices:list = []):
+def create_cp_data(df, metric_output, exposure_list, metrics, player_indices:list = [], normalize = False):
     """
     metric_output: list of [poisson, gaussian, binomial]
     exposure_list: list indicating which column to use as an exposure
@@ -180,9 +188,9 @@ def create_cp_data(df, metric_output, exposure_list, metrics, player_indices:lis
     data = []
     outputs = []
     for output, metric, exposure_val in zip(metric_output, metrics, exposure_list):
-        exposure, Y, _ = process_data(df, metric, exposure_val, output, [], player_indices)
+        exposure, Y, _ = process_data(df, metric, exposure_val, output, [], player_indices, normalize)
         data.append(Y)
-        masks.append(jnp.isfinite(exposure))
+        masks.append(jnp.isfinite(Y))
         exposures.append(exposure)
         if output == "gaussian":
             outputs.append(jnp.ones_like(Y, dtype=int))
