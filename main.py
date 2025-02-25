@@ -12,7 +12,7 @@ from numpyro.diagnostics import print_summary
 from model.hsgp import make_convex_phi, diag_spectral_density, make_convex_f, make_psi_gamma
 jax.config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, create_cp_data
-from model.models import  NBAMixedOutputProbabilisticCPDecomposition, RFLVM, TVRFLVM, IFTVRFLVM, ConvexTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsIFTVRFLVM
+from model.models import  NBAMixedOutputProbabilisticCPDecomposition, NBANormalApproxProbabilisticCPDecomposition, RFLVM, TVRFLVM, IFTVRFLVM, ConvexTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsIFTVRFLVM
 from visualization.visualization import plot_posterior_predictive_career_trajectory_map
 
 
@@ -48,8 +48,8 @@ if __name__ == "__main__":
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
     data["retirement"] = 1
-    metric_output = ["binomial", "poisson"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
-    metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
+    metric_output = ["binomial", "gaussian"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+    metrics = ["retirement", "log_min", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
     exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
 
     if players:
@@ -72,6 +72,9 @@ if __name__ == "__main__":
     elif model_name == "exponential_cp":
         exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics, player_indices)
         model = NBAMixedOutputProbabilisticCPDecomposition(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
+    elif model_name == "exponential_cp_normalize":
+        exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics, player_indices, normalize=True)
+        model = NBANormalApproxProbabilisticCPDecomposition(X, basis_dims, masks, exposures)
     elif "rflvm" in model_name:
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
         model = RFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
@@ -92,7 +95,7 @@ if __name__ == "__main__":
             with open(initial_params_path, "rb") as f_init:
                 initial_params = pickle.load(f_init)
             f_init.close()
-        svi_run = model.run_inference(num_steps=1000000, initial_values=initial_params)
+        svi_run = model.run_inference(num_steps=10000000, initial_values=initial_params)
         samples = svi_run.params
     elif "rflvm" in model_name:
         prior_dict = {}
