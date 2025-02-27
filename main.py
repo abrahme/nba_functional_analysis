@@ -8,6 +8,7 @@ import pickle
 import numpyro
 import plotly.express as px
 from sklearn.manifold import TSNE
+from sklearn.preprocessing import MinMaxScaler
 from numpyro.distributions import MatrixNormal
 from numpyro.diagnostics import print_summary
 from model.hsgp import make_convex_phi, diag_spectral_density, make_convex_f, make_psi_gamma
@@ -96,7 +97,7 @@ if __name__ == "__main__":
             with open(initial_params_path, "rb") as f_init:
                 initial_params = pickle.load(f_init)
             f_init.close()
-        svi_run = model.run_inference(num_steps=1000000, initial_values=initial_params)
+        svi_run = model.run_inference(num_steps=10000000, initial_values=initial_params)
         samples = svi_run.params
     elif "rflvm" in model_name:
         prior_dict = {}
@@ -209,16 +210,31 @@ if __name__ == "__main__":
 
     if "cp" in model_name:
         player_labels = ["Stephen Curry", "Tim Duncan", "Kevin Durant", "LeBron James", "Kobe Bryant", 
-                         "Dwight Howard", "Pau Gasol", "Nikola Jokic", "Giannis Antetokounmpo"]
+                         "Dwight Howard", "Pau Gasol", "Nikola Jokic", "Giannis Antetokounmpo", "Steve Nash", 
+                         "Chris Paul", "Shaquille O'Neal"]
         X = samples["U__loc"]
         tsne = TSNE(n_components=2)
-        X_tsne_df = pd.concat([pd.DataFrame(tsne.fit_transform(X), columns = ["dim1", "dim2"]), data.drop_duplicates(subset=["position_group","name","id"]).reset_index()], axis=1)
+        X_tsne_df = pd.DataFrame(tsne.fit_transform(X), columns = ["dim1", "dim2"])
+        id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
+        X_tsne_df = pd.concat([X_tsne_df, id_df], axis = 1)
         X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in player_labels else "")
-        fig = px.scatter(X_tsne_df, x = "dim1", y = "dim2", color = "position_group", text="name", opacity = .2)
+        X_tsne_df["minutes"] /= np.max(X_tsne_df["minutes"])
+        fig = px.scatter(X_tsne_df, x = "dim1", y = "dim2", color = "position_group", text="name", size = "minutes",
+                         opacity = .1)
         fig.write_image(f"model_output/model_plots/{model_name}_latent_space.png", format = "png")
 
-   
-
+        with open("model_output/latent_variable.pkl", "rb") as f:
+            samples_old = pickle.load(f)
+        f.close()
+        X_old = samples_old["X"]
+        tsne = TSNE(n_components=2)
+        X_tsne_df_old = pd.DataFrame(tsne.fit_transform(X_old), columns = ["dim1", "dim2"])
+        X_tsne_df_old = pd.concat([X_tsne_df_old, id_df], axis = 1)
+        X_tsne_df_old["name"] = X_tsne_df_old["name"].apply(lambda x: x if x in player_labels else "")
+        X_tsne_df_old["minutes"] /= np.max(X_tsne_df_old["minutes"])
+        fig = px.scatter(X_tsne_df_old, x = "dim1", y = "dim2", color = "position_group", text="name", size = "minutes",
+                         opacity = .1)
+        fig.write_image(f"model_output/model_plots/exponential_cp_latent_space.png", format = "png")
     
         
         
