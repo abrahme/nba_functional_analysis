@@ -209,12 +209,12 @@ if __name__ == "__main__":
 
     if "cp" in model_name:
         player_labels = ["Stephen Curry", "Tim Duncan", "Kevin Durant", "LeBron James", "Kobe Bryant", 
-                         "Dwight Howard", "Pau Gasol", "Nikola Jokic", "Giannis Antetokounmpo", "Kevin Garnett"]
+                         "Dwight Howard", "Pau Gasol", "Nikola Jokic", "Giannis Antetokounmpo"]
         X = samples["U__loc"]
         tsne = TSNE(n_components=2)
         X_tsne_df = pd.concat([pd.DataFrame(tsne.fit_transform(X), columns = ["dim1", "dim2"]), data.drop_duplicates(subset=["position_group","name","id"]).reset_index()], axis=1)
         X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in player_labels else "")
-        fig = px.scatter(X_tsne_df, x = "dim1", y = "dim2", color = "position_group", text = "name", opacity = .2)
+        fig = px.scatter(X_tsne_df, x = "dim1", y = "dim2", color = "position_group", text="name", opacity = .2)
         fig.write_image(f"model_output/model_plots/{model_name}_latent_space.png", format = "png")
 
    
