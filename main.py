@@ -8,7 +8,6 @@ import pickle
 import numpyro
 import plotly.express as px
 from sklearn.manifold import TSNE
-from sklearn.preprocessing import MinMaxScaler
 from numpyro.distributions import MatrixNormal
 from numpyro.diagnostics import print_summary
 from model.hsgp import make_convex_phi, diag_spectral_density, make_convex_f, make_psi_gamma
@@ -209,18 +208,19 @@ if __name__ == "__main__":
         fig.write_image("model_output/model_plots/debug_predictions_svi_full_poisson_minutes.png", format = "png")
 
     if "cp" in model_name:
-        player_labels = ["Stephen Curry", "Tim Duncan", "Kevin Durant", "LeBron James", "Kobe Bryant", 
-                         "Dwight Howard", "Pau Gasol", "Nikola Jokic", "Giannis Antetokounmpo", "Steve Nash", 
+        player_labels = ["Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", 
+                         "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash", 
                          "Chris Paul", "Shaquille O'Neal"]
         X = samples["U__loc"]
         tsne = TSNE(n_components=2)
-        X_tsne_df = pd.DataFrame(tsne.fit_transform(X), columns = ["dim1", "dim2"])
+        X_tsne_df = pd.DataFrame(tsne.fit_transform(X), columns = ["Dim. 1", "Dim. 2"])
         id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
         X_tsne_df = pd.concat([X_tsne_df, id_df], axis = 1)
         X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in player_labels else "")
         X_tsne_df["minutes"] /= np.max(X_tsne_df["minutes"])
-        fig = px.scatter(X_tsne_df, x = "dim1", y = "dim2", color = "position_group", text="name", size = "minutes",
-                         opacity = .1)
+        X_tsne_df.rename(mapper = {"position_group": "Position"}, inplace=True, axis=1)
+        fig = px.scatter(X_tsne_df, x = "Dim. 1", y = "Dim. 2", color = "Position", text="name", size = "minutes",
+                         opacity = .1, title="T-SNE Visualization of Latent Player Embedding", )
         fig.write_image(f"model_output/model_plots/{model_name}_latent_space.png", format = "png")
 
         with open("model_output/latent_variable.pkl", "rb") as f:
