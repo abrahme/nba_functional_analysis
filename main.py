@@ -205,7 +205,7 @@ if __name__ == "__main__":
         gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
         mu = (make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept))[:, jnp.array(player_indices), :].squeeze()
         fig = plot_posterior_predictive_career_trajectory_map(player_indices[0], metrics, metric_output, mu, Y, exposures)
-        fig.write_image("model_output/model_plots/debug_predictions_svi_full_poisson_minutes.png", format = "png")
+        fig.write_image("model_output/model_plots/debug_predictions_svi_full_poisson_minutes_normalize.png", format = "png")
 
     if "cp" in model_name:
         player_labels = ["Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", 
