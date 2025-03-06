@@ -6,13 +6,14 @@ import jax.scipy as jsci
 import argparse
 import pickle
 import numpyro
-import matplotlib.pyplot as plt
+import plotly.express as px
+from sklearn.manifold import TSNE
 from numpyro.distributions import MatrixNormal
 from numpyro.diagnostics import print_summary
 from model.hsgp import make_convex_phi, diag_spectral_density, make_convex_f, make_psi_gamma
 jax.config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, create_cp_data
-from model.models import  NBAMixedOutputProbabilisticCPDecomposition, RFLVM, TVRFLVM, IFTVRFLVM, ConvexTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsIFTVRFLVM
+from model.models import  NBAMixedOutputProbabilisticCPDecomposition, NBANormalApproxProbabilisticCPDecomposition, RFLVM, TVRFLVM, IFTVRFLVM, ConvexTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsIFTVRFLVM
 from visualization.visualization import plot_posterior_predictive_career_trajectory_map
 
 
@@ -72,6 +73,9 @@ if __name__ == "__main__":
     elif model_name == "exponential_cp":
         exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics, player_indices)
         model = NBAMixedOutputProbabilisticCPDecomposition(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
+    elif model_name == "exponential_cp_normalize":
+        exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics, player_indices, normalize=True)
+        model = NBANormalApproxProbabilisticCPDecomposition(X, basis_dims, masks, exposures)
     elif "rflvm" in model_name:
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
         model = RFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
@@ -92,7 +96,7 @@ if __name__ == "__main__":
             with open(initial_params_path, "rb") as f_init:
                 initial_params = pickle.load(f_init)
             f_init.close()
-        svi_run = model.run_inference(num_steps=1000000, initial_values=initial_params)
+        svi_run = model.run_inference(num_steps=10000000, initial_values=initial_params)
         samples = svi_run.params
     elif "rflvm" in model_name:
         prior_dict = {}
@@ -200,12 +204,36 @@ if __name__ == "__main__":
         gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
         mu = (make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept))[:, jnp.array(player_indices), :].squeeze()
         fig = plot_posterior_predictive_career_trajectory_map(player_indices[0], metrics, metric_output, mu, Y, exposures)
-        fig.write_image("model_output/model_plots/debug_predictions_svi_full_poisson_minutes.png", format = "png")
+        fig.write_image("model_output/model_plots/debug_predictions_svi_full_poisson_minutes_normalize.png", format = "png")
 
-    
+    if "cp" in model_name:
+        player_labels = ["Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", 
+                         "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash", 
+                         "Chris Paul", "Shaquille O'Neal"]
+        X = samples["U__loc"]
+        tsne = TSNE(n_components=2)
+        X_tsne_df = pd.DataFrame(tsne.fit_transform(X), columns = ["Dim. 1", "Dim. 2"])
+        id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
+        X_tsne_df = pd.concat([X_tsne_df, id_df], axis = 1)
+        X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in player_labels else "")
+        X_tsne_df["minutes"] /= np.max(X_tsne_df["minutes"])
+        X_tsne_df.rename(mapper = {"position_group": "Position"}, inplace=True, axis=1)
+        fig = px.scatter(X_tsne_df, x = "Dim. 1", y = "Dim. 2", color = "Position", text="name", size = "minutes",
+                         opacity = .1, title="T-SNE Visualization of Latent Player Embedding", )
+        fig.write_image(f"model_output/model_plots/{model_name}_latent_space.png", format = "png")
 
-   
-
+        with open("model_output/latent_variable.pkl", "rb") as f:
+            samples_old = pickle.load(f)
+        f.close()
+        X_old = samples_old["X"]
+        tsne = TSNE(n_components=2)
+        X_tsne_df_old = pd.DataFrame(tsne.fit_transform(X_old), columns = ["dim1", "dim2"])
+        X_tsne_df_old = pd.concat([X_tsne_df_old, id_df], axis = 1)
+        X_tsne_df_old["name"] = X_tsne_df_old["name"].apply(lambda x: x if x in player_labels else "")
+        X_tsne_df_old["minutes"] /= np.max(X_tsne_df_old["minutes"])
+        fig = px.scatter(X_tsne_df_old, x = "dim1", y = "dim2", color = "position_group", text="name", size = "minutes",
+                         opacity = .1)
+        fig.write_image(f"model_output/model_plots/exponential_cp_latent_space.png", format = "png")
     
         
         

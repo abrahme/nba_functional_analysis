@@ -3,7 +3,7 @@ import jax
 import numpy as np
 from numpyro import sample 
 from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, Distribution
-from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive, init_to_value
+from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive, init_to_value, init_to_feasible, init_to_uniform
 from numpyro.infer.reparam import NeuTraReparam
 from numpyro.infer.autoguide import AutoDelta, AutoBNAFNormal
 from optax import linear_onecycle_schedule, adam
@@ -91,6 +91,50 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
         y_binomial = sample("likelihood_binomial", Binomial(total_count=self.exposure[self.binomial_indices].flatten(), 
                                                             logits = y[self.binomial_indices].flatten()), 
                                                             obs=self.X[self.binomial_indices].flatten())
+
+    def run_inference(self, num_steps, initial_values:dict = {}):
+        optimizer = adam(learning_rate = linear_onecycle_schedule(100, .5))
+        svi = SVI(self.model_fn, AutoDelta(self.model_fn, prefix=""),
+                   optim=optimizer,
+                     loss=Trace_ELBO())
+        result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps, init_params=initial_values)
+        return result
+
+    def predict(self, posterior_samples: dict, model_args):
+        predictive = Predictive(self.model_fn, posterior_samples, **model_args)
+        return predictive(jax.random.PRNGKey(0))["obs"]
+
+
+class NBANormalApproxProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
+
+    def __init__(self, X, rank: int, M, E) -> None:
+        super().__init__(X, rank)
+        assert (self.X.shape == E.shape) & (self.X.shape == M.shape) ### have to have same shape
+        self.exposure = E ### exposure for each element in X
+        self.missing = M ### matrix of 1 / 0 indicating missing or not
+        
+    
+    def initialize_priors(self) -> None:
+        ### initialize U
+        self.prior["U"] = Normal()
+        ### initialize V
+        self.prior["V"] = Normal()
+        ### initialize W
+        self.prior["W"] = Normal()
+        ### initialize lambda
+        self.prior["lambda"] = Dirichlet(concentration=jnp.ones(shape=(self.r,)) / self.r)
+
+    def model_fn(self) -> None:
+        V = sample("V", self.prior["V"], sample_shape=(self.t, self.r)) 
+        U = sample("U", self.prior["U"], sample_shape=(self.n, self.r )) 
+        W = sample("W", self.prior["W"], sample_shape=(self.k, self.r)) 
+        weights = sample("lambda", self.prior["lambda"])
+        core = jnp.einsum("ntr, kr->ntkr", jnp.einsum("nr, tr -> ntr", U, V), W)
+        y = jnp.einsum("ntkr, r -> ntk", core, weights)
+        y_normal = sample("likelihood_normal", Normal(loc = y[self.missing].flatten(), 
+                                                      scale=1/self.exposure[self.missing].flatten()), 
+                          obs = self.X[self.missing].flatten())
+        
 
     def run_inference(self, num_steps, initial_values:dict = {}):
         optimizer = adam(learning_rate = linear_onecycle_schedule(100, .5))
