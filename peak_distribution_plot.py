@@ -110,11 +110,11 @@ hsgp_params["L_time"] = L_time
 hsgp_params["shifted_x_time"] = x_time + L_time
 
 
-with open(f"model_output/latent_variable.pkl", "rb") as f:
+with open(f"model_output/latent_variable_normalize.pkl", "rb") as f:
     results = pickle.load(f)
 f.close()
 
-with open(f"model_output/fixed_latent_convex_nba_tvrflvm_mcmc_poisson_minutes.pkl", "rb") as f:
+with open(f"model_output/fixed_latent_convex_nba_tvrflvm_mcmc_poisson_minutes_normalize.pkl", "rb") as f:
     results_tvrflvm = pickle.load(f)
 f.close()
 
@@ -268,7 +268,7 @@ showlegend=False,
 
 
 
-fig.write_image("model_output/model_plots/debug_peak_position_full_poisson_minutes.png", format = "png")
+fig.write_image("model_output/model_plots/debug_peak_position_full_poisson_minutes_normalize.png", format = "png")
 
 
 
@@ -318,7 +318,7 @@ fig.update_xaxes(tickangle=90)
 fig.update_layout({'width':650, 'height': 650,
                             'showlegend':False, 'hovermode': 'closest',
                             })
-fig.write_image("model_output/model_plots/debug_decay_position_full_poisson_minutes.png", format = "png")
+fig.write_image("model_output/model_plots/debug_decay_position_full_poisson_minutes_normalize.png", format = "png")
 print("finished plotting the samples")
 
 
