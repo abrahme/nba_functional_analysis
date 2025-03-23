@@ -110,11 +110,11 @@ hsgp_params["L_time"] = L_time
 hsgp_params["shifted_x_time"] = x_time + L_time
 
 
-with open(f"model_output/latent_variable_normalize.pkl", "rb") as f:
+with open(f"model_output/latent_variable_15.pkl", "rb") as f:
     results = pickle.load(f)
 f.close()
 
-with open(f"model_output/fixed_latent_convex_nba_tvrflvm_mcmc_poisson_minutes_normalize.pkl", "rb") as f:
+with open(f"model_output/fixed_latent_convex_nba_tvrflvm_mcmc_poisson_minutes_dim_15.pkl", "rb") as f:
     results_tvrflvm = pickle.load(f)
 f.close()
 
@@ -130,13 +130,7 @@ peak_val = jnp.take_along_axis(transformed_mu_mcmc, (peaks - 18)[..., None], axi
 decay = (jnp.take_along_axis(transformed_mu_mcmc, jnp.minimum(peaks - 18 + 3,20)[..., None], axis = -1).squeeze() - peak_val) / peak_val
 
 decay = decay.at[jnp.isinf(decay)].set(jnp.nan)
-# X_pos = {}
-# mu_mcmc_pos = {}
-# peaks_pos = {}
-# decay_pos = {}
-# results_tvrflvm_pos = {}
-# results_tvrflvm_svi_pos = {}
-# transformed_mu_mcmc_pos = {}
+
 
 position_samples_list = []
 position_samples_decay_list = []
@@ -145,50 +139,6 @@ position_samples_decay_kde_list = []
 pos_indices = data.drop_duplicates(subset=["id","position_group","name"]).reset_index()
 
 for pos in positions:
-#     with open(f"model_output/latent_variable_{pos}.pkl", "rb") as f:
-#         results = pickle.load(f)
-#     f.close()
-
-#     X_pos[pos] = results["X"]
-
-
-#     with open(f"model_output/fixed_latent_convex_nba_tvrflvm_mcmc_poisson_minutes_{pos}.pkl", "rb") as f:
-#         results_tvrflvm = pickle.load(f)
-#     f.close()
-
-#     results_tvrflvm_pos[pos] = results_tvrflvm
-
-
-#     with open(f"model_output/fixed_latent_convex_nba_tvrflvm_svi_poisson_minutes_{pos}.pkl", "rb") as f:
-#         results_tvrflvm_svi = pickle.load(f)
-#     f.close()
-
-#     results_tvrflvm_svi[pos] = results_tvrflvm_svi
-
-#     print(f"loaded all samples for {pos}")
-
-#     mu_mcmc = make_mu_mcmc(X_pos[pos], results_tvrflvm["lengthscale_deriv"], 
-#         results_tvrflvm["alpha"],
-#         results_tvrflvm["beta"], results_tvrflvm["W"], 
-#         results_tvrflvm["slope"], results_tvrflvm["intercept"], 
-#         L_time, M_time, phi_time, hsgp_params["shifted_x_time"])
-    
-#     mu = make_mu(X_pos[pos], results_tvrflvm_svi["lengthscale_deriv__loc"], 
-#         results_tvrflvm_svi["alpha__loc"],
-#         results_tvrflvm_svi["beta__loc"], results_tvrflvm_svi["W__loc"], 
-#         results_tvrflvm_svi["slope__loc"], results_tvrflvm_svi["intercept__loc"], 
-#         L_time, M_time, phi_time)
-#     print(f"produced mu samples for {pos}")
-#     transformed_mu_mcmc = transform_mu(mu_mcmc, metric_output)
-#     peaks = jnp.argmax(mu_mcmc, -1) + 18
-#     peaks_pos[pos] = peaks
-#     decay_pos[pos] =  (jnp.take_along_axis(mu_mcmc, jnp.minimum(peaks - 18 + 3,20)[..., None], axis = -1).squeeze() - jnp.max(mu_mcmc, -1)) / jnp.minimum(3, (38 - peaks))
-#     print(f"calculated the peak of samples in position {pos} resulting in size {peaks.shape}")
-#     decay_pos[pos] = decay_pos[pos].at[jnp.isinf(decay_pos[pos])].set(jnp.nan)
-#     player_samples = jnp.vstack(peaks.mean(-1))
-#     player_samples_decay = jnp.vstack(jnp.nanmean(decay_pos[pos],-1))
-
-
     player_indices = pos_indices[pos_indices["position_group"] == pos].index.values
     player_samples = jnp.vstack(peaks[..., player_indices].mean(-1))
     player_samples_decay = jnp.vstack(jnp.nanmean(decay[..., player_indices],-1))
@@ -268,33 +218,8 @@ showlegend=False,
 
 
 
-fig.write_image("model_output/model_plots/debug_peak_position_full_poisson_minutes_normalize.png", format = "png")
+fig.write_image("model_output/model_plots/debug_peak_position_full_poisson_minutes_dim_15.png", format = "png")
 
-
-
-# fig = rp.ridgeplot(
-#     samples=samples_ridgeplot_decay,
-#     labels=metrics,
-#     colorscale= ["deepskyblue", "orangered", "green"],
-#     colormode="trace-index-row-wise",
-#     spacing=.5,
-#     norm = "probability",
-    
-#     )
-
-# fig.update_layout(
-# title="Distribution of Decay after Peak Performance by Position",
-# height=650,
-# width=950,
-# font_size=14,
-# plot_bgcolor="rgb(245, 245, 245)",
-# xaxis_gridcolor="white",
-# yaxis_gridcolor="white",
-# xaxis_gridwidth=2,
-# yaxis_title="Metric",
-# xaxis_title="Decay Rate",
-# showlegend=False,
-#     )
 
 
 fig = make_subplots(rows = 4, cols=4,  subplot_titles=metrics)
@@ -318,7 +243,7 @@ fig.update_xaxes(tickangle=90)
 fig.update_layout({'width':650, 'height': 650,
                             'showlegend':False, 'hovermode': 'closest',
                             })
-fig.write_image("model_output/model_plots/debug_decay_position_full_poisson_minutes_normalize.png", format = "png")
+fig.write_image("model_output/model_plots/debug_decay_position_full_poisson_minutes_dim_15.png", format = "png")
 print("finished plotting the samples")
 
 
