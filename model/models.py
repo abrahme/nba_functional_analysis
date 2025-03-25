@@ -77,7 +77,7 @@ class NBAMixedOutputProbabilisticCPDecomposition(ProbabilisticCPDecomposition):
     def model_fn(self) -> None:
         alpha = sample("alpha", self.prior["alpha"], sample_shape=(self.t, self.k)) ### mean across the time points and the metrics
         V = sample("V", self.prior["V"], sample_shape=(self.t, self.r))
-        U = sample("U", self.prior["U"], sample_shape=(self.n, self.r ))
+        U = sample("U", self.prior["U"], sample_shape=(self.n, self.r))
         W = sample("W", self.prior["W"], sample_shape=(self.k, self.r))
         sigma = sample("sigma", self.prior["sigma"], sample_shape=(self.num_gaussian,))
         weights = sample("lambda", self.prior["lambda"])
@@ -471,7 +471,7 @@ class ConvexTVRFLVM(TVRFLVM):
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
         guide = AutoDelta(self.model_fn, prefix="", init_loc_fn = init_to_median, **guide_kwargs)
         print("Setup guide")
-        svi = SVI(self.model_fn, guide, optim=adam(.0003), loss=Trace_ELBO(num_particles=1)
+        svi = SVI(self.model_fn, guide, optim=adam(.00003), loss=Trace_ELBO(num_particles=1)
                   )
         print("Setup SVI")
         result = svi.run(jax.random.PRNGKey(0),
