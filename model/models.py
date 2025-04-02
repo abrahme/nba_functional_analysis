@@ -2,7 +2,7 @@ from abc import abstractmethod, ABC
 import jax 
 import numpy as np
 from numpyro import sample 
-from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, Distribution
+from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, Distribution, Gamma
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive, init_to_value, init_to_feasible, init_to_uniform
 from numpyro.infer.reparam import NeuTraReparam
 from numpyro.infer.autoguide import AutoDelta, AutoBNAFNormal
@@ -420,19 +420,22 @@ class ConvexTVRFLVM(TVRFLVM):
         self.prior["lengthscale_deriv"] = InverseGamma(1.0, 1.0)
         self.prior["sigma"] = InverseGamma(1.0, 1.0)
         self.prior["alpha"] = InverseGamma(1.0, 1.0)
+        self.prior["random_exposure"] = Gamma( 1 / .54, 1 / .54)
         self.prior["intercept"] = Normal()
         self.prior["slope"] = Normal()
 
     def model_fn(self, data_set, hsgp_params) -> None:
         num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
         num_metrics = sum(len(data_set[family]["indices"]) for family in data_set)
-
+        
         phi_time  = hsgp_params["phi_x_time"]
         L_time = hsgp_params["L_time"]
         M_time = hsgp_params["M_time"]
         shifted_x_time = hsgp_params["shifted_x_time"]
         W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(self.m, self.r))
         X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
+        random_exposure = self.prior["random_exposure"] if not isinstance(self.prior["random_exposure"], Distribution) else sample("random_exposure", 
+                                                                                                                                   self.prior["random_exposure"], sample_shape=(self.n, self.j))
         wTx = jnp.einsum("nr,mr -> nm", X, W)
         psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(self.m))
         slope = make_psi_gamma(psi_x, self.prior["slope"] if not isinstance(self.prior["slope"], Distribution) else sample("slope", self.prior["slope"], sample_shape=(self.m*2, num_metrics)))
@@ -460,9 +463,9 @@ class ConvexTVRFLVM(TVRFLVM):
                 dist = Poisson(rate) 
             elif family == "binomial":
                 dist = Binomial(logits = linear_predictor[mask], total_count=exposure[mask])
-            elif family == "exponential":
-                rate = jnp.exp(linear_predictor[mask] + exposure[mask])
-                dist = Exponential(rate)
+            elif family == "gamma-poisson":
+                rate = (random_exposure * jnp.exp(linear_predictor))[mask] 
+                dist = Poisson(rate)
             y = sample(f"likelihood_{family}", dist, obs[mask])
 
     def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args, initial_values={}):

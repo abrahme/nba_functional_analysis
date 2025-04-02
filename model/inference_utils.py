@@ -172,7 +172,7 @@ def create_metric_trajectory(posterior_mean_samples, player_index, observations,
     return obs_data, posterior_predictive
 
 
-def create_metric_trajectory_map(posterior_mean_map: jnp.ndarray, player_index, observations, exposures, metric_outputs: list[str], metrics: list[str]):
+def create_metric_trajectory_map(posterior_mean_map: jnp.ndarray, player_index, observations, exposures, metric_outputs: list[str], metrics: list[str], minutes_exposure = 1):
     ### this is assuming that posterior_mean_map is shape (k,t)
     gaussian_index = 0
     minutes_index = metrics.index("minutes")
@@ -183,7 +183,7 @@ def create_metric_trajectory_map(posterior_mean_map: jnp.ndarray, player_index, 
     #### then sample minutes 
     
     post_min = posterior_mean_map[minutes_index]
-    posterior_predictions_min = jnp.exp(post_min)
+    posterior_predictions_min = jnp.exp(post_min) * minutes_exposure
     obs_min = observations[ minutes_index, player_index, :]
     posteriors = [jsc.special.expit(post_retirement), posterior_predictions_min]
     obs_normalized = [obs_retirement, obs_min]

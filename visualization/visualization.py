@@ -60,14 +60,14 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
     return fig
 
 
-def plot_posterior_predictive_career_trajectory_map( player_index, metrics: list[str], metric_outputs: list[str], posterior_map, observations, exposures):
+def plot_posterior_predictive_career_trajectory_map( player_index, metrics: list[str], metric_outputs: list[str], posterior_map, observations, exposures, minutes_exposure = 1):
     """
     plots the posterior predictive career trajectory 
     """
     fig = make_subplots(rows = 4, cols=4,  subplot_titles=metrics)
     
     observation_dict, posterior_dict = create_metric_trajectory_map(posterior_map, player_index,  observations, exposures, 
-                                                                metric_outputs=metric_outputs, metrics = metrics,)
+                                                                metric_outputs=metric_outputs, metrics = metrics, minutes_exposure=minutes_exposure)
 
  
     obs = observation_dict["y"]
