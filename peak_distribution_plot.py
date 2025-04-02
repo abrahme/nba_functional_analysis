@@ -12,6 +12,11 @@ import jax.scipy.special as jsci
 from model.hsgp import make_convex_f, diag_spectral_density, make_convex_phi, make_psi_gamma
 from plotly.subplots import make_subplots
 from sklearn.manifold import TSNE
+from geomstats.geometry.discrete_curves import (
+    DiscreteCurvesStartingAtOrigin,
+    SRVMetric,
+
+)
 from scipy.stats import gaussian_kde
 from visualization.visualization import plot_posterior_predictive_career_trajectory
 from model.inference_utils import create_metric_trajectory_all
@@ -130,109 +135,111 @@ mu_mcmc = make_mu_mcmc(results["X"], results_tvrflvm["lengthscale_deriv"],
     L_time, M_time, phi_time, hsgp_params["shifted_x_time"])
 
 transformed_mu_mcmc = transform_mu(mu_mcmc, metric_output)
-peaks = jnp.argmax(transformed_mu_mcmc, -1) + 18
-peak_val = jnp.take_along_axis(transformed_mu_mcmc, (peaks - 18)[..., None], axis = -1).squeeze()
-decay = (jnp.take_along_axis(transformed_mu_mcmc, jnp.minimum(peaks - 18 + 3,20)[..., None], axis = -1).squeeze() - peak_val) / peak_val
-
-decay = decay.at[jnp.isinf(decay)].set(jnp.nan)
 
 
+# peaks = jnp.argmax(transformed_mu_mcmc, -1) + 18
+# peak_val = jnp.take_along_axis(transformed_mu_mcmc, (peaks - 18)[..., None], axis = -1).squeeze()
+# decay = (jnp.take_along_axis(transformed_mu_mcmc, jnp.minimum(peaks - 18 + 3,20)[..., None], axis = -1).squeeze() - peak_val) / peak_val
 
-pos_indices = data.drop_duplicates(subset=["id","position_group","name"]).reset_index()
+# decay = decay.at[jnp.isinf(decay)].set(jnp.nan)
 
 
-player_indices = pos_indices.index.values
-player_samples = jnp.vstack(peaks[..., player_indices].mean(-1))
-player_samples_decay = jnp.vstack(jnp.nanmean(decay[..., player_indices],-1))
-player_samples_decay_kde = np.zeros((100, len(metrics)))
-player_samples_decay_x = np.zeros((100, len(metrics)))
-metric_kde_list = []
-position_samples_list =  []
-position_samples_decay_list = []
-position_samples_decay_kde_list = []
-for index, metric in enumerate(metrics):
-    metric_kde = gaussian_kde(player_samples_decay[..., index])
-    player_samples_decay_kde[..., index] = metric_kde.evaluate(jnp.linspace(
-    player_samples_decay[..., index].min(), player_samples_decay[..., index].max(), 100))
-    player_samples_decay_x[..., index] = jnp.linspace(
-    player_samples_decay[..., index].min(), player_samples_decay[..., index].max(), 100)
-    player_samples_decay_kde[..., index] /= player_samples_decay_kde[..., index].sum()
-    metric_kde_df = pd.DataFrame(jnp.stack([player_samples_decay_x[..., index],player_samples_decay_kde[..., index]]).T, columns = ["x","density"])
-    metric_kde_df["metric"] = metric
-    metric_kde_list.append(metric_kde_df)
-    pos_samples_decay_df = pd.DataFrame(player_samples_decay, columns= metrics).melt(value_name = "decay", var_name="metric")
-    pos_samples_decay_kde_df = pd.concat(metric_kde_list)
 
-    pos_samples_df = pd.DataFrame(player_samples, columns=metrics).melt(value_name="peak", var_name="metric")
-    position_samples_list.append(pos_samples_df)
-    position_samples_decay_list.append(pos_samples_decay_df)
-    position_samples_decay_kde_list.append(pos_samples_decay_kde_df)
+# pos_indices = data.drop_duplicates(subset=["id","position_group","name"]).reset_index()
 
-position_samples_df = pd.concat(position_samples_list)
-position_samples_decay_df = pd.concat(position_samples_decay_list)
-position_samples_decay_kde_df = pd.concat(position_samples_decay_kde_list)
 
-labels_sorted = position_samples_df.groupby("metric")["peak"].mean().reset_index().sort_values(by = "peak")["metric"]
+# player_indices = pos_indices.index.values
+# player_samples = jnp.vstack(peaks[..., player_indices].mean(-1))
+# player_samples_decay = jnp.vstack(jnp.nanmean(decay[..., player_indices],-1))
+# player_samples_decay_kde = np.zeros((100, len(metrics)))
+# player_samples_decay_x = np.zeros((100, len(metrics)))
+# metric_kde_list = []
+# position_samples_list =  []
+# position_samples_decay_list = []
+# position_samples_decay_kde_list = []
+# for index, metric in enumerate(metrics):
+#     metric_kde = gaussian_kde(player_samples_decay[..., index])
+#     player_samples_decay_kde[..., index] = metric_kde.evaluate(jnp.linspace(
+#     player_samples_decay[..., index].min(), player_samples_decay[..., index].max(), 100))
+#     player_samples_decay_x[..., index] = jnp.linspace(
+#     player_samples_decay[..., index].min(), player_samples_decay[..., index].max(), 100)
+#     player_samples_decay_kde[..., index] /= player_samples_decay_kde[..., index].sum()
+#     metric_kde_df = pd.DataFrame(jnp.stack([player_samples_decay_x[..., index],player_samples_decay_kde[..., index]]).T, columns = ["x","density"])
+#     metric_kde_df["metric"] = metric
+#     metric_kde_list.append(metric_kde_df)
+#     pos_samples_decay_df = pd.DataFrame(player_samples_decay, columns= metrics).melt(value_name = "decay", var_name="metric")
+#     pos_samples_decay_kde_df = pd.concat(metric_kde_list)
 
-samples_ridgeplot = [
-        position_samples_df[(position_samples_df["metric"] == metric)]["peak"].to_numpy()
-    for metric in labels_sorted
-]
+#     pos_samples_df = pd.DataFrame(player_samples, columns=metrics).melt(value_name="peak", var_name="metric")
+#     position_samples_list.append(pos_samples_df)
+#     position_samples_decay_list.append(pos_samples_decay_df)
+#     position_samples_decay_kde_list.append(pos_samples_decay_kde_df)
 
-samples_ridgeplot_decay = [
-        position_samples_decay_df[ (position_samples_decay_df["metric"] == metric)]["decay"].to_numpy()
-    for metric in labels_sorted
-]
+# position_samples_df = pd.concat(position_samples_list)
+# position_samples_decay_df = pd.concat(position_samples_decay_list)
+# position_samples_decay_kde_df = pd.concat(position_samples_decay_kde_list)
 
-print("setup samples for plotting")
+# labels_sorted = position_samples_df.groupby("metric")["peak"].mean().reset_index().sort_values(by = "peak")["metric"]
+
+# samples_ridgeplot = [
+#         position_samples_df[(position_samples_df["metric"] == metric)]["peak"].to_numpy()
+#     for metric in labels_sorted
+# ]
+
+# samples_ridgeplot_decay = [
+#         position_samples_decay_df[ (position_samples_decay_df["metric"] == metric)]["decay"].to_numpy()
+#     for metric in labels_sorted
+# ]
+
+# print("setup samples for plotting")
    
 
-fig = rp.ridgeplot(
-    samples=samples_ridgeplot,
-    labels=labels_sorted,
-    colormode="trace-index-row-wise",
-    spacing=.5,
-    norm = "probability",
+# fig = rp.ridgeplot(
+#     samples=samples_ridgeplot,
+#     labels=labels_sorted,
+#     colormode="trace-index-row-wise",
+#     spacing=.5,
+#     norm = "probability",
     
-    )
+#     )
 
-fig.update_layout(
-title="Distribution of Peak Performance by Position",
-height=650,
-width=950,
-font_size=14,
-plot_bgcolor="rgb(245, 245, 245)",
-xaxis_gridcolor="white",
-yaxis_gridcolor="white",
-xaxis_gridwidth=2,
-yaxis_title="Metric",
-xaxis_title="Peak Age",
-showlegend=False,
-    )
-
-
-
-fig.write_image("model_output/model_plots/debug_peak_full_poisson_minutes.png", format = "png")
+# fig.update_layout(
+# title="Distribution of Peak Performance by Position",
+# height=650,
+# width=950,
+# font_size=14,
+# plot_bgcolor="rgb(245, 245, 245)",
+# xaxis_gridcolor="white",
+# yaxis_gridcolor="white",
+# xaxis_gridwidth=2,
+# yaxis_title="Metric",
+# xaxis_title="Peak Age",
+# showlegend=False,
+#     )
 
 
 
-fig = make_subplots(rows = 4, cols=4,  subplot_titles=metrics)
+# fig.write_image("model_output/model_plots/debug_peak_full_poisson_minutes.png", format = "png")
 
-for index, metric in enumerate(labels_sorted):
-    row = int(np.floor(index / 4)) + 1 
-    col = (index % 4) + 1
-    metric_type = metric_output[index]
-    pos_metric_df = position_samples_decay_kde_df[(position_samples_decay_kde_df["metric"] == metric)]
-    x = pos_metric_df["x"].to_numpy()
-    y = pos_metric_df["density"].to_numpy()
-    fig.add_trace(go.Scatter(x = np.append(x, None), y = np.append(y, None), mode = "lines", showlegend=False), row = row, col=col)
+
+
+# fig = make_subplots(rows = 4, cols=4,  subplot_titles=metrics)
+
+# for index, metric in enumerate(labels_sorted):
+#     row = int(np.floor(index / 4)) + 1 
+#     col = (index % 4) + 1
+#     metric_type = metric_output[index]
+#     pos_metric_df = position_samples_decay_kde_df[(position_samples_decay_kde_df["metric"] == metric)]
+#     x = pos_metric_df["x"].to_numpy()
+#     y = pos_metric_df["density"].to_numpy()
+#     fig.add_trace(go.Scatter(x = np.append(x, None), y = np.append(y, None), mode = "lines", showlegend=False), row = row, col=col)
         
-fig.update_xaxes(tickangle=90)
-fig.update_layout({'width':650, 'height': 650,
-                            'showlegend':False, 'hovermode': 'closest',
-                            })
-fig.write_image("model_output/model_plots/debug_decay_full_poisson_minutes.png", format = "png")
-print("finished plotting the samples")
+# fig.update_xaxes(tickangle=90)
+# fig.update_layout({'width':650, 'height': 650,
+#                             'showlegend':False, 'hovermode': 'closest',
+#                             })
+# fig.write_image("model_output/model_plots/debug_decay_full_poisson_minutes.png", format = "png")
+# print("finished plotting the samples")
 
 
 
@@ -241,39 +248,72 @@ player_labels = ["Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant",
                          "Chris Paul", "Shaquille O'Neal"]
 
 
-X = results["X"]
-tsne = TSNE(n_components=2)
-X_tsne_df = pd.DataFrame(tsne.fit_transform(X), columns = ["Dim. 1", "Dim. 2"])
-id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
-X_tsne_df = pd.concat([X_tsne_df, id_df], axis = 1)
-X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in player_labels else "")
-X_tsne_df["minutes"] /= np.max(X_tsne_df["minutes"])
-X_tsne_df.rename(mapper = {"position_group": "Position"}, inplace=True, axis=1)
-fig = px.scatter(X_tsne_df, x = "Dim. 1", y = "Dim. 2", color = "Position", text="name", size = "minutes",
-                    opacity = .1, title="T-SNE Visualization of Latent Player Embedding", )
-fig.write_image(f"model_output/model_plots/exponential_cp_latent_space.png", format = "png")
+# X = results["X"]
+# tsne = TSNE(n_components=2)
+# X_tsne_df = pd.DataFrame(tsne.fit_transform(X), columns = ["Dim. 1", "Dim. 2"])
+# id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
+# X_tsne_df = pd.concat([X_tsne_df, id_df], axis = 1)
+# X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in player_labels else "")
+# X_tsne_df["minutes"] /= np.max(X_tsne_df["minutes"])
+# X_tsne_df.rename(mapper = {"position_group": "Position"}, inplace=True, axis=1)
+# fig = px.scatter(X_tsne_df, x = "Dim. 1", y = "Dim. 2", color = "Position", text="name", size = "minutes",
+#                     opacity = .1, title="T-SNE Visualization of Latent Player Embedding", )
+# fig.write_image(f"model_output/model_plots/exponential_cp_latent_space.png", format = "png")
+
+transformed_mu_mcmc_mean = transformed_mu_mcmc.mean((0,1)) ## get posterior mean across all samples and add an arbitrary ambient dim
+
+basis_stack = ((basis - 18)/ len(basis))[None, None, :].repeat(len(metrics), axis=0).repeat(results["X"].shape[0], axis=1)
+transformed_mu_mcmc_curves = jnp.stack([basis_stack, transformed_mu_mcmc_mean], axis = -1)
+
+curves_r2 = DiscreteCurvesStartingAtOrigin(
+    ambient_dim=2, k_sampling_points=len(basis), equip=False
+)
+transformed_mu_mcmc_mean_origin = curves_r2.projection(transformed_mu_mcmc_curves)
+transformed_mu_mcmc_mean_normalized = curves_r2.normalize(transformed_mu_mcmc_mean_origin)
+curves_r2.equip_with_metric(SRVMetric)
+curves_r2.equip_with_group_action(("rotations", "reparametrizations"))
+curves_r2.equip_with_quotient()
+
+metric_shape_curves = {}
+
+dist_vectorized = np.vectorize(curves_r2.metric.dist, signature="(t,2),(t,2)->()")
+tsne_shape_curves = TSNE(n_components=2,init="random", metric="precomputed")
+for index , metric in enumerate(metrics):
 
 
+    pairwise_dists = dist_vectorized(transformed_mu_mcmc_mean_normalized[index][None,...], transformed_mu_mcmc_mean_normalized[index][:, None, ...])
+    metric_shape_curves[metric] = pairwise_dists
+
+    X_tsne_df = pd.DataFrame(tsne_shape_curves.fit_transform(pairwise_dists), columns = ["Dim. 1", "Dim. 2"])
+    print(X_tsne_df.head())
+    id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
+    X_tsne_df = pd.concat([X_tsne_df, id_df], axis = 1)
+    X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in player_labels else "")
+    X_tsne_df["minutes"] /= np.max(X_tsne_df["minutes"])
+    X_tsne_df.rename(mapper = {"position_group": "Position"}, inplace=True, axis=1)
+    fig = px.scatter(X_tsne_df, x = "Dim. 1", y = "Dim. 2", color = "Position", text="name", size = "minutes",
+                        opacity = .1, title="T-SNE Visualization of Player Curve Shapes", )
+    fig.write_image(f"model_output/model_plots/{metric}_shape_curve_tsne.png", format = "png")
 
 
-for player in player_labels:
-    index_player = id_df[id_df["name"] == player].index.values[0]
-    fig = plot_posterior_predictive_career_trajectory(index_player, metrics, metric_output , posterior_mean_samples=mu_mcmc[..., index_player, :], observations=observations,
-                                                      exposures= exposures, 
-                                                      posterior_variance_samples=jnp.transpose(results_tvrflvm["sigma"], (2,0,1)),
-                                                      exposure_names= exposure_list)
-    fig.write_image(f"model_output/model_plots/player_plots/original_{player}.png", format = "png")
+# for player in player_labels:
+#     index_player = id_df[id_df["name"] == player].index.values[0]
+#     fig = plot_posterior_predictive_career_trajectory(index_player, metrics, metric_output , posterior_mean_samples=mu_mcmc[..., index_player, :], observations=observations,
+#                                                       exposures= exposures, 
+#                                                       posterior_variance_samples=jnp.transpose(results_tvrflvm["sigma"], (2,0,1)),
+#                                                       exposure_names= exposure_list)
+#     fig.write_image(f"model_output/model_plots/player_plots/original_{player}.png", format = "png")
 
-obs, pos = create_metric_trajectory_all(mu_mcmc, observations, exposures, 
-                                        metric_output, metrics, exposure_list, 
-                                        jnp.transpose(results_tvrflvm["sigma"], (2,0,1)))
+# obs, pos = create_metric_trajectory_all(mu_mcmc, observations, exposures, 
+#                                         metric_output, metrics, exposure_list, 
+#                                         jnp.transpose(results_tvrflvm["sigma"], (2,0,1)))
 
-hdi = az.hdi(np.array(pos), hdi_prob = .95)
+# hdi = az.hdi(np.array(pos), hdi_prob = .95)
 
-hdi_low = hdi[..., 0]
-hdi_high = hdi[..., 1]
-avg_coverages = ((obs <= hdi_high) & (obs >= hdi_low)).sum((0,1)) / (~np.isnan(obs)).sum((0, 1))
-coverage_df = pd.DataFrame(avg_coverages, columns=["coverage"])
-coverage_df["metric"] = metrics
-fig = px.bar(coverage_df.sort_values(by = "coverage"), x='metric', y='coverage')
-fig.write_image(f"model_output/model_plots/original_coverage.png")
+# hdi_low = hdi[..., 0]
+# hdi_high = hdi[..., 1]
+# avg_coverages = ((obs <= hdi_high) & (obs >= hdi_low)).sum((0,1)) / (~np.isnan(obs)).sum((0, 1))
+# coverage_df = pd.DataFrame(avg_coverages, columns=["coverage"])
+# coverage_df["metric"] = metrics
+# fig = px.bar(coverage_df.sort_values(by = "coverage"), x='metric', y='coverage')
+# fig.write_image(f"model_output/model_plots/original_coverage.png")
