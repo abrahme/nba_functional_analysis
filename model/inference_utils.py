@@ -175,7 +175,7 @@ def create_metric_trajectory(posterior_mean_samples, player_index, observations,
 def create_metric_trajectory_map(posterior_mean_map: jnp.ndarray, player_index, observations, exposures, metric_outputs: list[str], metrics: list[str]):
     ### this is assuming that posterior_mean_map is shape (k,t)
     gaussian_index = 0
-    minutes_index = metrics.index("minutes")
+    minutes_index = metrics.index("log_min")
     retirement_index = metrics.index("retirement")  ### 1 -> playing, 0 --> retired
     ### first sample retirement
     post_retirement = posterior_mean_map[retirement_index]
@@ -186,7 +186,7 @@ def create_metric_trajectory_map(posterior_mean_map: jnp.ndarray, player_index, 
     posterior_predictions_min = jnp.exp(post_min)
     obs_min = observations[ minutes_index, player_index, :]
     posteriors = [jsc.special.expit(post_retirement), posterior_predictions_min]
-    obs_normalized = [obs_retirement, obs_min]
+    obs_normalized = [obs_retirement, jnp.exp(obs_min)] ### account for the log 
     ### sample all the poisson metrics using posterior predictions log min as exposure, and sample obpm / dbpm using sqrt(minutes) as exposure
     for metric_index, metric_output in enumerate(metric_outputs):
         if (metric_index in [ minutes_index, retirement_index]) :

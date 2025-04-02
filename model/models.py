@@ -471,7 +471,7 @@ class ConvexTVRFLVM(TVRFLVM):
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
         guide = AutoDelta(self.model_fn, prefix="", init_loc_fn = init_to_median, **guide_kwargs)
         print("Setup guide")
-        svi = SVI(self.model_fn, guide, optim=adam(.00003), loss=Trace_ELBO(num_particles=1)
+        svi = SVI(self.model_fn, guide, optim=adam(.0003), loss=Trace_ELBO(num_particles=1)
                   )
         print("Setup SVI")
         result = svi.run(jax.random.PRNGKey(0),
@@ -532,7 +532,7 @@ class ConvexGP(TVRFLVM):
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
         guide = AutoDelta(self.model_fn, prefix="", **guide_kwargs)
         print("Setup guide")
-        svi = SVI(self.model_fn, guide, optim=adam(.000003), loss=Trace_ELBO(num_particles=10),
+        svi = SVI(self.model_fn, guide, optim=adam(.00003), loss=Trace_ELBO(num_particles=10),
                   )
         print("Setup SVI")
         result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps,progress_bar = True, init_params=initial_values, **model_args)
