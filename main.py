@@ -48,10 +48,11 @@ if __name__ == "__main__":
     names = data.groupby("id")["name"].first().values.tolist()
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
+    data["games_exposure"] = np.maximum(82, data["games"]) ### 82 or whatever
     data["retirement"] = 1
     metric_output = ["binomial", "poisson"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
-    metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
-    exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
+    metrics = ["games", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
+    exposure_list = (["games_exposure", "games"]) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
 
     if players:
         player_indices = [names.index(item) for item in players]
