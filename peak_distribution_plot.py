@@ -12,6 +12,7 @@ import jax.scipy.special as jsci
 from model.hsgp import make_convex_f, diag_spectral_density, make_convex_phi, make_psi_gamma
 from plotly.subplots import make_subplots
 from sklearn.manifold import TSNE
+from sklearn.cluster import SpectralClustering
 from geomstats.geometry.discrete_curves import (
     DiscreteCurvesStartingAtOrigin,
     SRVMetric,
@@ -261,15 +262,15 @@ player_labels = ["Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant",
 # fig.write_image(f"model_output/model_plots/exponential_cp_latent_space.png", format = "png")
 
 transformed_mu_mcmc_mean = transformed_mu_mcmc.mean((0,1)) ## get posterior mean across all samples and add an arbitrary ambient dim
-
-basis_stack = ((basis - 18)/ len(basis))[None, None, :].repeat(len(metrics), axis=0).repeat(results["X"].shape[0], axis=1)
-transformed_mu_mcmc_curves = jnp.stack([basis_stack, transformed_mu_mcmc_mean], axis = -1)
+transformed_mu_mcmc_mean_scaled = transformed_mu_mcmc_mean / np.max(np.abs(transformed_mu_mcmc_mean), -1, keepdims=True)
+basis_stack = (basis)[None, None, :].repeat(len(metrics), axis=0).repeat(results["X"].shape[0], axis=1)
+transformed_mu_mcmc_curves = jnp.stack([basis_stack, transformed_mu_mcmc_mean_scaled], axis = -1)
 
 curves_r2 = DiscreteCurvesStartingAtOrigin(
     ambient_dim=2, k_sampling_points=len(basis), equip=False
 )
+
 transformed_mu_mcmc_mean_origin = curves_r2.projection(transformed_mu_mcmc_curves)
-transformed_mu_mcmc_mean_normalized = curves_r2.normalize(transformed_mu_mcmc_mean_origin)
 curves_r2.equip_with_metric(SRVMetric)
 curves_r2.equip_with_group_action(("rotations", "reparametrizations"))
 curves_r2.equip_with_quotient()
@@ -277,23 +278,38 @@ curves_r2.equip_with_quotient()
 metric_shape_curves = {}
 
 dist_vectorized = np.vectorize(curves_r2.metric.dist, signature="(t,2),(t,2)->()")
-tsne_shape_curves = TSNE(n_components=2,init="random", metric="precomputed")
+tsne_shape_curves = TSNE(n_components=2,init="random", metric="precomputed", random_state=0)
+spectral_shape_curves = SpectralClustering(affinity="precomputed")
 for index , metric in enumerate(metrics):
 
 
-    pairwise_dists = dist_vectorized(transformed_mu_mcmc_mean_normalized[index][None,...], transformed_mu_mcmc_mean_normalized[index][:, None, ...])
+    pairwise_dists = dist_vectorized(transformed_mu_mcmc_mean_origin[index][None,...], transformed_mu_mcmc_mean_origin[index][:, None, ...])
     metric_shape_curves[metric] = pairwise_dists
 
     X_tsne_df = pd.DataFrame(tsne_shape_curves.fit_transform(pairwise_dists), columns = ["Dim. 1", "Dim. 2"])
-    print(X_tsne_df.head())
+    X_tsne_df["cluster"] = spectral_shape_curves.fit_predict(np.exp(-pairwise_dists))
     id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
     X_tsne_df = pd.concat([X_tsne_df, id_df], axis = 1)
     X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in player_labels else "")
     X_tsne_df["minutes"] /= np.max(X_tsne_df["minutes"])
     X_tsne_df.rename(mapper = {"position_group": "Position"}, inplace=True, axis=1)
-    fig = px.scatter(X_tsne_df, x = "Dim. 1", y = "Dim. 2", color = "Position", text="name", size = "minutes",
-                        opacity = .1, title="T-SNE Visualization of Player Curve Shapes", )
+    
+    cluster_avg = []
+    for cluster_idx in range(X_tsne_df["cluster"].max() + 1):
+        cluster_avg_curve = np.mean(transformed_mu_mcmc_mean_origin[index, X_tsne_df[X_tsne_df["cluster"] == cluster_idx].index.values], 0)
+        cluster_df = pd.DataFrame(cluster_avg_curve, columns = ["x","value"])
+        cluster_df["cluster"] = "Cluster " + str(int(cluster_idx)) 
+        cluster_avg.append(cluster_df)
+    metric_cluster_df = pd.concat(cluster_avg)
+    X_tsne_df = X_tsne_df.sort_values(by = "cluster")
+    X_tsne_df["cluster"] = X_tsne_df["cluster"].apply(lambda x: f"Cluster {x}")
+    fig = px.scatter(X_tsne_df, x = "Dim. 1", y = "Dim. 2", color = "cluster", text="name", size = "minutes",
+                        opacity = .1, title="T-SNE Visualization of Player Curve Shapes",)
+    
     fig.write_image(f"model_output/model_plots/{metric}_shape_curve_tsne.png", format = "png")
+    fig = px.line(metric_cluster_df, x="x", y = "value", color = "cluster")
+    fig.write_image(f"model_output/model_plots/{metric}_shape_curve_cluster_curves.png", format = "png")
+    print(f"finished plotting curve analysis for {metric}")
 
 
 # for player in player_labels:
