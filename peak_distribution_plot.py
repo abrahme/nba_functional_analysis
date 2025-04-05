@@ -279,7 +279,7 @@ metric_shape_curves = {}
 
 dist_vectorized = np.vectorize(curves_r2.metric.dist, signature="(t,2),(t,2)->()")
 tsne_shape_curves = TSNE(n_components=2,init="random", metric="precomputed", random_state=0)
-spectral_shape_curves = SpectralClustering(affinity="precomputed")
+spectral_shape_curves = SpectralClustering(affinity="precomputed", n_clusters=3)
 for index , metric in enumerate(metrics):
 
 
@@ -292,14 +292,45 @@ for index , metric in enumerate(metrics):
     X_tsne_df = pd.concat([X_tsne_df, id_df], axis = 1)
     X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in player_labels else "")
     X_tsne_df["minutes"] /= np.max(X_tsne_df["minutes"])
+    X_tsne_df["peak_age"] = basis[np.argmax(transformed_mu_mcmc_mean[index], -1)]
+    X_tsne_df["peak_val"] = np.max(transformed_mu_mcmc_mean[index], -1)
     X_tsne_df.rename(mapper = {"position_group": "Position"}, inplace=True, axis=1)
     
+
     cluster_avg = []
+    subplot_titles = [f"Cluster {i}" for i in range(X_tsne_df["cluster"].max() + 1)]
+    fig = make_subplots(rows=1, cols=3, subplot_titles=subplot_titles)
     for cluster_idx in range(X_tsne_df["cluster"].max() + 1):
-        cluster_avg_curve = np.mean(transformed_mu_mcmc_mean_origin[index, X_tsne_df[X_tsne_df["cluster"] == cluster_idx].index.values], 0)
+        cluster_indices = X_tsne_df[X_tsne_df["cluster"] == cluster_idx].index.values
+        cluster_avg_curve = np.mean(transformed_mu_mcmc_mean_origin[index, cluster_indices], 0)
         cluster_df = pd.DataFrame(cluster_avg_curve, columns = ["x","value"])
         cluster_df["cluster"] = "Cluster " + str(int(cluster_idx)) 
         cluster_avg.append(cluster_df)
+        row = 1
+        col = cluster_idx + 1
+        for i in cluster_indices:
+            inter_cluster_curve = transformed_mu_mcmc_mean_origin[index, i]
+            fig.add_trace(go.Scatter(
+                x=inter_cluster_curve[:,0], y=inter_cluster_curve[:,1],
+                mode='lines',
+                line=dict(color='gray', width=1),
+                opacity=0.05,
+                showlegend=False), 
+                row=row, col=col)
+        # Plot one red curve
+        fig.add_trace(go.Scatter(
+            x=cluster_df["x"], y=cluster_df["value"],
+            mode='lines',
+            line=dict(color='red', width=2),
+            showlegend=False
+        ), row=row, col=col)
+    fig.update_layout(
+        title_text=f"Per Cluster Curves for {metric}",
+        title_x=0.5  )
+    fig.write_image(f"model_output/model_plots/{metric}_shape_curve_cluster_spaghetti.png", format = "png")
+
+
+
     metric_cluster_df = pd.concat(cluster_avg)
     X_tsne_df = X_tsne_df.sort_values(by = "cluster")
     X_tsne_df["cluster"] = X_tsne_df["cluster"].apply(lambda x: f"Cluster {x}")
@@ -307,6 +338,14 @@ for index , metric in enumerate(metrics):
                         opacity = .1, title="T-SNE Visualization of Player Curve Shapes",)
     
     fig.write_image(f"model_output/model_plots/{metric}_shape_curve_tsne.png", format = "png")
+    fig = px.scatter(X_tsne_df, x = "Dim. 1", y = "Dim. 2", color = "peak_val", text="name", size = "minutes",
+                        opacity = .1, title="T-SNE Visualization of Player Curve Shapes: Peak Value",)
+    
+    fig.write_image(f"model_output/model_plots/{metric}_shape_curve_tsne_peak_val.png", format = "png")
+    fig = px.scatter(X_tsne_df, x = "Dim. 1", y = "Dim. 2", color = "peak_age", text="name", size = "minutes",
+                        opacity = .1, title="T-SNE Visualization of Player Curve Shapes: Peak Age",)
+    
+    fig.write_image(f"model_output/model_plots/{metric}_shape_curve_tsne_peak_age.png", format = "png")
     fig = px.line(metric_cluster_df, x="x", y = "value", color = "cluster")
     fig.write_image(f"model_output/model_plots/{metric}_shape_curve_cluster_curves.png", format = "png")
     print(f"finished plotting curve analysis for {metric}")
