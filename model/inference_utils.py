@@ -180,14 +180,17 @@ def create_metric_trajectory_map(posterior_mean_map: jnp.ndarray, player_index, 
     ### first sample retirement
     post_games = posterior_mean_map[games_index]
     obs_games = observations[games_index, player_index, :]
-    exposure_games = exposures[player_index, games_index, :]
+    exposure_games = exposures[games_index,player_index,  :]
+    exposure_min = exposures[minutes_index,player_index, :]
+
     #### then sample minutes 
     
     post_min = posterior_mean_map[minutes_index]
     posterior_predictions_min = jnp.exp(post_min)
     obs_min = observations[ minutes_index, player_index, :]
+
     posteriors = [jsc.special.expit(post_games), posterior_predictions_min]
-    obs_normalized = [obs_games / exposure_games, obs_min]
+    obs_normalized = [obs_games / exposure_games, obs_min / jnp.exp(exposure_min)]
     ### sample all the poisson metrics using posterior predictions log min as exposure, and sample obpm / dbpm using sqrt(minutes) as exposure
     for metric_index, metric_output in enumerate(metric_outputs):
         if (metric_index in [ minutes_index, games_index]) :
