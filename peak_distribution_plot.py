@@ -14,7 +14,7 @@ from plotly.subplots import make_subplots
 from sklearn.manifold import TSNE
 from sklearn.cluster import SpectralClustering
 from geomstats.geometry.discrete_curves import (
-    DiscreteCurvesStartingAtOrigin,
+    DiscreteCurves,
     SRVMetric,
 
 )
@@ -262,18 +262,18 @@ player_labels = ["Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant",
 # fig.write_image(f"model_output/model_plots/exponential_cp_latent_space.png", format = "png")
 
 transformed_mu_mcmc_mean = transformed_mu_mcmc.mean((0,1)) ## get posterior mean across all samples and add an arbitrary ambient dim
-transformed_mu_mcmc_mean_scaled = transformed_mu_mcmc_mean / np.max(np.abs(transformed_mu_mcmc_mean), -1, keepdims=True)
-basis_stack = (basis)[None, None, :].repeat(len(metrics), axis=0).repeat(results["X"].shape[0], axis=1)
+denom =  np.max(np.abs(transformed_mu_mcmc_mean), -1, keepdims=True)
+denom[np.argmax(transformed_mu_mcmc_mean, -1) == 0] = np.max(np.abs(transformed_mu_mcmc_mean), -1, keepdims=True)[np.argmax(transformed_mu_mcmc_mean, -1) == 0]
+transformed_mu_mcmc_mean_scaled = transformed_mu_mcmc_mean / denom
+
+basis_stack = (basis - 18)[None, None, :].repeat(len(metrics), axis=0).repeat(results["X"].shape[0], axis=1)
 transformed_mu_mcmc_curves = jnp.stack([basis_stack, transformed_mu_mcmc_mean_scaled], axis = -1)
 
-curves_r2 = DiscreteCurvesStartingAtOrigin(
-    ambient_dim=2, k_sampling_points=len(basis), equip=False
+curves_r2 = DiscreteCurves(
+    ambient_dim=2, k_sampling_points=len(basis), equip=True, starting_at_origin=False,
 )
 
-transformed_mu_mcmc_mean_origin = curves_r2.projection(transformed_mu_mcmc_curves)
-curves_r2.equip_with_metric(SRVMetric)
 curves_r2.equip_with_group_action(("rotations", "reparametrizations"))
-curves_r2.equip_with_quotient()
 
 metric_shape_curves = {}
 
@@ -283,7 +283,7 @@ spectral_shape_curves = SpectralClustering(affinity="precomputed", n_clusters=3)
 for index , metric in enumerate(metrics):
 
 
-    pairwise_dists = dist_vectorized(transformed_mu_mcmc_mean_origin[index][None,...], transformed_mu_mcmc_mean_origin[index][:, None, ...])
+    pairwise_dists = dist_vectorized(transformed_mu_mcmc_curves[index][None,...], transformed_mu_mcmc_curves[index][:, None, ...])
     metric_shape_curves[metric] = pairwise_dists
 
     X_tsne_df = pd.DataFrame(tsne_shape_curves.fit_transform(pairwise_dists), columns = ["Dim. 1", "Dim. 2"])
@@ -299,17 +299,18 @@ for index , metric in enumerate(metrics):
 
     cluster_avg = []
     subplot_titles = [f"Cluster {i}" for i in range(X_tsne_df["cluster"].max() + 1)]
-    fig = make_subplots(rows=1, cols=3, subplot_titles=subplot_titles)
+    fig = make_subplots(rows=1, cols=3, subplot_titles=subplot_titles, shared_xaxes=True,
+    shared_yaxes=True)
     for cluster_idx in range(X_tsne_df["cluster"].max() + 1):
         cluster_indices = X_tsne_df[X_tsne_df["cluster"] == cluster_idx].index.values
-        cluster_avg_curve = np.mean(transformed_mu_mcmc_mean_origin[index, cluster_indices], 0)
+        cluster_avg_curve = np.mean(transformed_mu_mcmc_curves[index, cluster_indices], 0)
         cluster_df = pd.DataFrame(cluster_avg_curve, columns = ["x","value"])
         cluster_df["cluster"] = "Cluster " + str(int(cluster_idx)) 
         cluster_avg.append(cluster_df)
         row = 1
         col = cluster_idx + 1
         for i in cluster_indices:
-            inter_cluster_curve = transformed_mu_mcmc_mean_origin[index, i]
+            inter_cluster_curve = transformed_mu_mcmc_curves[index, i]
             fig.add_trace(go.Scatter(
                 x=inter_cluster_curve[:,0], y=inter_cluster_curve[:,1],
                 mode='lines',

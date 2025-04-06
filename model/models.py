@@ -418,7 +418,7 @@ class ConvexTVRFLVM(TVRFLVM):
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
         self.prior["lengthscale_deriv"] = InverseGamma(1.0, 1.0)
-        self.prior["sigma"] = InverseGamma(2.0, 60.0)
+        self.prior["sigma"] = InverseGamma(299.0, 6000.0)
         self.prior["alpha"] = InverseGamma(1.0, 1.0)
         self.prior["intercept"] = Normal()
         self.prior["slope"] = Normal()
