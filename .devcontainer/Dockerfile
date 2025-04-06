@@ -49,7 +49,9 @@ RUN pip install \
         shinywidgets \
         Jinja2 \
         scikit-learn \
-        kaleido
+        kaleido \
+        geomstats \
+        ridgeplot 
 
 # RUN pip install --upgrade "jax[cuda12]"
 
