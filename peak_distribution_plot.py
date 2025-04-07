@@ -69,13 +69,14 @@ names = data.groupby("id")["name"].first().values
 names_df = pd.DataFrame(names, columns = ["Name"])
 names_df["Player"] = range(len(names))
 metric_output = ["binomial", "poisson"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
-metrics = ["retirement", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
+metrics = ["games", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
 metric_df = pd.DataFrame(metrics, columns=["Statistic"])
 metric_df["Metric"] = range(len(metrics))
 basis = np.arange(18, 39)
 age_df = pd.DataFrame(range(18,39), columns = ["Age"])
 age_df["Time"] = age_df["Age"] - 18
-exposure_list = (["simple_exposure"] * 2) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
+exposure_list = (["games_exposure", "games"]) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
+data["games_exposure"] = np.maximum(82, data["games"]) ### 82 or whatever
 data["retirement"] = 1
 print(f"mean age of retirement: {data.groupby('id')['age'].max().median()}")
 data["log_min"] = np.log(data["minutes"])
