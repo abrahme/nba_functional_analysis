@@ -300,8 +300,10 @@ for index , metric in enumerate(metrics):
 
     cluster_avg = []
     subplot_titles = [f"Cluster {i}" for i in range(X_tsne_df["cluster"].max() + 1)]
-    fig = make_subplots(rows=1, cols=3, subplot_titles=subplot_titles, shared_xaxes=True,
-    shared_yaxes=True)
+    fig = make_subplots(rows=2, cols=3, subplot_titles=subplot_titles, shared_xaxes=True,
+    shared_yaxes=True,specs=[[{"type": "table"}, {"type": "table"}, {"type": "table"}],
+                             [{"type": "xy"},    {"type": "xy"},    {"type": "xy"}]],
+                             vertical_spacing=0.2)
     for cluster_idx in range(X_tsne_df["cluster"].max() + 1):
         cluster_indices = X_tsne_df[X_tsne_df["cluster"] == cluster_idx].index.values
         cluster_avg_curve = np.mean(transformed_mu_mcmc_curves[index, cluster_indices], 0)
@@ -318,14 +320,25 @@ for index , metric in enumerate(metrics):
                 line=dict(color='gray', width=1),
                 opacity=0.05,
                 showlegend=False), 
-                row=row, col=col)
+                row=row+1, col=col)
+                ## example players in cluster
+        example_players = X_tsne_df[X_tsne_df["cluster"] == cluster_idx].sort_values(by = "minutes", ascending = False)[["id"]].merge(id_df[["id", "name"]], on = ["id"])[["name"]]
+        fig.add_trace(
+                go.Table(
+                    header=dict(values=list(example_players.columns)),
+                    cells=dict(values=[example_players[col].tolist() for col in example_players.columns])
+                ),
+                row=1, col=col
+            )
         # Plot one red curve
         fig.add_trace(go.Scatter(
             x=cluster_df["x"], y=cluster_df["value"],
             mode='lines',
             line=dict(color='red', width=2),
             showlegend=False
-        ), row=row, col=col)
+        ), row=row+1, col=col)
+        
+
     fig.update_layout(
         title_text=f"Per Cluster Curves for {metric}",
         title_x=0.5  )
