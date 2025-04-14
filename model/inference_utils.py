@@ -4,7 +4,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 import jax.scipy as jsc
-from numpyro.distributions import Normal, Poisson, Bernoulli, BinomialLogits
+from numpyro.distributions import Normal, Poisson, BinomialLogits
 # jax.config.update('jax_platform_name', 'cuda')
 
 def varimax(Phi, gamma = 1, q = 20):
@@ -67,9 +67,8 @@ def create_metric_trajectory_all(posterior_mean_samples, observations, exposures
     games_index = metrics.index("games")  ### 1 -> playing, 0 --> retired
     ### first sample games
     post_games = posterior_mean_samples[..., games_index, :, :]
-
-    exposure_games = exposures[..., games_index, :]
-    posterior_predictions_games = BinomialLogits(logits=post_games,total_count=exposure_games).sample(key = key) 
+    exposure_games = jnp.astype(exposures[games_index], jnp.int32)
+    posterior_predictions_games = BinomialLogits(logits=post_games,total_count=exposure_games[None, None, ...]).sample(key = key) 
     obs_games = observations[..., games_index, :]
     #### then sample minutes 
     post_min = posterior_mean_samples[..., minutes_index, :, :]
@@ -90,13 +89,13 @@ def create_metric_trajectory_all(posterior_mean_samples, observations, exposures
             scale = posterior_variance_samples[gaussian_index][..., None, None] / jnp.sqrt(posterior_predictions_min_exposure)
             dist = Normal()
             posterior_predictions = (dist.sample(key = key, sample_shape=post.shape) * scale + post)
-            posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_games == 0)].set(-2.0)
+            posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_min_exposure == 0)].set(-2.0)
             gaussian_index += 1
             obs_normal = obs
         elif metric_output == "poisson":
             dist = Poisson(rate = jnp.exp(post) * posterior_predictions_min_exposure)
             posterior_predictions = 36.0 * (dist.sample(key = key) / posterior_predictions_min_exposure) ### per 36 min statistics
-            posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_games == 0)].set(0) ### set to 0 wherever 
+            posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_min_exposure == 0)].set(0) ### set to 0 wherever 
             obs_normal = 36.0 * (obs / jnp.exp(exposure))
         elif metric_output == "binomial":
             exp_name = obs_exposure_map[metric]
@@ -119,9 +118,9 @@ def create_metric_trajectory(posterior_mean_samples, player_index, observations,
     minutes_index = metrics.index("minutes")
     games_index = metrics.index("games")  ### 1 -> playing, 0 --> retired
     ### first sample games
-    post_games = posterior_mean_samples[..., games_index, :]
-    exposure_games = exposures[player_index, games_index, :]
-    posterior_predictions_games = BinomialLogits(logits=post_games, total_count = exposure_games).sample(key = key) 
+    post_games = posterior_mean_samples[..., games_index, :]   
+    exposure_games = exposures[games_index, player_index, :]
+    posterior_predictions_games = BinomialLogits(logits=post_games, total_count = jnp.astype(exposure_games, jnp.int32)[None,None,...]).sample(key = key) 
     obs_games = observations[player_index, games_index, :]
 
     #### then sample minutes 
@@ -130,7 +129,7 @@ def create_metric_trajectory(posterior_mean_samples, player_index, observations,
     posterior_predictions_min = Poisson(rate = jnp.exp(post_min)).sample(key = key) * posterior_predictions_games
     obs_min = observations[player_index, minutes_index, :]
     posterior_predictions_min_exposure = jnp.where(~jnp.isnan(obs_min)[None, None, ...], obs_min[None,None,...], posterior_predictions_min)
-    posteriors = {"games": posterior_predictions_games, "minutes":posterior_predictions_min}
+    posteriors = {"games": posterior_predictions_games / exposure_games, "minutes":posterior_predictions_min}
     obs_normalized = {"games": obs_games / exposure_games, "minutes": obs_min}
     ### sample all the poisson metrics using posterior predictions log min as exposure, and sample obpm / dbpm using sqrt(minutes) as exposure
     for metric_index, metric_output in enumerate(metric_outputs):
@@ -144,13 +143,13 @@ def create_metric_trajectory(posterior_mean_samples, player_index, observations,
             scale = posterior_variance_samples[gaussian_index][..., None] / jnp.sqrt(posterior_predictions_min_exposure)
             dist = Normal()
             posterior_predictions = (dist.sample(key = key, sample_shape=post.shape) * scale + post)
-            posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_games == 0)].set(-2.0)
+            posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_min_exposure == 0)].set(-2.0)
             obs_normal = obs
             gaussian_index += 1
         elif metric_output == "poisson":
             dist = Poisson(rate = jnp.exp(post) * posterior_predictions_min_exposure)
             posterior_predictions = 36.0 * (dist.sample(key = key) / posterior_predictions_min_exposure) ### per 36 min statistics
-            posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_games == 0)].set(0) ### set to 0 wherever 
+            posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_min_exposure == 0)].set(0) ### set to 0 wherever 
             obs_normal = 36.0 * (obs / jnp.exp(exposure))
 
         elif metric_output == "binomial":

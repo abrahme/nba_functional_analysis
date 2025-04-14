@@ -170,7 +170,7 @@ if __name__ == "__main__":
             if "convex" in model_name:
                 model_args.update({ "hsgp_params": hsgp_params})
             if svi_inference:
-                samples = model.run_svi_inference(num_steps=5000000, model_args=model_args, initial_values=initial_params)
+                samples = model.run_svi_inference(num_steps=1000000, model_args=model_args, initial_values=initial_params)
             elif not neural_parametrization:
                 samples, extra_fields = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
             else:
@@ -199,21 +199,22 @@ if __name__ == "__main__":
         weights = samples["beta__loc"]
         weights = weights * spd * .0001
         W = samples["W__loc"] 
-        X = results_param["X"]
-        wTx = jnp.einsum("nr,mr -> nm", X, W)
+        lengthscale = samples["lengthscale__loc"]
+        X = samples["X__loc"]
+        wTx = jnp.einsum("nr,mr -> nm", X, W / lengthscale)
         psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(100))
         slope = make_psi_gamma(psi_x, samples["slope__loc"])
         intercept = make_psi_gamma(psi_x, samples["intercept__loc"])
         gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
         mu = (make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept))[:, jnp.array(player_indices), :].squeeze()
         fig = plot_posterior_predictive_career_trajectory_map(player_indices[0], metrics, metric_output, mu, Y, exposures)
-        fig.write_image("model_output/model_plots/debug_predictions_svi_normalize_games_poisson_minutes.png", format = "png")
+        fig.write_image("model_output/model_plots/debug_predictions_svi_no_init_games_poisson_minutes.png", format = "png")
 
-    if "cp" in model_name:
+
         player_labels = ["Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", 
                          "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash", 
                          "Chris Paul", "Shaquille O'Neal"]
-        X = samples["U__loc"]
+        X = samples["X__loc"]
         tsne = TSNE(n_components=2)
         X_tsne_df = pd.DataFrame(tsne.fit_transform(X), columns = ["Dim. 1", "Dim. 2"])
         id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
@@ -225,18 +226,6 @@ if __name__ == "__main__":
                          opacity = .1, title="T-SNE Visualization of Latent Player Embedding", )
         fig.write_image(f"model_output/model_plots/{model_name}_latent_space.png", format = "png")
 
-        with open("model_output/latent_variable.pkl", "rb") as f:
-            samples_old = pickle.load(f)
-        f.close()
-        X_old = samples_old["X"]
-        tsne = TSNE(n_components=2)
-        X_tsne_df_old = pd.DataFrame(tsne.fit_transform(X_old), columns = ["dim1", "dim2"])
-        X_tsne_df_old = pd.concat([X_tsne_df_old, id_df], axis = 1)
-        X_tsne_df_old["name"] = X_tsne_df_old["name"].apply(lambda x: x if x in player_labels else "")
-        X_tsne_df_old["minutes"] /= np.max(X_tsne_df_old["minutes"])
-        fig = px.scatter(X_tsne_df_old, x = "dim1", y = "dim2", color = "position_group", text="name", size = "minutes",
-                         opacity = .1)
-        fig.write_image(f"model_output/model_plots/exponential_cp_latent_space.png", format = "png")
     
         
         
