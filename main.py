@@ -7,7 +7,11 @@ import argparse
 import pickle
 import numpyro
 import plotly.express as px
+import plotly.figure_factory as ff
+import plotly.graph_objects as go
 from sklearn.manifold import TSNE
+from scipy.cluster.hierarchy import linkage, leaves_list
+from scipy.spatial.distance import squareform, pdist
 from numpyro.distributions import MatrixNormal
 from numpyro.diagnostics import print_summary
 from model.hsgp import make_convex_phi, diag_spectral_density, make_convex_f, make_psi_gamma
@@ -170,7 +174,7 @@ if __name__ == "__main__":
             if "convex" in model_name:
                 model_args.update({ "hsgp_params": hsgp_params})
             if svi_inference:
-                samples = model.run_svi_inference(num_steps=1000000, model_args=model_args, initial_values=initial_params)
+                samples = model.run_svi_inference(num_steps=10000, model_args=model_args, initial_values=initial_params)
             elif not neural_parametrization:
                 samples, extra_fields = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
             else:
@@ -190,7 +194,7 @@ if __name__ == "__main__":
 
 
     if svi_inference:
-        player_indices = [1323] ### curry
+        
         print(samples["sigma__loc"])
         ls_deriv = samples["lengthscale_deriv__loc"]
         alpha_time = samples["alpha__loc"]
@@ -200,32 +204,118 @@ if __name__ == "__main__":
         weights = weights * spd * .0001
         W = samples["W__loc"] 
         lengthscale = samples["lengthscale__loc"]
+
+
+        C = np.corrcoef(lengthscale)  # N X N correlation matrix
+        labels = metrics
+
+        # ---- Convert correlation matrix to distance matrix ----
+        D = 1 - C  # correlation distance (0 = perfect corr, 2 = perfect anti-corr)
+
+        # ---- Hierarchical clustering ----
+        linkage_mat = linkage(squareform(D, checks=False), method="ward")
+        order = leaves_list(linkage_mat)
+
+        # ---- Reorder correlation matrix ----
+        C_reordered = C[np.ix_(order, order)]
+        labels_ordered = [labels[i] for i in order]
+
+        # ---- Create dendrograms ----
+        dendro_rows = ff.create_dendrogram(C, orientation='left', linkagefun=lambda _: linkage_mat, labels=labels_ordered)
+        dendro_cols = ff.create_dendrogram(C, orientation='top', linkagefun=lambda _: linkage_mat, labels=labels_ordered)
+
+        # ---- Create heatmap ----
+        heatmap = go.Heatmap(
+            z=C_reordered,
+            x=labels_ordered,
+            y=labels_ordered,
+            colorscale='RdBu',
+            zmin=0,
+            zmax=1,
+            xaxis='x2',
+            yaxis='y2',
+            reversescale=True
+        )
+
+        # ---- Combine into single figure ----
+        fig = go.Figure()
+
+        for trace in dendro_cols['data']:
+            fig.add_trace(trace)
+        for trace in dendro_rows['data']:
+            fig.add_trace(trace)
+        fig.add_trace(heatmap)
+
+        fig.update_layout(
+            width=900,
+            height=900,
+            showlegend=False,
+            hovermode='closest',
+            xaxis=dict(domain=[0.15, 1.0], zeroline=False, showticklabels=False, ticks=''),
+            yaxis=dict(domain=[0.15, 1.0], zeroline=False, showticklabels=False, ticks=''),
+            xaxis2=dict(domain=[0.15, 1.0], anchor='y2'),
+            yaxis2=dict(domain=[0.15, 1.0], anchor='x2'),
+            margin=dict(t=50, l=50)
+        )
+
+        # Plot!
+
+        fig.write_image(f"model_output/model_plots/loading_correlation/svi/ard_model.png", format = "png")
+                
+
+        fig = px.imshow(lengthscale, zmin=0, labels = dict(x = "Dimension",
+                                                     y = "Metric"),
+                                                     x = [f"Dimension {i+1}" for i in range(basis_dims)],
+                                                     y = metrics,
+
+                                                     )
+        fig.write_image("model_output/model_plots/loading/svi/ard_model.png", format = "png")
+
+
         X = samples["X__loc"]
-        wTx = jnp.einsum("nr,mr -> nm", X, W / lengthscale)
-        psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(100))
+        wTx = jnp.einsum("nr, kmr -> knm", X, W * jnp.sqrt(lengthscale[:, None, :]))
+        psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(100))
         slope = make_psi_gamma(psi_x, samples["slope__loc"])
         intercept = make_psi_gamma(psi_x, samples["intercept__loc"])
-        gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
-        mu = (make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept))[:, jnp.array(player_indices), :].squeeze()
-        fig = plot_posterior_predictive_career_trajectory_map(player_indices[0], metrics, metric_output, mu, Y, exposures)
-        fig.write_image("model_output/model_plots/debug_predictions_svi_no_init_games_poisson_minutes.png", format = "png")
+        gamma_phi_gamma_x = jnp.einsum("knm, mdk, tdz, jzk, knj -> nkt", psi_x, weights, phi_time, weights, psi_x)
+        mu = (make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept[..., None]))
+        peaks = pd.DataFrame(jnp.mean(jnp.argmax(mu, axis = -1) + 18, axis = -1), columns=["Peak Age"])
+        peaks["Metric"] = metrics
+        fig = px.bar(peaks.sort_values(by = "Peak Age"), x = "Metric", y = "Peak Age")
+        fig.write_image("model_output/model_plots/peaks/svi/ard_model.png", format = "png")
+
+        
+
 
 
         player_labels = ["Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", 
                          "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash", 
                          "Chris Paul", "Shaquille O'Neal"]
-        X = samples["X__loc"]
+        predict_players = player_labels + ["Anthony Edwards", "Jamal Murray", "Donovan Mitchell", "Ray Allen", "Klay Thompson",
+                                           "Scottie Pippen", "Amar'e Stoudemire", "Shawn Marion", "Dirk Nowitzki", "Jason Kidd",
+                                           "Marcus Camby", "Rudy Gobert", "Tim Duncan", "Manu Ginobili", "James Harden", "Russell Westbrook",
+                                           "Luka Doncic", "Devin Booker", "Paul Pierce", "Allen Iverson", "Tyrese Haliburton", "LaMelo Ball",
+                                           "Carmelo Anthony", "Dwyane Wade", "Derrick Rose", "Chris Bosh", "Karl-Anthony Towns", "Kristaps Porzingis", 
+                                           "Giannis Antetokounmpo", "Jrue Holiday"]
         tsne = TSNE(n_components=2)
         X_tsne_df = pd.DataFrame(tsne.fit_transform(X), columns = ["Dim. 1", "Dim. 2"])
         id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
         X_tsne_df = pd.concat([X_tsne_df, id_df], axis = 1)
-        X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in player_labels else "")
+        X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in predict_players else "")
         X_tsne_df["minutes"] /= np.max(X_tsne_df["minutes"])
         X_tsne_df.rename(mapper = {"position_group": "Position"}, inplace=True, axis=1)
         fig = px.scatter(X_tsne_df, x = "Dim. 1", y = "Dim. 2", color = "Position", text="name", size = "minutes",
                          opacity = .1, title="T-SNE Visualization of Latent Player Embedding", )
-        fig.write_image(f"model_output/model_plots/{model_name}_latent_space.png", format = "png")
+        fig.update_traces(textfont = dict(size = 7))
+        fig.write_image(f"model_output/model_plots/latent_space/svi/ard_model.png", format = "png")
 
-    
         
+        
+        players_df = id_df[id_df["name"].isin(predict_players)]
+        for index, row in players_df.iterrows():
+            player_index = index
+            name = row["name"]
+            fig = plot_posterior_predictive_career_trajectory_map(player_index, metrics, metric_output, mu[:, jnp.array(player_index), :].squeeze(), Y, exposures)
+            fig.update_layout(title = dict(text=name))
+            fig.write_image(f"model_output/model_plots/player_plots/predictions/svi/ard_games_poisson_minutes_{name.replace(' ', '_')}.png", format = "png")
         
