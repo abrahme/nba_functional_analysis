@@ -141,12 +141,25 @@ if __name__ == "__main__":
         masks = jnp.stack([data_entity["mask"] for data_entity in data_set])
         exposures = jnp.stack([data_entity["exposure_data"] for data_entity in data_set])
         Y = jnp.stack([data_entity["output_data"] for data_entity in data_set])
+        offset_list = []
+        for index, family in enumerate(metric_output):  
+            if family == "gaussian":
+                offset_list.append(jnp.nanmean(Y[index], keepdims = True))
+            else:
+                if family == "poisson":
+                    p = jnp.nansum(Y[index], keepdims = True) / jnp.nansum(jnp.exp(exposures[index]), keepdims = True)
+                    offset_list.append(jnp.log(p))
+                elif family == "binomial":
+                    p = jnp.nansum(Y[index], keepdims = True) / jnp.nansum(exposures[index], keepdims = True)
+                    offset_list.append(jnp.log(p/ (1-p)))
+        offsets = jnp.stack(offset_list)
         num_gaussians = 0 if "gaussian" not in distribution_indices else len(distribution_indices.get('gaussian'))
         data_dict = {}
         for family in distribution_families:
             family_dict = {}
             indices = distribution_indices[family]
             family_dict["Y"] = Y[indices]
+            family_dict["offset"] = offsets[indices]
             family_dict["exposure"] = exposures[indices]
             family_dict["mask"] = masks[indices]
             family_dict["indices"] = indices
@@ -170,11 +183,11 @@ if __name__ == "__main__":
                 samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X"], ["W","beta","sigma"]])  
 
         else:
-            model_args = {"data_set": data_dict}
+            model_args = {"data_set": data_dict, "offsets": offsets}
             if "convex" in model_name:
                 model_args.update({ "hsgp_params": hsgp_params})
             if svi_inference:
-                samples = model.run_svi_inference(num_steps=500000, model_args=model_args, initial_values=initial_params)
+                samples = model.run_svi_inference(num_steps=100000, model_args=model_args, initial_values=initial_params)
             elif not neural_parametrization:
                 samples, extra_fields = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
             else:
@@ -278,7 +291,7 @@ if __name__ == "__main__":
         slope = make_psi_gamma(psi_x, samples["slope__loc"])
         intercept = make_psi_gamma(psi_x, samples["intercept__loc"])
         gamma_phi_gamma_x = jnp.einsum("knm, mdk, tdz, jzk, knj -> nkt", psi_x, weights, phi_time, weights, psi_x)
-        mu = (make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept[..., None]))
+        mu = (make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept[..., None])) + offsets
         peaks = pd.DataFrame(jnp.mean(jnp.argmax(mu, axis = -1) + 18, axis = -1), columns=["Peak Age"])
         peaks["Metric"] = metrics
         fig = px.bar(peaks.sort_values(by = "Peak Age"), x = "Metric", y = "Peak Age")

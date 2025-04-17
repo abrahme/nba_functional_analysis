@@ -424,10 +424,9 @@ class ConvexTVRFLVM(TVRFLVM):
         self.prior["intercept"] = Normal()
         self.prior["slope"] = Normal()
 
-    def model_fn(self, data_set, hsgp_params) -> None:
+    def model_fn(self, data_set, hsgp_params, offsets = 0) -> None:
         num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
         num_metrics = sum(len(data_set[family]["indices"]) for family in data_set)
-
         phi_time  = hsgp_params["phi_x_time"]
         L_time = hsgp_params["L_time"]
         M_time = hsgp_params["M_time"]
@@ -445,13 +444,13 @@ class ConvexTVRFLVM(TVRFLVM):
         weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.m * 2, M_time, num_metrics))
         weights = weights * spd * .0001
         gamma_phi_gamma_x = jnp.einsum("knm, mdk, tdz, jzk, knj -> nkt", psi_x, weights, phi_time, weights, psi_x)
-        mu = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, intercept[..., None])
+        mu = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, intercept[..., None]) + offsets
         if num_gaussians > 0 :
             sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
             expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))
 
         for family in data_set:
-            linear_predictor = mu[data_set[family]["indices"]]
+            linear_predictor = mu[data_set[family]["indices"]] 
             exposure = data_set[family]["exposure"]
             obs = data_set[family]["Y"]
             mask = data_set[family]["mask"]
