@@ -434,7 +434,9 @@ class ConvexTVRFLVM(TVRFLVM):
         lengthscale = self.prior["lengthscale"] if not isinstance(self.prior["lengthscale"], Distribution) else sample("lengthscale", self.prior["lengthscale"], sample_shape=(num_metrics, self.r))
         W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(1, self.m, self.r))
         X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
-        wTx = jnp.einsum("nr,kmr -> knm", X, W * jnp.sqrt( lengthscale[:, None, :]))
+        X -= jnp.mean(X, keepdims = True, axis = 0)
+        X /= jnp.std(X, keepdims = True, axis = 0)
+        wTx = jnp.einsum("nr,kmr -> knm", X, W  * jnp.sqrt(lengthscale[:, None, :]))
         psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(self.m))
         slope = make_psi_gamma(psi_x, self.prior["slope"] if not isinstance(self.prior["slope"], Distribution) else sample("slope", self.prior["slope"], sample_shape=(self.m*2, num_metrics)))
         ls_deriv = self.prior["lengthscale_deriv"] if not isinstance(self.prior["lengthscale_deriv"], Distribution) else sample("lengthscale_deriv", self.prior["lengthscale_deriv"], sample_shape=(num_metrics,))
@@ -472,7 +474,7 @@ class ConvexTVRFLVM(TVRFLVM):
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
         guide = AutoDelta(self.model_fn, prefix="", init_loc_fn = init_to_median, **guide_kwargs)
         print("Setup guide")
-        svi = SVI(self.model_fn, guide, optim=adam(.00003), loss=Trace_ELBO(num_particles=1)
+        svi = SVI(self.model_fn, guide, optim=adam(.000003), loss=Trace_ELBO(num_particles=1)
                   )
         print("Setup SVI")
         result = svi.run(jax.random.PRNGKey(0),

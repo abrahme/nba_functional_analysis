@@ -187,7 +187,7 @@ if __name__ == "__main__":
             if "convex" in model_name:
                 model_args.update({ "hsgp_params": hsgp_params})
             if svi_inference:
-                samples = model.run_svi_inference(num_steps=100000, model_args=model_args, initial_values=initial_params)
+                samples = model.run_svi_inference(num_steps=50000, model_args=model_args, initial_values=initial_params)
             elif not neural_parametrization:
                 samples, extra_fields = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
             else:
@@ -286,6 +286,8 @@ if __name__ == "__main__":
 
 
         X = samples["X__loc"]
+        X -= jnp.mean(X, keepdims = True, axis = 0)
+        X /= jnp.std(X, keepdims = True, axis = 0)
         wTx = jnp.einsum("nr, kmr -> knm", X, W * jnp.sqrt(lengthscale[:, None, :]))
         psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(100))
         slope = make_psi_gamma(psi_x, samples["slope__loc"])
