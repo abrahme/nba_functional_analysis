@@ -187,7 +187,7 @@ if __name__ == "__main__":
             if "convex" in model_name:
                 model_args.update({ "hsgp_params": hsgp_params})
             if svi_inference:
-                samples = model.run_svi_inference(num_steps=50000, model_args=model_args, initial_values=initial_params)
+                samples = model.run_svi_inference(num_steps=5000, model_args=model_args, initial_values=initial_params)
             elif not neural_parametrization:
                 samples, extra_fields = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
             else:
@@ -216,83 +216,84 @@ if __name__ == "__main__":
         weights = samples["beta__loc"]
         weights = weights * spd * .0001
         W = samples["W__loc"] 
-        lengthscale = samples["lengthscale__loc"]
+        lengthscale = samples["lengthscale__loc"][None]
 
 
-        C = np.corrcoef(lengthscale)  # N X N correlation matrix
-        labels = metrics
+        # C = np.corrcoef(lengthscale)  # N X N correlation matrix
+        # labels = metrics
 
-        # ---- Convert correlation matrix to distance matrix ----
-        D = 1 - C  # correlation distance (0 = perfect corr, 2 = perfect anti-corr)
+        # # ---- Convert correlation matrix to distance matrix ----
+        # D = 1 - C  # correlation distance (0 = perfect corr, 2 = perfect anti-corr)
 
-        # ---- Hierarchical clustering ----
-        linkage_mat = linkage(squareform(D, checks=False), method="ward")
-        order = leaves_list(linkage_mat)
+        # # ---- Hierarchical clustering ----
+        # linkage_mat = linkage(squareform(D, checks=False), method="ward")
+        # order = leaves_list(linkage_mat)
 
-        # ---- Reorder correlation matrix ----
-        C_reordered = C[np.ix_(order, order)]
-        labels_ordered = [labels[i] for i in order]
+        # # ---- Reorder correlation matrix ----
+        # C_reordered = C[np.ix_(order, order)]
+        # labels_ordered = [labels[i] for i in order]
 
-        # ---- Create dendrograms ----
-        dendro_rows = ff.create_dendrogram(C, orientation='left', linkagefun=lambda _: linkage_mat, labels=labels_ordered)
-        dendro_cols = ff.create_dendrogram(C, orientation='top', linkagefun=lambda _: linkage_mat, labels=labels_ordered)
+        # # ---- Create dendrograms ----
+        # dendro_rows = ff.create_dendrogram(C, orientation='left', linkagefun=lambda _: linkage_mat, labels=labels_ordered)
+        # dendro_cols = ff.create_dendrogram(C, orientation='top', linkagefun=lambda _: linkage_mat, labels=labels_ordered)
 
-        # ---- Create heatmap ----
-        heatmap = go.Heatmap(
-            z=C_reordered,
-            x=labels_ordered,
-            y=labels_ordered,
-            colorscale='RdBu',
-            zmin=0,
-            zmax=1,
-            xaxis='x2',
-            yaxis='y2',
-            reversescale=True
-        )
+        # # ---- Create heatmap ----
+        # heatmap = go.Heatmap(
+        #     z=C_reordered,
+        #     x=labels_ordered,
+        #     y=labels_ordered,
+        #     colorscale='RdBu',
+        #     zmin=0,
+        #     zmax=1,
+        #     xaxis='x2',
+        #     yaxis='y2',
+        #     reversescale=True
+        # )
 
-        # ---- Combine into single figure ----
-        fig = go.Figure()
+        # # ---- Combine into single figure ----
+        # fig = go.Figure()
 
-        for trace in dendro_cols['data']:
-            fig.add_trace(trace)
-        for trace in dendro_rows['data']:
-            fig.add_trace(trace)
-        fig.add_trace(heatmap)
+        # for trace in dendro_cols['data']:
+        #     fig.add_trace(trace)
+        # for trace in dendro_rows['data']:
+        #     fig.add_trace(trace)
+        # fig.add_trace(heatmap)
 
-        fig.update_layout(
-            width=900,
-            height=900,
-            showlegend=False,
-            hovermode='closest',
-            xaxis=dict(domain=[0.15, 1.0], zeroline=False, showticklabels=False, ticks=''),
-            yaxis=dict(domain=[0.15, 1.0], zeroline=False, showticklabels=False, ticks=''),
-            xaxis2=dict(domain=[0.15, 1.0], anchor='y2'),
-            yaxis2=dict(domain=[0.15, 1.0], anchor='x2'),
-            margin=dict(t=50, l=50)
-        )
+        # fig.update_layout(
+        #     width=900,
+        #     height=900,
+        #     showlegend=False,
+        #     hovermode='closest',
+        #     xaxis=dict(domain=[0.15, 1.0], zeroline=False, showticklabels=False, ticks=''),
+        #     yaxis=dict(domain=[0.15, 1.0], zeroline=False, showticklabels=False, ticks=''),
+        #     xaxis2=dict(domain=[0.15, 1.0], anchor='y2'),
+        #     yaxis2=dict(domain=[0.15, 1.0], anchor='x2'),
+        #     margin=dict(t=50, l=50)
+        # )
 
-        # Plot!
+        # # Plot!
 
-        fig.write_image(f"model_output/model_plots/loading_correlation/svi/ard_model.png", format = "png")
+        # fig.write_image(f"model_output/model_plots/loading_correlation/svi/ard_model.png", format = "png")
                 
 
-        fig = px.imshow(lengthscale, zmin=0, labels = dict(x = "Dimension",
-                                                     y = "Metric"),
-                                                     x = [f"Dimension {i+1}" for i in range(basis_dims)],
-                                                     y = metrics,
+        # fig = px.imshow(lengthscale, zmin=0, labels = dict(x = "Dimension",
+        #                                              y = "Metric"),
+        #                                              x = [f"Dimension {i+1}" for i in range(basis_dims)],
+        #                                              y = metrics,
 
-                                                     )
-        fig.write_image("model_output/model_plots/loading/svi/ard_model.png", format = "png")
+        #                                              )
+        # fig.write_image("model_output/model_plots/loading/svi/ard_model.png", format = "png")
 
+        print(lengthscale)
 
         X = samples["X__loc"]
         X -= jnp.mean(X, keepdims = True, axis = 0)
         X /= jnp.std(X, keepdims = True, axis = 0)
-        wTx = jnp.einsum("nr, kmr -> knm", X, W * jnp.sqrt(lengthscale[:, None, :]))
+        wTx = jnp.einsum("nr, mr -> nm", X, W * jnp.sqrt(lengthscale))
         psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(100))
         slope = make_psi_gamma(psi_x, samples["slope__loc"])
         intercept = make_psi_gamma(psi_x, samples["intercept__loc"])
-        gamma_phi_gamma_x = jnp.einsum("knm, mdk, tdz, jzk, knj -> nkt", psi_x, weights, phi_time, weights, psi_x)
+        gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
         mu = (make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept[..., None])) + offsets
         peaks = pd.DataFrame(jnp.mean(jnp.argmax(mu, axis = -1) + 18, axis = -1), columns=["Peak Age"])
         peaks["Metric"] = metrics

@@ -263,7 +263,7 @@ def make_gamma(weights, alpha, length, M, L, output_size, dim):
     return gamma
 
 def make_psi_gamma(psi, gamma):
-    return jnp.einsum("...nm, m... -> n...", psi,gamma)
+    return jnp.einsum("nm, m... -> n...", psi,gamma)
 
 def make_convex_f(gamma_phi_gamma_time, shifted_x_time, slope, intercept):
     ## intercept should be n x k
