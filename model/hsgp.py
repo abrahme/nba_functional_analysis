@@ -1,5 +1,6 @@
 import jax.numpy as jnp 
 import jax
+from jax.scipy.stats import norm
 from jaxlib.xla_extension import ArrayImpl
 from typing import get_args
 
@@ -236,6 +237,32 @@ def make_convex_phi(x, L, M= 1):
     broadcast_fill_diag = jax.vmap(lambda x, y: jnp.fill_diagonal(x,y, inplace=False), in_axes = 0)
     phi = broadcast_fill_diag(other_elements, diagonal_elements)
     return phi #should be t x m x m where t is the length of x and m is the number of eigen values (or M)
+
+def make_expectation_spectral(alpha, beta, theta, L, M):
+    eigvals = jnp.square(jnp.squeeze(sqrt_eigenvalues(L, M)))
+    ratio = theta / eigvals
+    square_ratio = jnp.square(ratio)
+    expectation_spectral = (alpha/ (beta - 1)) * (jnp.sqrt(2 * jnp.pi)) * (ratio - (jnp.exp(.5 * square_ratio)) * square_ratio * jnp.sqrt(2 * jnp.pi))(1 - norm.cdf(ratio))
+    return expectation_spectral
+
+def make_expectation_phi(L, t_0, tau, M = 1):
+    eig_vals = jnp.squeeze(sqrt_eigenvalues(L, M, 1))
+    broadcast_add = jax.vmap(jax.vmap(jnp.add, (None, 0)), (0, None))
+    sum_eig_vals = broadcast_add(eig_vals, eig_vals)
+    sum_eig_vals_square = jnp.power(sum_eig_vals, 2)
+    x_shifted = t_0 + L
+    cos_pos = jnp.cos(jnp.einsum("t,m... -> tm...", x_shifted, sum_eig_vals))/ (2 * L * sum_eig_vals_square)
+    return (jnp.square(L) + jnp.square(tau) + jnp.square(t_0) - 2 * L * t_0) / (4 * L) - L + jnp.diagonal(cos_pos, axis1 = 1, axis2=2)*jnp.exp(-.5 * jnp.square(tau) * sum_eig_vals_square) - 1/(2 * L * sum_eig_vals_square)
+
+def make_expectation_phi_prime(L, t_0, tau, M = 1):
+    eig_vals = jnp.squeeze(sqrt_eigenvalues(L, M, 1))
+    broadcast_add = jax.vmap(jax.vmap(jnp.add, (None, 0)), (0, None))
+    sum_eig_vals = broadcast_add(eig_vals, eig_vals)
+    sum_eig_vals_square = jnp.power(sum_eig_vals, 2)
+    x_shifted = t_0 + L
+    sin_pos = jnp.sin(jnp.einsum("t,m... -> tm...", x_shifted, sum_eig_vals))/ (2 * L * sum_eig_vals)
+    return (t_0 - L) / (2 * L)  - jnp.diagonal(sin_pos, axis1 = 1, axis2=2)*jnp.exp(-.5 * jnp.square(tau) * sum_eig_vals_square)
+
 
 def make_convex_gamma(x, L, M = 1):
     assert len(x.shape) == 1 ### only have capacity for single dimension concavity

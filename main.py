@@ -12,7 +12,7 @@ import plotly.graph_objects as go
 from sklearn.manifold import TSNE
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import squareform, pdist
-from numpyro.distributions import MatrixNormal
+from numpyro.distributions import MatrixNormal, Normal
 from numpyro.diagnostics import print_summary
 from model.hsgp import make_convex_phi, diag_spectral_density, make_convex_f, make_psi_gamma
 jax.config.update("jax_enable_x64", True)
@@ -26,6 +26,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Description of your program')
     parser.add_argument('--model_name', help='which model to fit', required=True)
     parser.add_argument("--basis_dims", help="size of the basis", required=True, type=int)
+    parser.add_argument("--rff_dim", help="size of the rff approx", required=True, type=int)
     parser.add_argument("--fixed_param_path",help="where to read in the fixed params from", required=False, default="")
     parser.add_argument("--prior_x_path", help="if there is a prior on x, where to get the required params", required=False, default="")
     parser.add_argument("--output_path", help="where to store generated files", required = False, default="")
@@ -42,6 +43,7 @@ if __name__ == "__main__":
     initial_params_path = args["init_path"]
     model_name = args["model_name"]
     basis_dims = args["basis_dims"]
+    rff_dim = args["rff_dim"]
     param_path = args["fixed_param_path"]
     vectorized = args["vectorized"]
     prior_x_path = args["prior_x_path"]
@@ -68,13 +70,13 @@ if __name__ == "__main__":
         
     if model_name == "gibbs_nba_rflvm":
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
-        model = GibbsRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
+        model = GibbsRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)))
     elif model_name == "gibbs_nba_tvrflvm":
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
-        model = GibbsTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+        model = GibbsTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
     elif model_name == "gibbs_nba_iftvrflvm":
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
-        model = GibbsIFTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)    
+        model = GibbsIFTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)    
     elif model_name == "exponential_cp":
         exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics, player_indices)
         model = NBAMixedOutputProbabilisticCPDecomposition(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
@@ -83,13 +85,13 @@ if __name__ == "__main__":
         model = NBANormalApproxProbabilisticCPDecomposition(X, basis_dims, masks, exposures)
     elif "rflvm" in model_name:
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
-        model = RFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)))
+        model = RFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)))
         if "convex" in model_name:
-            model = ConvexTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+            model = ConvexTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
         elif "iftvrflvm" in model_name:
-            model = IFTVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+            model = IFTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
         elif "tvrflvm" in model_name:
-            model = TVRFLVM(latent_rank=basis_dims, rff_dim=100, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+            model = TVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
    
     else:
         raise ValueError("Model not implemented")
@@ -209,13 +211,15 @@ if __name__ == "__main__":
     if svi_inference:
         
         print(samples["sigma__loc"])
+        slope_sigma = samples["slope_sigma__loc"][None, ...]
+        intercept_sigma = samples["intercept_sigma__loc"][None, ...]
         ls_deriv = samples["lengthscale_deriv__loc"]
         alpha_time = samples["alpha__loc"]
         shifted_x_time = hsgp_params["shifted_x_time"]
         spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
         weights = samples["beta__loc"]
         weights = weights * spd * .0001
-        W = samples["W__loc"] 
+        W = samples["W__loc"]
         lengthscale = samples["lengthscale__loc"][None]
 
 
@@ -291,8 +295,8 @@ if __name__ == "__main__":
         X /= jnp.std(X, keepdims = True, axis = 0)
         wTx = jnp.einsum("nr, mr -> nm", X, W * jnp.sqrt(lengthscale))
         psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(100))
-        slope = make_psi_gamma(psi_x, samples["slope__loc"])
-        intercept = make_psi_gamma(psi_x, samples["intercept__loc"])
+        slope = make_psi_gamma(psi_x, samples["slope__loc"]) * slope_sigma
+        intercept = make_psi_gamma(psi_x, samples["intercept__loc"]) * intercept_sigma
         gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
         mu = (make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept[..., None])) + offsets
         peaks = pd.DataFrame(jnp.mean(jnp.argmax(mu, axis = -1) + 18, axis = -1), columns=["Peak Age"])
