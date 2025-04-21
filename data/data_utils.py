@@ -45,6 +45,13 @@ def process_data(df, output_metric, exposure, model, input_metrics, player_indic
             metric_array_obs = metric_array / exposure_array
             metric_array = (metric_array_obs - np.nanmean(metric_array_obs))/np.nanstd(metric_array_obs)
         adj_exp_array = jnp.log(exposure_array) if not normalize else jnp.sqrt(exposure_array)
+    if model == "beta":
+        metric_array = metric_df.to_numpy()
+        exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
+        if normalize:
+            metric_array_obs = metric_array
+            metric_array = (metric_array_obs - np.nanmean(metric_array_obs))/np.nanstd(metric_array_obs)
+        adj_exp_array = jnp.log(exposure_array) if not normalize else jnp.sqrt(exposure_array)
     elif model == "exponential":
         metric_array = metric_df.to_numpy() 
         exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
@@ -211,7 +218,7 @@ def create_cp_data(df, metric_output, exposure_list, metrics, player_indices:lis
             outputs.append(2 * jnp.ones_like(Y, dtype=int))
         elif output == "binomial":
             outputs.append(3 * jnp.ones_like(Y, dtype=int))
-        elif output == "exponential":
+        elif output == "beta":
             outputs.append(4 * jnp.ones_like(Y, dtype=int))
 
     return jnp.stack(exposures, axis = -1), jnp.stack(masks, axis = -1), jnp.stack(data, axis = -1), jnp.stack(outputs, axis = -1)

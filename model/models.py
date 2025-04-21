@@ -2,13 +2,14 @@ from abc import abstractmethod, ABC
 import jax 
 import numpy as np
 from numpyro import sample 
-from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, HalfCauchy, Distribution
+from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, BetaProportion, Distribution
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive, init_to_value, init_to_feasible, init_to_uniform
 from numpyro.infer.reparam import NeuTraReparam
 from numpyro.infer.autoguide import AutoDelta, AutoBNAFNormal
 from optax import linear_onecycle_schedule, adam
 from .hsgp import make_convex_f, make_psi_gamma, diag_spectral_density, make_expectation_phi, make_expectation_spectral, make_expectation_phi_prime
 import jax.numpy as jnp
+import jax.scipy as jsci
 from .MultiHMCGibbs import MultiHMCGibbs
 
 
@@ -419,6 +420,7 @@ class ConvexTVRFLVM(TVRFLVM):
         super().initialize_priors(*args, **kwargs)
         self.prior["lengthscale_deriv"] = InverseGamma(1.0, 1.0)
         self.prior["lengthscale"] = InverseGamma(.3, .7)
+        self.prior["sigma_beta"] = InverseGamma(1.0, 1.0)
         self.prior["sigma"] = InverseGamma(299.0, 6000.0)
         self.prior["alpha"] = InverseGamma(1.0, 1.0)
         self.prior["intercept"] = Normal()
@@ -454,6 +456,7 @@ class ConvexTVRFLVM(TVRFLVM):
         if num_gaussians > 0 :
             sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
             expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))
+        sigma_beta = self.prior["sigma_beta"] if not isinstance(self.prior["sigma_beta"], Distribution) else sample("sigma_beta", self.prior["sigma_beta"])
 
         for family in data_set:
             linear_predictor = mu[data_set[family]["indices"]] 
@@ -467,9 +470,9 @@ class ConvexTVRFLVM(TVRFLVM):
                 dist = Poisson(rate) 
             elif family == "binomial":
                 dist = Binomial(logits = linear_predictor[mask], total_count=exposure[mask])
-            elif family == "exponential":
-                rate = jnp.exp(linear_predictor[mask] + exposure[mask])
-                dist = Exponential(rate)
+            elif family == "beta":
+                rate = jsci.special.expit(linear_predictor[mask])
+                dist = BetaProportion(rate, exposure[mask] * sigma_beta)
             y = sample(f"likelihood_{family}", dist, obs[mask])
 
     def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args, initial_values={}):

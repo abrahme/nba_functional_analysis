@@ -55,10 +55,11 @@ if __name__ == "__main__":
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
     data["games_exposure"] = np.maximum(82, data["games"]) ### 82 or whatever
+    data["pct_minutes"] = (data["minutes"] / data["games_exposure"]) / 48
     data["retirement"] = 1
-    metric_output = ["binomial", "poisson"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
-    metrics = ["games", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
-    exposure_list = (["games_exposure", "games"]) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
+    metric_output = ["binomial", "beta"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+    metrics = ["games", "pct_minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
+    exposure_list = (["games_exposure", "games_exposure"]) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
 
     if players:
         player_indices = [names.index(item) for item in players]
@@ -154,6 +155,10 @@ if __name__ == "__main__":
                 elif family == "binomial":
                     p = jnp.nansum(Y[index], keepdims = True) / jnp.nansum(exposures[index], keepdims = True)
                     offset_list.append(jnp.log(p/ (1-p)))
+                elif family == "beta":
+                    p = jnp.nanmean(Y[index], keepdims = True)
+                    offset_list.append(jnp.log(p / (1 - p)))
+
         offsets = jnp.stack(offset_list)
         num_gaussians = 0 if "gaussian" not in distribution_indices else len(distribution_indices.get('gaussian'))
         data_dict = {}
