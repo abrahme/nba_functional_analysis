@@ -221,7 +221,7 @@ def diag_spectral_density(
 
 
 def make_convex_phi(x, L, M= 1):
-    assert len(x.shape) == 1 ### only have capacity for single dimension concavity
+    assert len(x.shape) == 1, f"shape was {x.shape}, expected len 1" ### only have capacity for single dimension concavity
     eig_vals = jnp.squeeze(sqrt_eigenvalues(L, M, 1))
     broadcast_sub = jax.vmap(jax.vmap(jnp.subtract, (None, 0)), (0, None))
     broadcast_add = jax.vmap(jax.vmap(jnp.add, (None, 0)), (0, None))
@@ -239,7 +239,7 @@ def make_convex_phi(x, L, M= 1):
     return phi #should be t x m x m where t is the length of x and m is the number of eigen values (or M)
 
 def make_convex_phi_prime(x, L, M = 1):
-    assert len(x.shape) == 1 ### only have capacity for single dimension concavity
+    assert len(x.shape) == 1, f"shape was {x.shape}, expected len 1" ### only have capacity for single dimension concavity
     eig_vals = jnp.squeeze(sqrt_eigenvalues(L, M, 1))
     broadcast_sub = jax.vmap(jax.vmap(jnp.subtract, (None, 0)), (0, None))
     broadcast_add = jax.vmap(jax.vmap(jnp.add, (None, 0)), (0, None))
@@ -254,6 +254,11 @@ def make_convex_phi_prime(x, L, M = 1):
     phi_prime = broadcast_fill_diag(other_elements, diagonal_elements)
     return phi_prime #should be t x m x m where t is the length of x and m is the number of eigen values (or M)
 
+def vmap_make_convex_phi_prime(x, L, M):
+    return jax.vmap(lambda t: make_convex_phi_prime(t, L, M))(x)
+
+def vmap_make_convex_phi(x, L, M):
+    return jax.vmap(lambda t: make_convex_phi(t, L, M))(x)
 
 
 def make_convex_gamma(x, L, M = 1):

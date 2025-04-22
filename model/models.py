@@ -2,12 +2,12 @@ from abc import abstractmethod, ABC
 import jax 
 import numpy as np
 from numpyro import sample 
-from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, BetaProportion, Distribution
+from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, BetaProportion, Distribution, Uniform, Beta
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive, init_to_value, init_to_feasible, init_to_uniform
 from numpyro.infer.reparam import NeuTraReparam
 from numpyro.infer.autoguide import AutoDelta, AutoBNAFNormal
 from optax import linear_onecycle_schedule, adam
-from .hsgp import make_convex_f, make_psi_gamma, diag_spectral_density
+from .hsgp import make_convex_f, make_psi_gamma, diag_spectral_density, make_convex_phi, make_convex_phi_prime, vmap_make_convex_phi, vmap_make_convex_phi_prime
 import jax.numpy as jnp
 import jax.scipy as jsci
 from .MultiHMCGibbs import MultiHMCGibbs
@@ -490,6 +490,93 @@ class ConvexTVRFLVM(TVRFLVM):
         print("Setup SVI")
         result = svi.run(jax.random.PRNGKey(0),
                           num_steps = num_steps,progress_bar = True, init_params=initial_values, **model_args)
+        return result.params
+
+
+    def run_neutra_inference(self, num_warmup, num_samples, num_chains, num_steps, guide_kwargs: dict = {}, model_args: dict = {}):
+        return super().run_neutra_inference(num_warmup, num_samples, num_chains, num_steps, guide_kwargs, model_args)
+
+    def predict(self, posterior_samples: dict, model_args):
+        return super().predict(posterior_samples, model_args)
+
+
+class ConvexMaxTVRFLVM(TVRFLVM):
+    """
+    model for time varying functional enforcing convexity in the shape parameters
+    """
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape, basis)
+    def initialize_priors(self, *args, **kwargs) -> None:
+        super().initialize_priors(*args, **kwargs)
+        self.prior["lengthscale_deriv"] = InverseGamma(1.0, 1.0)
+        self.prior["lengthscale"] = InverseGamma(.3, .7)
+        self.prior["sigma_beta"] = InverseGamma(1.0, 1.0)
+        self.prior["sigma"] = InverseGamma(299.0, 6000.0)
+        self.prior["alpha"] = InverseGamma(1.0, 1.0)
+        self.prior["t_max"] = Uniform(-10, 10)
+        self.prior["sigma_t_max"] = InverseGamma(.3, .7)
+        self.prior["c_max"] = Normal()
+        self.prior["sigma_c_max"] = InverseGamma(.3, .7)
+
+    def model_fn(self, data_set, hsgp_params, offsets = {}) -> None:
+        num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
+        num_metrics = sum(len(data_set[family]["indices"]) for family in data_set)
+        phi_time  = hsgp_params["phi_x_time"]
+        L_time = hsgp_params["L_time"]
+        M_time = hsgp_params["M_time"]
+        shifted_x_time = hsgp_params["shifted_x_time"]
+        lengthscale = self.prior["lengthscale"] if not isinstance(self.prior["lengthscale"], Distribution) else sample("lengthscale", self.prior["lengthscale"], sample_shape=(self.r,))
+        W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(self.m,self.r))
+        X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
+        X -= jnp.mean(X, keepdims = True, axis = 0)
+        X /= jnp.std(X, keepdims = True, axis = 0)
+        wTx = jnp.einsum("nr,mr -> nm", X, W  * jnp.sqrt(lengthscale)[None])
+        t_max = offsets["t_max"]
+        psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(self.m))                
+        ls_deriv = self.prior["lengthscale_deriv"] if not isinstance(self.prior["lengthscale_deriv"], Distribution) else sample("lengthscale_deriv", self.prior["lengthscale_deriv"], sample_shape=(num_metrics,))
+        intercept = make_psi_gamma(psi_x, self.prior["c_max"] if not isinstance(self.prior["c_max"], Distribution) else sample("c_max", self.prior["c_max"] , sample_shape=(2 * self.m, num_metrics))) * .00005 + offsets["c_max"]
+        alpha_time = self.prior["alpha"] if not isinstance(self.prior["alpha"], Distribution) else sample("alpha", self.prior["alpha"], sample_shape=(num_metrics, ))
+        spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
+        weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.m * 2, M_time, num_metrics))
+        weights = weights * spd * .0000001
+        phi_tmax = make_convex_phi(t_max, L_time, M_time)
+        phi_prime_tmax = make_convex_phi_prime(t_max, L_time, M_time)
+        gamma_phi_gamma_x_tmax = jnp.einsum("nm, mdk, ktdz, jzk, nj -> knt", psi_x, weights, phi_tmax[..., None, :, :] - phi_time[None], weights, psi_x)
+        gamma_phi_prime_gamma_x_tmax = jnp.einsum("nm, mdk, kdz, jzk, nj, kt -> knt", psi_x, weights, phi_prime_tmax, weights, psi_x, t_max[..., None] - (shifted_x_time - L_time)[None])
+        mu = jnp.transpose(intercept)[..., None]  + gamma_phi_gamma_x_tmax - gamma_phi_prime_gamma_x_tmax
+
+        if num_gaussians > 0 :
+            sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
+            expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))
+        sigma_beta = self.prior["sigma_beta"] if not isinstance(self.prior["sigma_beta"], Distribution) else sample("sigma_beta", self.prior["sigma_beta"])
+        for family in data_set:
+            linear_predictor = mu[data_set[family]["indices"]] 
+            exposure = data_set[family]["exposure"]
+            obs = data_set[family]["Y"]
+            mask = data_set[family]["mask"]
+            if family == "gaussian":
+                dist = Normal(linear_predictor[mask], expanded_sigmas[mask] /exposure[mask])
+            elif family == "poisson":
+                rate = jnp.exp(linear_predictor[mask] + exposure[mask])
+                dist = Poisson(rate) 
+            elif family == "binomial":
+                dist = Binomial(logits = linear_predictor[mask], total_count=exposure[mask])
+            elif family == "beta":
+                rate = jsci.special.expit(linear_predictor[mask])
+                dist = BetaProportion(rate, exposure[mask] * sigma_beta)
+            y = sample(f"likelihood_{family}", dist, obs[mask])
+
+    def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args, initial_values={}):
+        return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args, initial_values)
+    
+    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
+        guide = AutoDelta(self.model_fn, prefix="", init_loc_fn = init_to_uniform, **guide_kwargs)
+        print("Setup guide")
+        svi = SVI(self.model_fn, guide, optim=adam(.0000003), loss=Trace_ELBO(num_particles=1)
+                  )
+        print("Setup SVI")
+        result = svi.run(jax.random.PRNGKey(0),
+                          num_steps = num_steps,progress_bar = True, init_params=initial_values, stable_update=True, **model_args)
         return result.params
 
 

@@ -12,12 +12,12 @@ import plotly.graph_objects as go
 from sklearn.manifold import TSNE
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import squareform, pdist
-from numpyro.distributions import MatrixNormal, Normal
+from numpyro.distributions import MatrixNormal
 from numpyro.diagnostics import print_summary
-from model.hsgp import make_convex_phi, diag_spectral_density, make_convex_f, make_psi_gamma
+from model.hsgp import make_convex_phi, diag_spectral_density, make_convex_f, make_psi_gamma, make_convex_phi_prime
 jax.config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, create_cp_data
-from model.models import  NBAMixedOutputProbabilisticCPDecomposition, NBANormalApproxProbabilisticCPDecomposition, RFLVM, TVRFLVM, IFTVRFLVM, ConvexTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsIFTVRFLVM
+from model.models import  NBAMixedOutputProbabilisticCPDecomposition, NBANormalApproxProbabilisticCPDecomposition, RFLVM, TVRFLVM, IFTVRFLVM, ConvexTVRFLVM, ConvexMaxTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsIFTVRFLVM
 from visualization.visualization import plot_posterior_predictive_career_trajectory_map
 
 
@@ -89,6 +89,8 @@ if __name__ == "__main__":
         model = RFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)))
         if "convex" in model_name:
             model = ConvexTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+            if "max" in model_name:
+                model = ConvexMaxTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
         elif "iftvrflvm" in model_name:
             model = IFTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
         elif "tvrflvm" in model_name:
@@ -145,21 +147,29 @@ if __name__ == "__main__":
         exposures = jnp.stack([data_entity["exposure_data"] for data_entity in data_set])
         Y = jnp.stack([data_entity["output_data"] for data_entity in data_set])
         offset_list = []
+        offset_max_list = []
         for index, family in enumerate(metric_output):  
             if family == "gaussian":
-                offset_list.append(jnp.nanmean(Y[index], keepdims = True))
+                offset_list.append(jnp.nanmean(jnp.nanmax(Y[index], keepdims = True, axis = -1), keepdims = False, axis = 0))
             else:
                 if family == "poisson":
-                    p = jnp.nansum(Y[index], keepdims = True) / jnp.nansum(jnp.exp(exposures[index]), keepdims = True)
+                    p = jnp.nanmean(jnp.nanmax(Y[index] / jnp.exp(exposures[index]), keepdims = True, axis = -1), keepdims=False, axis = 0)
                     offset_list.append(jnp.log(p))
                 elif family == "binomial":
-                    p = jnp.nansum(Y[index], keepdims = True) / jnp.nansum(exposures[index], keepdims = True)
+                    p = jnp.nanmean(jnp.nanmax(Y[index] / exposures[index], keepdims = True, axis = -1), keepdims=False, axis = 0)
+
                     offset_list.append(jnp.log(p/ (1-p)))
                 elif family == "beta":
-                    p = jnp.nanmean(Y[index], keepdims = True)
+                    p = jnp.nanmax(Y[index], keepdims = True, axis = -1).mean(keepdims=False, axis = 0)
                     offset_list.append(jnp.log(p / (1 - p)))
+            p = jnp.nanargmax(Y[index], keepdims = True, axis = -1).mean(keepdims = False, axis = 0)
+            offset_max_list.append(p + 18)
 
-        offsets = jnp.stack(offset_list)
+        offsets = jnp.stack(offset_list, axis = -1)
+        offsets_max = jnp.stack(offset_max_list)
+
+        offset_dict = {"c_max": offsets, "t_max": jnp.squeeze(offsets_max - basis.mean())}
+
         num_gaussians = 0 if "gaussian" not in distribution_indices else len(distribution_indices.get('gaussian'))
         data_dict = {}
         for family in distribution_families:
@@ -193,8 +203,10 @@ if __name__ == "__main__":
             model_args = {"data_set": data_dict, "offsets": offsets}
             if "convex" in model_name:
                 model_args.update({ "hsgp_params": hsgp_params})
+                if "max" in model_name:
+                    model_args.update({"offsets": offset_dict})
             if svi_inference:
-                samples = model.run_svi_inference(num_steps=500000, model_args=model_args, initial_values=initial_params)
+                samples = model.run_svi_inference(num_steps=1000, model_args=model_args, initial_values=initial_params)
             elif not neural_parametrization:
                 samples, extra_fields = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
             else:
@@ -216,16 +228,17 @@ if __name__ == "__main__":
     if svi_inference:
         
         print(samples["sigma__loc"])
-        slope_sigma = samples["slope_sigma__loc"][None, ...]
-        intercept_sigma = samples["intercept_sigma__loc"][None, ...]
-        slope_offset = samples["slope_offset__loc"][None, ...]
-        curvature_offset = samples["curvature_offset__loc"]
+        # intercept_sigma = samples["intercept_sigma__loc"][None, ...] 
+        c_max = samples["c_max__loc"]
+        # t_max = samples["t_max__loc"]
+        # sigma_t_max = samples["sigma_t_max__loc"][..., None]
+        # sigma_c_max = samples["sigma_c_max__loc"]
         ls_deriv = samples["lengthscale_deriv__loc"]
         alpha_time = samples["alpha__loc"]
         shifted_x_time = hsgp_params["shifted_x_time"]
         spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
         weights = samples["beta__loc"]
-        weights = weights * spd * .0001
+        weights = weights * spd * .0000001
         W = samples["W__loc"]
         lengthscale = samples["lengthscale__loc"][None]
 
@@ -302,14 +315,19 @@ if __name__ == "__main__":
         X /= jnp.std(X, keepdims = True, axis = 0)
         wTx = jnp.einsum("nr, mr -> nm", X, W * jnp.sqrt(lengthscale))
         psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(100))
-        slope = make_psi_gamma(psi_x, samples["slope__loc"]) * slope_sigma + slope_offset
-        intercept = make_psi_gamma(psi_x, samples["intercept__loc"]) * intercept_sigma
-        gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
-        mu = (make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept[..., None])) + offsets - jnp.einsum("k,t -> kt", curvature_offset * .001, jnp.square(shifted_x_time)/2)[:, None, :]
-        peaks = pd.DataFrame(jnp.mean(jnp.argmax(mu, axis = -1) + 18, axis = -1), columns=["Peak Age"])
-        peaks["Metric"] = metrics
-        fig = px.bar(peaks.sort_values(by = "Peak Age"), x = "Metric", y = "Peak Age")
-        fig.write_image("model_output/model_plots/peaks/svi/ard_model.png", format = "png")
+        intercept = make_psi_gamma(psi_x, c_max)  * .00005 + offset_dict["c_max"]
+        t_max = offset_dict["t_max"]
+        phi_tmax = make_convex_phi(t_max, L_time, M_time)
+        phi_prime_tmax = make_convex_phi_prime(t_max, L_time, M_time)
+        gamma_phi_gamma_x_tmax = jnp.einsum("nm, mdk, ktdz, jzk, nj -> knt", psi_x, weights, phi_tmax[..., None, :, :] - phi_time[None], weights, psi_x)
+        gamma_phi_prime_gamma_x_tmax = jnp.einsum("nm, mdk, kdz, jzk, nj, kt -> knt", psi_x, weights, phi_prime_tmax, weights, psi_x, t_max[..., None] - (shifted_x_time - L_time)[None])
+        mu = jnp.transpose(intercept)[..., None]  + gamma_phi_gamma_x_tmax - gamma_phi_prime_gamma_x_tmax
+
+        
+        # peaks = pd.DataFrame(jnp.mean(18 + t_max * 20 , axis = -1), columns=["Peak Age"])
+        # peaks["Metric"] = metrics
+        # fig = px.bar(peaks.sort_values(by = "Peak Age"), x = "Metric", y = "Peak Age")
+        # fig.write_image("model_output/model_plots/peaks/svi/ard_model.png", format = "png")
 
         
 
