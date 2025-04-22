@@ -194,7 +194,7 @@ if __name__ == "__main__":
             if "convex" in model_name:
                 model_args.update({ "hsgp_params": hsgp_params})
             if svi_inference:
-                samples = model.run_svi_inference(num_steps=5000, model_args=model_args, initial_values=initial_params)
+                samples = model.run_svi_inference(num_steps=500000, model_args=model_args, initial_values=initial_params)
             elif not neural_parametrization:
                 samples, extra_fields = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
             else:
@@ -218,6 +218,8 @@ if __name__ == "__main__":
         print(samples["sigma__loc"])
         slope_sigma = samples["slope_sigma__loc"][None, ...]
         intercept_sigma = samples["intercept_sigma__loc"][None, ...]
+        slope_offset = samples["slope_offset__loc"][None, ...]
+        curvature_offset = samples["curvature_offset__loc"]
         ls_deriv = samples["lengthscale_deriv__loc"]
         alpha_time = samples["alpha__loc"]
         shifted_x_time = hsgp_params["shifted_x_time"]
@@ -300,10 +302,10 @@ if __name__ == "__main__":
         X /= jnp.std(X, keepdims = True, axis = 0)
         wTx = jnp.einsum("nr, mr -> nm", X, W * jnp.sqrt(lengthscale))
         psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(100))
-        slope = make_psi_gamma(psi_x, samples["slope__loc"]) * slope_sigma
+        slope = make_psi_gamma(psi_x, samples["slope__loc"]) * slope_sigma + slope_offset
         intercept = make_psi_gamma(psi_x, samples["intercept__loc"]) * intercept_sigma
         gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
-        mu = (make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept[..., None])) + offsets
+        mu = (make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept[..., None])) + offsets - jnp.einsum("k,t -> kt", curvature_offset * .001, jnp.square(shifted_x_time)/2)[:, None, :]
         peaks = pd.DataFrame(jnp.mean(jnp.argmax(mu, axis = -1) + 18, axis = -1), columns=["Peak Age"])
         peaks["Metric"] = metrics
         fig = px.bar(peaks.sort_values(by = "Peak Age"), x = "Metric", y = "Peak Age")

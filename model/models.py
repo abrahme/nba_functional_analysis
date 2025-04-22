@@ -7,7 +7,7 @@ from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictiv
 from numpyro.infer.reparam import NeuTraReparam
 from numpyro.infer.autoguide import AutoDelta, AutoBNAFNormal
 from optax import linear_onecycle_schedule, adam
-from .hsgp import make_convex_f, make_psi_gamma, diag_spectral_density, make_expectation_phi, make_expectation_spectral, make_expectation_phi_prime
+from .hsgp import make_convex_f, make_psi_gamma, diag_spectral_density
 import jax.numpy as jnp
 import jax.scipy as jsci
 from .MultiHMCGibbs import MultiHMCGibbs
@@ -424,6 +424,8 @@ class ConvexTVRFLVM(TVRFLVM):
         self.prior["sigma"] = InverseGamma(299.0, 6000.0)
         self.prior["alpha"] = InverseGamma(1.0, 1.0)
         self.prior["intercept"] = Normal()
+        self.prior["slope_offset"] = Normal()
+        self.prior["curvature_offset"] = Exponential()
         self.prior["intercept_sigma"] = InverseGamma(2, .01)
         self.prior["slope_sigma"] = InverseGamma(2, .001)
         self.prior["slope"] = Normal()
@@ -442,8 +444,10 @@ class ConvexTVRFLVM(TVRFLVM):
         X /= jnp.std(X, keepdims = True, axis = 0)
         wTx = jnp.einsum("nr,mr -> nm", X, W  * jnp.sqrt(lengthscale)[None])
         psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(self.m))
+        curvature_offset = self.prior["curvature_offset"] if not isinstance(self.prior["curvature_offset"], Distribution) else sample("curvature_offset", self.prior["curvature_offset"], sample_shape=(num_metrics,))
+        slope_offset = self.prior["slope_offset"] if not isinstance(self.prior["slope_offset"], Distribution) else sample("slope_offset", self.prior["slope_offset"], sample_shape=(num_metrics,))
         slope_sigma = self.prior["slope_sigma"] if not isinstance(self.prior["slope_sigma"], Distribution) else sample("slope_sigma", self.prior["slope_sigma"], sample_shape=(num_metrics,))
-        slope = make_psi_gamma(psi_x, self.prior["slope"] if not isinstance(self.prior["slope"], Distribution) else sample("slope", self.prior["slope"], sample_shape=(self.m*2, num_metrics))) * slope_sigma[None, ...]
+        slope = slope_offset[None,...] + make_psi_gamma(psi_x, self.prior["slope"] if not isinstance(self.prior["slope"], Distribution) else sample("slope", self.prior["slope"], sample_shape=(self.m*2, num_metrics))) * slope_sigma[None, ...]
         ls_deriv = self.prior["lengthscale_deriv"] if not isinstance(self.prior["lengthscale_deriv"], Distribution) else sample("lengthscale_deriv", self.prior["lengthscale_deriv"], sample_shape=(num_metrics,))
         intercept_sigma = self.prior["intercept_sigma"] if not isinstance(self.prior["intercept_sigma"], Distribution) else sample("intercept_sigma", self.prior["intercept_sigma"], sample_shape=(num_metrics,))
         intercept = make_psi_gamma(psi_x, self.prior["intercept"] if not isinstance(self.prior["intercept"], Distribution) else sample("intercept", self.prior["intercept"] , sample_shape=(2 * self.m, num_metrics))) * intercept_sigma[None, ...]
@@ -452,7 +456,7 @@ class ConvexTVRFLVM(TVRFLVM):
         weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.m * 2, M_time, num_metrics))
         weights = weights * spd * .0001
         gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
-        mu = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, intercept[..., None]) + offsets
+        mu = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, intercept[..., None]) + offsets - jnp.einsum("k,t -> kt", curvature_offset * .001, jnp.square(shifted_x_time)/2)[:, None, :]
         if num_gaussians > 0 :
             sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
             expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))
@@ -481,7 +485,7 @@ class ConvexTVRFLVM(TVRFLVM):
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
         guide = AutoDelta(self.model_fn, prefix="", init_loc_fn = init_to_median, **guide_kwargs)
         print("Setup guide")
-        svi = SVI(self.model_fn, guide, optim=adam(.000003), loss=Trace_ELBO(num_particles=1)
+        svi = SVI(self.model_fn, guide, optim=adam(.00003), loss=Trace_ELBO(num_particles=1)
                   )
         print("Setup SVI")
         result = svi.run(jax.random.PRNGKey(0),
