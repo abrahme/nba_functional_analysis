@@ -534,11 +534,11 @@ class ConvexMaxTVRFLVM(TVRFLVM):
         t_max = offsets["t_max"]
         psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(self.m))                
         ls_deriv = self.prior["lengthscale_deriv"] if not isinstance(self.prior["lengthscale_deriv"], Distribution) else sample("lengthscale_deriv", self.prior["lengthscale_deriv"], sample_shape=(num_metrics,))
-        intercept = make_psi_gamma(psi_x, self.prior["c_max"] if not isinstance(self.prior["c_max"], Distribution) else sample("c_max", self.prior["c_max"] , sample_shape=(2 * self.m, num_metrics))) * .00005 + offsets["c_max"]
+        intercept = make_psi_gamma(psi_x, self.prior["c_max"] if not isinstance(self.prior["c_max"], Distribution) else sample("c_max", self.prior["c_max"] , sample_shape=(2 * self.m, num_metrics)))  + offsets["c_max"]
         alpha_time = self.prior["alpha"] if not isinstance(self.prior["alpha"], Distribution) else sample("alpha", self.prior["alpha"], sample_shape=(num_metrics, ))
         spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
         weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.m * 2, M_time, num_metrics))
-        weights = weights * spd * .0000001
+        weights = weights * spd * .0001
         phi_tmax = make_convex_phi(t_max, L_time, M_time)
         phi_prime_tmax = make_convex_phi_prime(t_max, L_time, M_time)
         gamma_phi_gamma_x_tmax = jnp.einsum("nm, mdk, ktdz, jzk, nj -> knt", psi_x, weights, phi_tmax[..., None, :, :] - phi_time[None], weights, psi_x)
@@ -570,9 +570,9 @@ class ConvexMaxTVRFLVM(TVRFLVM):
         return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args, initial_values)
     
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
-        guide = AutoDelta(self.model_fn, prefix="", init_loc_fn = init_to_uniform, **guide_kwargs)
+        guide = AutoDelta(self.model_fn, prefix="", init_loc_fn = init_to_median, **guide_kwargs)
         print("Setup guide")
-        svi = SVI(self.model_fn, guide, optim=adam(.0000003), loss=Trace_ELBO(num_particles=1)
+        svi = SVI(self.model_fn, guide, optim=adam(.00003), loss=Trace_ELBO(num_particles=1)
                   )
         print("Setup SVI")
         result = svi.run(jax.random.PRNGKey(0),

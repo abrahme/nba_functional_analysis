@@ -206,7 +206,7 @@ if __name__ == "__main__":
                 if "max" in model_name:
                     model_args.update({"offsets": offset_dict})
             if svi_inference:
-                samples = model.run_svi_inference(num_steps=1000, model_args=model_args, initial_values=initial_params)
+                samples = model.run_svi_inference(num_steps=100000, model_args=model_args, initial_values=initial_params)
             elif not neural_parametrization:
                 samples, extra_fields = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
             else:
@@ -238,7 +238,7 @@ if __name__ == "__main__":
         shifted_x_time = hsgp_params["shifted_x_time"]
         spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
         weights = samples["beta__loc"]
-        weights = weights * spd * .0000001
+        weights = weights * spd * .0001
         W = samples["W__loc"]
         lengthscale = samples["lengthscale__loc"][None]
 
@@ -315,7 +315,7 @@ if __name__ == "__main__":
         X /= jnp.std(X, keepdims = True, axis = 0)
         wTx = jnp.einsum("nr, mr -> nm", X, W * jnp.sqrt(lengthscale))
         psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(100))
-        intercept = make_psi_gamma(psi_x, c_max)  * .00005 + offset_dict["c_max"]
+        intercept = make_psi_gamma(psi_x, c_max)   + offset_dict["c_max"]
         t_max = offset_dict["t_max"]
         phi_tmax = make_convex_phi(t_max, L_time, M_time)
         phi_prime_tmax = make_convex_phi_prime(t_max, L_time, M_time)
