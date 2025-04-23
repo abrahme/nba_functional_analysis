@@ -66,6 +66,17 @@ def eigenindices(m: list[int] | int, dim: int) -> ArrayImpl:
 
 
 
+def safe_cos_term(divisor, x, L):
+    denom = 2 * L * jnp.square(divisor)
+    z = jnp.where(divisor == 0, 0, divisor * (x+L))
+    numer = jnp.cos(z) - 1
+    return jnp.where(numer == 0, -jnp.square(x+L)/ (4 * L), numer / denom)
+
+def safe_sin_term(divisor, x, L):
+    denom = 2 * L * divisor
+    z = jnp.where(divisor == 0, 0, divisor * (x+L))
+    numer = jnp.sin(z)
+    return jnp.where(numer == 0, (x+L) / 2*L, numer / denom)
 
 
 def sqrt_eigenvalues(
@@ -221,37 +232,25 @@ def diag_spectral_density(
 
 
 def make_convex_phi(x, L, M= 1):
-    assert len(x.shape) == 1, f"shape was {x.shape}, expected len 1" ### only have capacity for single dimension concavity
     eig_vals = jnp.squeeze(sqrt_eigenvalues(L, M, 1))
-    broadcast_sub = jax.vmap(jax.vmap(jnp.subtract, (None, 0)), (0, None))
-    broadcast_add = jax.vmap(jax.vmap(jnp.add, (None, 0)), (0, None))
-    sum_eig_vals = broadcast_add(eig_vals, eig_vals)
-    diff_eig_vals = broadcast_sub(eig_vals, eig_vals)
-    diff_eig_vals_square = jnp.power( diff_eig_vals, 2)
-    sum_eig_vals_square = jnp.power(sum_eig_vals, 2)
-    x_shifted = x + L
-    cos_pos = (jnp.cos(jnp.einsum("t,m... -> tm...", x_shifted, sum_eig_vals)) - 1) / (2 * L * sum_eig_vals_square)
-    cos_neg = (jnp.cos(jnp.einsum("t,m... -> tm...", x_shifted, diff_eig_vals)) -1) / (2 * L * diff_eig_vals_square)
-    diagonal_elements = jnp.square(x[..., None] - L)/ (4 * L) - L +  jnp.diagonal(cos_pos, axis1=1, axis2=2)
-    other_elements = cos_pos - cos_neg 
-    broadcast_fill_diag = jax.vmap(lambda x, y: jnp.fill_diagonal(x,y, inplace=False), in_axes = 0)
-    phi = broadcast_fill_diag(other_elements, diagonal_elements)
-    return phi #should be t x m x m where t is the length of x and m is the number of eigen values (or M)
-
+    sum_eig_vals = eig_vals[None] + eig_vals[..., None]
+    diff_eig_vals = eig_vals[None] - eig_vals[..., None]
+    cos_pos  = safe_cos_term(sum_eig_vals, x, L)
+    cos_neg = safe_cos_term(diff_eig_vals, x, L)
+    diagonal_elements = jnp.square(x - L)/ (4 * L) - L +  safe_cos_term(2 * eig_vals, x, L)
+    phi = cos_pos - cos_neg 
+    phi.at[jnp.diag_indices(M)].set(diagonal_elements)
+    return phi
+    
 def make_convex_phi_prime(x, L, M = 1):
-    assert len(x.shape) == 1, f"shape was {x.shape}, expected len 1" ### only have capacity for single dimension concavity
     eig_vals = jnp.squeeze(sqrt_eigenvalues(L, M, 1))
-    broadcast_sub = jax.vmap(jax.vmap(jnp.subtract, (None, 0)), (0, None))
-    broadcast_add = jax.vmap(jax.vmap(jnp.add, (None, 0)), (0, None))
-    sum_eig_vals = broadcast_add(eig_vals, eig_vals)
-    diff_eig_vals = broadcast_sub(eig_vals, eig_vals)
-    x_shifted = x + L
-    sin_pos = jnp.sin(jnp.einsum("t,m... -> tm...", x_shifted, sum_eig_vals)) / (2 * L * sum_eig_vals)
-    sin_neg = jnp.sin(jnp.einsum("t,m... -> tm...", x_shifted, diff_eig_vals)) / (2 * L * diff_eig_vals)
-    diagonal_elements = (x[..., None] - L)/ (2 * L) - jnp.diagonal(sin_pos, axis1=1, axis2=2)
-    other_elements = sin_neg - sin_pos
-    broadcast_fill_diag = jax.vmap(lambda x, y: jnp.fill_diagonal(x,y, inplace=False), in_axes = 0)
-    phi_prime = broadcast_fill_diag(other_elements, diagonal_elements)
+    sum_eig_vals = eig_vals[None] + eig_vals[..., None]
+    diff_eig_vals = eig_vals[None] - eig_vals[..., None]
+    sin_pos = safe_sin_term(sum_eig_vals, x, L)
+    sin_neg = safe_sin_term(diff_eig_vals, x, L)
+    diagonal_elements = (x - L)/ (2 * L) - safe_sin_term(2*eig_vals, x, L)
+    phi_prime = sin_neg - sin_pos
+    phi_prime.at[jnp.diag_indices(M)].set(diagonal_elements)
     return phi_prime #should be t x m x m where t is the length of x and m is the number of eigen values (or M)
 
 def vmap_make_convex_phi_prime(x, L, M):
