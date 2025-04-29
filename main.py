@@ -14,10 +14,10 @@ from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import squareform, pdist
 from numpyro.distributions import MatrixNormal
 from numpyro.diagnostics import print_summary
-from model.hsgp import make_convex_phi, diag_spectral_density, make_convex_f, make_psi_gamma, make_convex_phi_prime
+from model.hsgp import make_convex_phi, diag_spectral_density, make_convex_f, make_psi_gamma, make_convex_phi_prime, vmap_make_convex_phi, vmap_make_convex_phi_prime, make_psi_gamma_kron
 jax.config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, create_cp_data
-from model.models import  NBAMixedOutputProbabilisticCPDecomposition, NBANormalApproxProbabilisticCPDecomposition, RFLVM, TVRFLVM, IFTVRFLVM, ConvexTVRFLVM, ConvexMaxTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsIFTVRFLVM
+from model.models import  NBAMixedOutputProbabilisticCPDecomposition, NBANormalApproxProbabilisticCPDecomposition, RFLVM, TVRFLVM, IFTVRFLVM, ConvexTVRFLVM, ConvexMaxTVRFLVM, ConvexKronTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsIFTVRFLVM
 from visualization.visualization import plot_posterior_predictive_career_trajectory_map
 
 
@@ -27,12 +27,14 @@ if __name__ == "__main__":
     parser.add_argument('--model_name', help='which model to fit', required=True)
     parser.add_argument("--basis_dims", help="size of the basis", required=True, type=int)
     parser.add_argument("--rff_dim", help="size of the rff approx", required=True, type=int)
+    parser.add_argument("--basis_dims_2", help="size of the basis", required=False, type=int)
     parser.add_argument("--fixed_param_path",help="where to read in the fixed params from", required=False, default="")
     parser.add_argument("--prior_x_path", help="if there is a prior on x, where to get the required params", required=False, default="")
     parser.add_argument("--output_path", help="where to store generated files", required = False, default="")
     parser.add_argument("--vectorized", help="whether to vectorize some chains so all gpus will be used", action="store_true")
     parser.add_argument("--run_neutra", help = "whether or not to run neural reparametrization", action="store_true")
     parser.add_argument("--run_svi", help = "whether or not to run variational inference", action="store_true")
+    parser.add_argument("--run_prior", help = "whether or not to generate prior samples", action = "store_true")
     parser.add_argument("--init_path", help = "where to initialize mcmc from", required=False, default="")
     parser.add_argument("--player_names", help = "which players to run the model for", required=False, default = [], type = lambda x: x.split(","))
     parser.add_argument("--position_group", help = "which position group to run the model for", required = True, choices=["G", "F", "C", "all"])
@@ -40,10 +42,12 @@ if __name__ == "__main__":
     args = vars(parser.parse_args())
     neural_parametrization = args["run_neutra"]
     svi_inference = args["run_svi"]
+    prior_predictive = args["run_prior"]
     initial_params_path = args["init_path"]
     model_name = args["model_name"]
     basis_dims = args["basis_dims"]
     rff_dim = args["rff_dim"]
+    basis_dims_2 = args["basis_dims_2"]
     param_path = args["fixed_param_path"]
     vectorized = args["vectorized"]
     prior_x_path = args["prior_x_path"]
@@ -91,6 +95,8 @@ if __name__ == "__main__":
             model = ConvexTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
             if "max" in model_name:
                 model = ConvexMaxTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+            elif "kron" in model_name:
+                model = ConvexKronTVRFLVM(latent_rank_1=basis_dims, rff_dim_1=rff_dim, latent_rank_2 = basis_dims_2, output_shape=(covariate_X.shape[0], len(basis)), basis=basis, num_metrics = len(metrics))
         elif "iftvrflvm" in model_name:
             model = IFTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
         elif "tvrflvm" in model_name:
@@ -148,35 +154,45 @@ if __name__ == "__main__":
         Y = jnp.stack([data_entity["output_data"] for data_entity in data_set])
         offset_list = []
         offset_max_list = []
+        offset_peak_list = []
         for index, family in enumerate(metric_output):  
             if family == "gaussian":
-                offset_list.append(jnp.nanmean(jnp.nanmax(Y[index], keepdims = True, axis = -1), keepdims = False, axis = 0))
+                offset_list.append(jnp.nanmean(Y[index]))
+                offset_max_list.append(jnp.nanmean(jnp.nanmax(Y[index], -1)))
+                peak = jnp.nanmean(jnp.nanargmax(Y[index], -1))
+
             else:
                 if family == "poisson":
-                    p = jnp.nanmean(jnp.nanmax(Y[index] / jnp.exp(exposures[index]), keepdims = True, axis = -1), keepdims=False, axis = 0)
+                    p = jnp.nansum(Y[index]) / jnp.nansum(jnp.exp(exposures[index]))
+                    p_max = jnp.nanmean(jnp.nanmax(Y[index] / jnp.exp(exposures[index]), -1))
+                    peak = jnp.nanmean(jnp.nanargmax(Y[index] / jnp.exp(exposures[index]), -1))
                     offset_list.append(jnp.log(p))
+                    offset_max_list.append(jnp.log(p_max))
+                    
                 elif family == "binomial":
-                    p = jnp.nanmean(jnp.nanmax(Y[index] / exposures[index], keepdims = True, axis = -1), keepdims=False, axis = 0)
-
+                    p = jnp.nansum(Y[index]) / jnp.nansum(exposures[index])
+                    p_max = jnp.nanmean(jnp.nanmax(Y[index] / exposures[index], -1))
                     offset_list.append(jnp.log(p/ (1-p)))
+                    offset_max_list.append(jnp.log(p_max/(1-p_max)))
+                    peak = jnp.nanmean(jnp.nanargmax(Y[index] / exposures[index], -1))
+
                 elif family == "beta":
-                    p = jnp.nanmax(Y[index], keepdims = True, axis = -1).mean(keepdims=False, axis = 0)
+                    p = jnp.nanmean(Y[index])
+                    p_max = jnp.nanmean(jnp.nanmax(Y[index], -1))
+                    peak = jnp.nanmean(jnp.nanargmax(Y[index], -1))
                     offset_list.append(jnp.log(p / (1 - p)))
-            p = jnp.nanargmax(Y[index], keepdims = True, axis = -1).mean(keepdims = False, axis = 0)
-            offset_max_list.append(p + 18)
+                    offset_max_list.append(jnp.log(p_max/(1-p_max)))
+            offset_peak_list.append(peak + 18 - basis.mean())
 
-        offsets = jnp.stack(offset_list, axis = -1)
-        offsets_max = jnp.stack(offset_max_list)
-
-        offset_dict = {"c_max": offsets, "t_max": jnp.squeeze(offsets_max - basis.mean())}
-
+        offsets = jnp.array(offset_list)[None]
+        offset_max = jnp.array(offset_max_list)[None]
+        offset_peak = jnp.array(offset_peak_list)[None]
         num_gaussians = 0 if "gaussian" not in distribution_indices else len(distribution_indices.get('gaussian'))
         data_dict = {}
         for family in distribution_families:
             family_dict = {}
             indices = distribution_indices[family]
             family_dict["Y"] = Y[indices]
-            family_dict["offset"] = offsets[indices]
             family_dict["exposure"] = exposures[indices]
             family_dict["mask"] = masks[indices]
             family_dict["indices"] = indices
@@ -186,7 +202,7 @@ if __name__ == "__main__":
                 x_time = basis - basis.mean()
                 L_time = 1.5 * jnp.max(jnp.abs(x_time), 0, keepdims=True)
                 M_time = 15
-                phi_time = make_convex_phi(x_time, L_time, M_time)
+                phi_time = vmap_make_convex_phi(jnp.squeeze(x_time), jnp.squeeze(L_time), M_time)
                 hsgp_params["phi_x_time"] = phi_time
                 hsgp_params["M_time"] = M_time
                 hsgp_params["L_time"] = L_time
@@ -204,11 +220,15 @@ if __name__ == "__main__":
             if "convex" in model_name:
                 model_args.update({ "hsgp_params": hsgp_params})
                 if "max" in model_name:
-                    model_args.update({"offsets": offset_dict})
+                    model_args["offsets"] = {"t_max": offset_peak, "c_max": offset_max}
             if svi_inference:
-                samples = model.run_svi_inference(num_steps=100000, model_args=model_args, initial_values=initial_params)
+                samples = model.run_svi_inference(num_steps=5000, model_args=model_args, initial_values=initial_params)
             elif not neural_parametrization:
                 samples, extra_fields = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
+            elif prior_predictive:
+                model_args["prior"] = True
+                samples = model.predict({}, model_args)
+
             else:
                 mcmc_run, neutra = model.run_neutra_inference(num_chains=4, num_samples=2000, num_warmup=1000, num_steps=1000000, guide_kwargs={}, model_args=model_args)
                 samples = mcmc_run.get_samples(group_by_chain=True)
@@ -220,128 +240,69 @@ if __name__ == "__main__":
         else:
             print_summary(samples)
 
-    with open(output_path, "wb") as f:
-        pickle.dump(samples, f)
-    f.close()
+    if not prior_predictive:
+        with open(output_path, "wb") as f:
+            pickle.dump(samples, f)
+        f.close()
 
 
     if svi_inference:
-        
         print(samples["sigma__loc"])
-        # intercept_sigma = samples["intercept_sigma__loc"][None, ...] 
-        c_max = samples["c_max__loc"]
-        # t_max = samples["t_max__loc"]
-        # sigma_t_max = samples["sigma_t_max__loc"][..., None]
-        # sigma_c_max = samples["sigma_c_max__loc"]
         ls_deriv = samples["lengthscale_deriv__loc"]
         alpha_time = samples["alpha__loc"]
         shifted_x_time = hsgp_params["shifted_x_time"]
+        ls_deriv = samples["lengthscale_deriv__loc"]
         spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
         weights = samples["beta__loc"]
         weights = weights * spd * .0001
-        W = samples["W__loc"]
         lengthscale = samples["lengthscale__loc"][None]
-
-
-        # C = np.corrcoef(lengthscale)  # N X N correlation matrix
-        # labels = metrics
-
-        # # ---- Convert correlation matrix to distance matrix ----
-        # D = 1 - C  # correlation distance (0 = perfect corr, 2 = perfect anti-corr)
-
-        # # ---- Hierarchical clustering ----
-        # linkage_mat = linkage(squareform(D, checks=False), method="ward")
-        # order = leaves_list(linkage_mat)
-
-        # # ---- Reorder correlation matrix ----
-        # C_reordered = C[np.ix_(order, order)]
-        # labels_ordered = [labels[i] for i in order]
-
-        # # ---- Create dendrograms ----
-        # dendro_rows = ff.create_dendrogram(C, orientation='left', linkagefun=lambda _: linkage_mat, labels=labels_ordered)
-        # dendro_cols = ff.create_dendrogram(C, orientation='top', linkagefun=lambda _: linkage_mat, labels=labels_ordered)
-
-        # # ---- Create heatmap ----
-        # heatmap = go.Heatmap(
-        #     z=C_reordered,
-        #     x=labels_ordered,
-        #     y=labels_ordered,
-        #     colorscale='RdBu',
-        #     zmin=0,
-        #     zmax=1,
-        #     xaxis='x2',
-        #     yaxis='y2',
-        #     reversescale=True
-        # )
-
-        # # ---- Combine into single figure ----
-        # fig = go.Figure()
-
-        # for trace in dendro_cols['data']:
-        #     fig.add_trace(trace)
-        # for trace in dendro_rows['data']:
-        #     fig.add_trace(trace)
-        # fig.add_trace(heatmap)
-
-        # fig.update_layout(
-        #     width=900,
-        #     height=900,
-        #     showlegend=False,
-        #     hovermode='closest',
-        #     xaxis=dict(domain=[0.15, 1.0], zeroline=False, showticklabels=False, ticks=''),
-        #     yaxis=dict(domain=[0.15, 1.0], zeroline=False, showticklabels=False, ticks=''),
-        #     xaxis2=dict(domain=[0.15, 1.0], anchor='y2'),
-        #     yaxis2=dict(domain=[0.15, 1.0], anchor='x2'),
-        #     margin=dict(t=50, l=50)
-        # )
-
-        # # Plot!
-
-        # fig.write_image(f"model_output/model_plots/loading_correlation/svi/ard_model.png", format = "png")
-                
-
-        # fig = px.imshow(lengthscale, zmin=0, labels = dict(x = "Dimension",
-        #                                              y = "Metric"),
-        #                                              x = [f"Dimension {i+1}" for i in range(basis_dims)],
-        #                                              y = metrics,
-
-        #                                              )
-        # fig.write_image("model_output/model_plots/loading/svi/ard_model.png", format = "png")
-
-        print(lengthscale)
-
+        W = samples["W__loc"]
         X = samples["X__loc"]
         X -= jnp.mean(X, keepdims = True, axis = 0)
         X /= jnp.std(X, keepdims = True, axis = 0)
-        wTx = jnp.einsum("nr, mr -> nm", X, W * jnp.sqrt(lengthscale))
-        psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(100))
-        intercept = make_psi_gamma(psi_x, c_max)   + offset_dict["c_max"]
-        t_max = offset_dict["t_max"]
-        phi_tmax = make_convex_phi(t_max, L_time, M_time)
-        phi_prime_tmax = make_convex_phi_prime(t_max, L_time, M_time)
-        gamma_phi_gamma_x_tmax = jnp.einsum("nm, mdk, ktdz, jzk, nj -> knt", psi_x, weights, phi_tmax[..., None, :, :] - phi_time[None], weights, psi_x)
-        gamma_phi_prime_gamma_x_tmax = jnp.einsum("nm, mdk, kdz, jzk, nj, kt -> knt", psi_x, weights, phi_prime_tmax, weights, psi_x, t_max[..., None] - (shifted_x_time - L_time)[None])
-        mu = jnp.transpose(intercept)[..., None]  + gamma_phi_gamma_x_tmax - gamma_phi_prime_gamma_x_tmax
+        wTx = jnp.einsum("nr, mr -> nm", X, W * jnp.sqrt(lengthscale))    
+        psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(rff_dim))
+        gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
+     
+        if "kron" in model_name:
+ 
+            intercept = make_psi_gamma(psi_x, samples["intercept__loc"])
+            metric_factor = samples["metric_factor__loc"]
+            slope =  make_psi_gamma(psi_x, samples["slope__loc"])
+            mu_core = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, (intercept)[..., None]) 
+            mu =  offsets.T[..., None] + jnp.einsum("dnt, kd -> knt", mu_core, metric_factor)
+        elif "max" in model_name:
+            sigma_c_max = samples["sigma_c__loc"]
+            sigma_t_max = samples["sigma_t__loc"] 
+            t_max_raw = samples["t_max__loc"] 
+            t_max = model_args["offsets"]["t_max"] +  t_max_raw * sigma_t_max
+            intercept = make_psi_gamma(psi_x, samples["c_max__loc"]) * sigma_c_max + model_args["offsets"]["c_max"]
+            weights *= .1
+            phi_tmax = jnp.squeeze(jax.vmap(lambda x: vmap_make_convex_phi(x, L_time, M_time))(t_max))
+            phi_prime_tmax = jnp.squeeze(jax.vmap(lambda x: vmap_make_convex_phi_prime(x, L_time, M_time))(t_max))
+            gamma_phi_gamma_x_tmax = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_tmax[..., None, :, :] - phi_time[None, None], weights, psi_x)
+            gamma_phi_prime_gamma_x_tmax = jnp.einsum("nm, mdk, nkdz, jzk, nj, nkt -> knt", psi_x, weights, phi_prime_tmax, weights, psi_x, t_max[..., None] - (shifted_x_time - L_time)[None, None])
+            mu = jnp.transpose(intercept)[..., None]  + gamma_phi_gamma_x_tmax - gamma_phi_prime_gamma_x_tmax
 
-        
-        # peaks = pd.DataFrame(jnp.mean(18 + t_max * 20 , axis = -1), columns=["Peak Age"])
-        # peaks["Metric"] = metrics
-        # fig = px.bar(peaks.sort_values(by = "Peak Age"), x = "Metric", y = "Peak Age")
-        # fig.write_image("model_output/model_plots/peaks/svi/ard_model.png", format = "png")
+        else:
+            intercept_sigma = 1
+            intercept = make_psi_gamma(psi_x, samples["intercept__loc"])   
+            slope =  make_psi_gamma(psi_x, samples["slope__loc"])    
+            mu = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, (intercept + offsets)[..., None]) 
 
-        
+    elif prior_predictive:
+        mu = samples["mu"].mean(0)
 
-
-
+    if svi_inference:
         player_labels = ["Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", 
-                         "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash", 
-                         "Chris Paul", "Shaquille O'Neal"]
+                            "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash", 
+                            "Chris Paul", "Shaquille O'Neal"]
         predict_players = player_labels + ["Anthony Edwards", "Jamal Murray", "Donovan Mitchell", "Ray Allen", "Klay Thompson",
-                                           "Scottie Pippen", "Amar'e Stoudemire", "Shawn Marion", "Dirk Nowitzki", "Jason Kidd",
-                                           "Marcus Camby", "Rudy Gobert", "Tim Duncan", "Manu Ginobili", "James Harden", "Russell Westbrook",
-                                           "Luka Doncic", "Devin Booker", "Paul Pierce", "Allen Iverson", "Tyrese Haliburton", "LaMelo Ball",
-                                           "Carmelo Anthony", "Dwyane Wade", "Derrick Rose", "Chris Bosh", "Karl-Anthony Towns", "Kristaps Porzingis", 
-                                           "Giannis Antetokounmpo", "Jrue Holiday"]
+                                        "Scottie Pippen", "Amar'e Stoudemire", "Shawn Marion", "Dirk Nowitzki", "Jason Kidd",
+                                        "Marcus Camby", "Rudy Gobert", "Tim Duncan", "Manu Ginobili", "James Harden", "Russell Westbrook",
+                                        "Luka Doncic", "Devin Booker", "Paul Pierce", "Allen Iverson", "Tyrese Haliburton", "LaMelo Ball",
+                                        "Carmelo Anthony", "Dwyane Wade", "Derrick Rose", "Chris Bosh", "Karl-Anthony Towns", "Kristaps Porzingis", 
+                                        "Giannis Antetokounmpo", "Jrue Holiday"]
         tsne = TSNE(n_components=2)
         X_tsne_df = pd.DataFrame(tsne.fit_transform(X), columns = ["Dim. 1", "Dim. 2"])
         id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
@@ -350,17 +311,83 @@ if __name__ == "__main__":
         X_tsne_df["minutes"] /= np.max(X_tsne_df["minutes"])
         X_tsne_df.rename(mapper = {"position_group": "Position"}, inplace=True, axis=1)
         fig = px.scatter(X_tsne_df, x = "Dim. 1", y = "Dim. 2", color = "Position", text="name", size = "minutes",
-                         opacity = .1, title="T-SNE Visualization of Latent Player Embedding", )
+                        opacity = .1, title="T-SNE Visualization of Latent Player Embedding", )
         fig.update_traces(textfont = dict(size = 7))
-        fig.write_image(f"model_output/model_plots/latent_space/svi/ard_model.png", format = "png")
+        fig.write_image(f"model_output/model_plots/latent_space/svi/{model_name}.png", format = "png")
 
-        
-        
+        if "kron" in model_name:
+            fig = px.imshow(metric_factor, zmin=0, labels = dict(x = "Dimension",
+                                                     y = "Metric"),
+                                                     x = [f"Dimension {i+1}" for i in range(basis_dims_2)],
+                                                     y = metrics,
+
+                                                     )
+            fig.write_image(f"model_output/model_plots/loading/svi/{model_name}.png", format = "png")
+
+            
+            D = jnp.linalg.norm(metric_factor[:, None, :] - metric_factor[None], axis = -1)
+                # ---- Hierarchical clustering ----
+            linkage_mat = linkage(squareform(D, checks=False), method="ward")
+            order = leaves_list(linkage_mat)
+
+            # ---- Reorder correlation matrix ----
+            C_reordered = D[np.ix_(order, order)]
+            labels_ordered = [metrics[i] for i in order]
+
+            # ---- Create dendrograms ----
+            dendro_rows = ff.create_dendrogram(D, orientation='left', linkagefun=lambda _: linkage_mat, labels=labels_ordered)
+            dendro_cols = ff.create_dendrogram(D, orientation='top', linkagefun=lambda _: linkage_mat, labels=labels_ordered)
+
+            # ---- Create heatmap ----
+            heatmap = go.Heatmap(
+                z=C_reordered,
+                x=labels_ordered,
+                y=labels_ordered,
+                colorscale='RdBu',
+                zmin=0,
+                zmax=1,
+                xaxis='x2',
+                yaxis='y2',
+                reversescale=False
+            )
+
+            # ---- Combine into single figure ----
+            fig = go.Figure()
+
+            for trace in dendro_cols['data']:
+                fig.add_trace(trace)
+            for trace in dendro_rows['data']:
+                fig.add_trace(trace)
+            fig.add_trace(heatmap)
+
+            fig.update_layout(
+                width=900,
+                height=900,
+                showlegend=False,
+                hovermode='closest',
+                xaxis=dict(domain=[0.15, 1.0], zeroline=False, showticklabels=False, ticks=''),
+                yaxis=dict(domain=[0.15, 1.0], zeroline=False, showticklabels=False, ticks=''),
+                xaxis2=dict(domain=[0.15, 1.0], anchor='y2'),
+                yaxis2=dict(domain=[0.15, 1.0], anchor='x2'),
+                margin=dict(t=50, l=50)
+            )
+
+            # Plot!
+
+            fig.write_image(f"model_output/model_plots/loading_correlation/svi/{model_name}.png", format = "png")
+
+
+
+
+            
+
+    if prior_predictive or svi_inference:
+        file_pre = "svi" if svi_inference else "prior"
         players_df = id_df[id_df["name"].isin(predict_players)]
         for index, row in players_df.iterrows():
             player_index = index
             name = row["name"]
             fig = plot_posterior_predictive_career_trajectory_map(player_index, metrics, metric_output, mu[:, jnp.array(player_index), :].squeeze(), Y, exposures)
             fig.update_layout(title = dict(text=name))
-            fig.write_image(f"model_output/model_plots/player_plots/predictions/svi/ard_games_poisson_minutes_{name.replace(' ', '_')}.png", format = "png")
-        
+            fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/ard_{model_name}_{name.replace(' ', '_')}.png", format = "png")
+                

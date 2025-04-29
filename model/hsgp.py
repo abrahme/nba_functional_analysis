@@ -69,14 +69,14 @@ def eigenindices(m: list[int] | int, dim: int) -> ArrayImpl:
 def safe_cos_term(divisor, x, L):
     denom = 2 * L * jnp.square(divisor)
     z = jnp.where(divisor == 0, 0, divisor * (x+L))
-    numer = jnp.cos(z) - 1
-    return jnp.where(numer == 0, -jnp.square(x+L)/ (4 * L), numer / denom)
+    numer = 1 - jnp.cos(z)
+    return jnp.where(z == 0, jnp.square(x + L)/ (4 * L), numer / denom)
 
 def safe_sin_term(divisor, x, L):
     denom = 2 * L * divisor
     z = jnp.where(divisor == 0, 0, divisor * (x+L))
     numer = jnp.sin(z)
-    return jnp.where(numer == 0, (x+L) / 2*L, numer / denom)
+    return jnp.where(z == 0, (x+L) / 2*L, numer / denom)
 
 
 def sqrt_eigenvalues(
@@ -237,9 +237,7 @@ def make_convex_phi(x, L, M= 1):
     diff_eig_vals = eig_vals[None] - eig_vals[..., None]
     cos_pos  = safe_cos_term(sum_eig_vals, x, L)
     cos_neg = safe_cos_term(diff_eig_vals, x, L)
-    diagonal_elements = jnp.square(x - L)/ (4 * L) - L +  safe_cos_term(2 * eig_vals, x, L)
-    phi = cos_pos - cos_neg 
-    phi.at[jnp.diag_indices(M)].set(diagonal_elements)
+    phi = cos_neg - cos_pos
     return phi
     
 def make_convex_phi_prime(x, L, M = 1):
@@ -248,9 +246,7 @@ def make_convex_phi_prime(x, L, M = 1):
     diff_eig_vals = eig_vals[None] - eig_vals[..., None]
     sin_pos = safe_sin_term(sum_eig_vals, x, L)
     sin_neg = safe_sin_term(diff_eig_vals, x, L)
-    diagonal_elements = (x - L)/ (2 * L) - safe_sin_term(2*eig_vals, x, L)
     phi_prime = sin_neg - sin_pos
-    phi_prime.at[jnp.diag_indices(M)].set(diagonal_elements)
     return phi_prime #should be t x m x m where t is the length of x and m is the number of eigen values (or M)
 
 def vmap_make_convex_phi_prime(x, L, M):
@@ -287,6 +283,9 @@ def make_gamma(weights, alpha, length, M, L, output_size, dim):
 
 def make_psi_gamma(psi, gamma):
     return jnp.einsum("nm, m... -> n...", psi,gamma)
+
+def make_psi_gamma_kron(psi, gamma):
+    return jnp.einsum("nkdm, md -> nk", psi, gamma)
 
 def make_convex_f(gamma_phi_gamma_time, shifted_x_time, slope, intercept):
     ## intercept should be n x k
