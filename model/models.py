@@ -3,7 +3,7 @@ import jax
 import numpyro
 import numpy as np
 from numpyro import sample 
-from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, BetaProportion, Distribution, Uniform, Beta
+from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, BetaProportion, Distribution, Uniform, Beta, Gamma
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive, init_to_value, init_to_feasible, init_to_uniform
 from numpyro.infer.reparam import NeuTraReparam
 from numpyro.infer.autoguide import AutoDelta, AutoBNAFNormal
@@ -517,6 +517,7 @@ class ConvexKronTVRFLVM(ConvexTVRFLVM):
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
         self.prior["metric_factor"] = Dirichlet(concentration=jnp.ones(shape=(self.r2,)) / self.r2)
+        self.prior["metric_scale"] = Gamma(concentration=2, rate=3)
     def model_fn(self, data_set, hsgp_params, offsets = 0, prior = False) -> None:
         num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
         phi_time  = hsgp_params["phi_x_time"]
@@ -527,6 +528,7 @@ class ConvexKronTVRFLVM(ConvexTVRFLVM):
         
         W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(self.m,self.r))
         metric_factor = self.prior["metric_factor"] if not isinstance(self.prior["metric_factor"], Distribution) else sample("metric_factor", self.prior["metric_factor"], sample_shape=(self.k,))
+        metric_scale = self.prior["metric_scale"] if not isinstance(self.prior["metric_scale"], Distribution) else sample("metric_scale", self.prior["metric_scale"], sample_shape=(self.k,))
         X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
         X -= jnp.mean(X, keepdims = True, axis = 0)
         X /= jnp.std(X, keepdims = True, axis = 0)
@@ -549,7 +551,7 @@ class ConvexKronTVRFLVM(ConvexTVRFLVM):
         weights = weights * spd * .0001
         gamma_phi_gamma_x = jnp.einsum("nm, mad , taz, lzd, nl -> ndt", psi_x, weights, phi_time, weights, psi_x)
         mu_core = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, (intercept)[..., None])  
-        mu = jnp.einsum("dnt, kd -> knt", mu_core, metric_factor) + jnp.transpose(offsets)[..., None] if not prior else numpyro.deterministic("mu",jnp.einsum("dnt, dk -> knt", mu_core, metric_factor) + jnp.transpose(offsets)[..., None])
+        mu = jnp.einsum("dnt, kd -> knt", mu_core, metric_factor * metric_scale[..., None]) + jnp.transpose(offsets)[..., None] if not prior else numpyro.deterministic("mu",jnp.einsum("dnt, dk -> knt", mu_core, metric_factor * metric_scale[..., None]) + jnp.transpose(offsets)[..., None])
         if num_gaussians > 0 :
             sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
             expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))

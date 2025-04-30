@@ -222,7 +222,7 @@ if __name__ == "__main__":
                 if "max" in model_name:
                     model_args["offsets"] = {"t_max": offset_peak, "c_max": offset_max}
             if svi_inference:
-                samples = model.run_svi_inference(num_steps=5000, model_args=model_args, initial_values=initial_params)
+                samples = model.run_svi_inference(num_steps=100000, model_args=model_args, initial_values=initial_params)
             elif not neural_parametrization:
                 samples, extra_fields = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
             elif prior_predictive:
@@ -268,9 +268,10 @@ if __name__ == "__main__":
  
             intercept = make_psi_gamma(psi_x, samples["intercept__loc"])
             metric_factor = samples["metric_factor__loc"]
+            metric_scale = samples["metric_scale__loc"]
             slope =  make_psi_gamma(psi_x, samples["slope__loc"])
             mu_core = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, (intercept)[..., None]) 
-            mu =  offsets.T[..., None] + jnp.einsum("dnt, kd -> knt", mu_core, metric_factor)
+            mu =  offsets.T[..., None] + jnp.einsum("dnt, kd -> knt", mu_core, metric_factor * metric_scale[..., None])
         elif "max" in model_name:
             sigma_c_max = samples["sigma_c__loc"]
             sigma_t_max = samples["sigma_t__loc"] 
@@ -316,7 +317,7 @@ if __name__ == "__main__":
         fig.write_image(f"model_output/model_plots/latent_space/svi/{model_name}.png", format = "png")
 
         if "kron" in model_name:
-            fig = px.imshow(metric_factor, zmin=0, labels = dict(x = "Dimension",
+            fig = px.imshow(metric_factor * metric_scale[..., None], zmin=0, labels = dict(x = "Dimension",
                                                      y = "Metric"),
                                                      x = [f"Dimension {i+1}" for i in range(basis_dims_2)],
                                                      y = metrics,
@@ -325,7 +326,7 @@ if __name__ == "__main__":
             fig.write_image(f"model_output/model_plots/loading/svi/{model_name}.png", format = "png")
 
             
-            D = jnp.linalg.norm(metric_factor[:, None, :] - metric_factor[None], axis = -1)
+            D = jnp.linalg.norm((metric_factor * metric_scale[..., None])[:, None, :] - (metric_factor * metric_scale[..., None])[None], axis = -1)
                 # ---- Hierarchical clustering ----
             linkage_mat = linkage(squareform(D, checks=False), method="ward")
             order = leaves_list(linkage_mat)
