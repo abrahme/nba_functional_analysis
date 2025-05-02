@@ -222,7 +222,7 @@ if __name__ == "__main__":
                 if "max" in model_name:
                     model_args["offsets"] = {"t_max": offset_peak, "c_max": offset_max}
             if svi_inference:
-                samples = model.run_svi_inference(num_steps=100000, model_args=model_args, initial_values=initial_params)
+                samples = model.run_svi_inference(num_steps=500000, model_args=model_args, initial_values=initial_params)
             elif not neural_parametrization:
                 samples, extra_fields = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
             elif prior_predictive:
@@ -276,14 +276,13 @@ if __name__ == "__main__":
             sigma_c_max = samples["sigma_c__loc"]
             sigma_t_max = samples["sigma_t__loc"] 
             t_max_raw = samples["t_max__loc"] 
-            t_max = model_args["offsets"]["t_max"] +  t_max_raw * sigma_t_max
-            intercept = make_psi_gamma(psi_x, samples["c_max__loc"]) * sigma_c_max + model_args["offsets"]["c_max"]
-            weights *= .1
-            phi_tmax = jnp.squeeze(jax.vmap(lambda x: vmap_make_convex_phi(x, L_time, M_time))(t_max))
-            phi_prime_tmax = jnp.squeeze(jax.vmap(lambda x: vmap_make_convex_phi_prime(x, L_time, M_time))(t_max))
-            gamma_phi_gamma_x_tmax = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_tmax[..., None, :, :] - phi_time[None, None], weights, psi_x)
-            gamma_phi_prime_gamma_x_tmax = jnp.einsum("nm, mdk, nkdz, jzk, nj, nkt -> knt", psi_x, weights, phi_prime_tmax, weights, psi_x, t_max[..., None] - (shifted_x_time - L_time)[None, None])
-            mu = jnp.transpose(intercept)[..., None]  + gamma_phi_gamma_x_tmax - gamma_phi_prime_gamma_x_tmax
+            weights /= .0001
+            t_max = model_args["offsets"]["t_max"] +  make_psi_gamma(psi_x, t_max_raw) * sigma_t_max
+            c_max = make_psi_gamma(psi_x, samples["c_max__loc"]) * sigma_c_max + model_args["offsets"]["c_max"]
+            slope = (t_max + L_time) * (alpha_time[None])
+            intercept = c_max - .5 * jnp.square(t_max + L_time) * (alpha_time[None])
+            gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
+            mu = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, intercept[..., None]) 
 
         else:
             intercept_sigma = 1

@@ -4,7 +4,7 @@ import numpyro
 import numpy as np
 from numpyro import sample 
 from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, BetaProportion, Distribution, Uniform, Beta, Gamma
-from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive, init_to_value, init_to_feasible, init_to_uniform
+from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive, init_to_value, init_to_feasible, init_to_uniform, init_to_mean
 from numpyro.infer.reparam import NeuTraReparam
 from numpyro.infer.autoguide import AutoDelta, AutoBNAFNormal
 import optax
@@ -433,9 +433,9 @@ class ConvexTVRFLVM(TVRFLVM):
         super().__init__(latent_rank, rff_dim, output_shape, basis)
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
-        self.prior["lengthscale_deriv"] = InverseGamma(1.0, 1.0)
+        self.prior["lengthscale_deriv"] = InverseGamma(2.0, 1.0)
         self.prior["lengthscale"] = InverseGamma(.3, .7)
-        self.prior["sigma_beta"] = InverseGamma(1.0, 1.0)
+        self.prior["sigma_beta"] = InverseGamma(2.0, 1.0)
         self.prior["sigma"] = InverseGamma(299.0, 6000.0)
         self.prior["alpha"] = InverseGamma(1.0, 1.0)
         self.prior["intercept"] = Normal()
@@ -594,11 +594,11 @@ class ConvexMaxTVRFLVM(ConvexTVRFLVM):
         super().__init__(latent_rank, rff_dim, output_shape, basis)
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
-        self.prior["lengthscale"] = InverseGamma(.3, .7)
-        self.prior["sigma_beta"] = InverseGamma(1.0, 1.0)
-        self.prior["sigma_c"] = InverseGamma(2.0, .00003)
+        self.prior["lengthscale"] = InverseGamma(2.0, 1.0)
+        self.prior["sigma_beta"] = InverseGamma(2.0, 1.0)
+        self.prior["sigma_c"] = InverseGamma(2.0, .0003)
         self.prior["sigma_t"] = InverseGamma(2.0, .003)
-        self.prior["alpha"] = InverseGamma(2.0, .003)
+        self.prior["alpha"] = InverseGamma(2.0, .0003)
         self.prior["t_max"] = Normal()
         self.prior["c_max"] = Normal()
 
@@ -617,20 +617,19 @@ class ConvexMaxTVRFLVM(ConvexTVRFLVM):
         wTx = jnp.einsum("nr,mr -> nm", X, W  * jnp.sqrt(lengthscale)[None])
         psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(self.m))   
         sigma_t_max = self.prior["sigma_t"] if not isinstance(self.prior["sigma_t"], Distribution) else sample("sigma_t", self.prior["sigma_t"], sample_shape=(1, num_metrics))
-        t_max_raw = self.prior["t_max"] if not isinstance(self.prior["t_max"], Distribution) else sample("t_max", self.prior["t_max"], sample_shape=(self.n, num_metrics))
-        t_max = offsets["t_max"] +  t_max_raw * sigma_t_max
+        t_max_raw = self.prior["t_max"] if not isinstance(self.prior["t_max"], Distribution) else sample("t_max", self.prior["t_max"], sample_shape=(2 * self.m, num_metrics))
+        t_max = offsets["t_max"] +  make_psi_gamma(psi_x, t_max_raw) * sigma_t_max
         sigma_c_max = self.prior["sigma_c"] if not isinstance(self.prior["sigma_c"], Distribution) else sample("sigma_c", self.prior["sigma_c"], sample_shape=(1, num_metrics))
         ls_deriv = self.prior["lengthscale_deriv"] if not isinstance(self.prior["lengthscale_deriv"], Distribution) else sample("lengthscale_deriv", self.prior["lengthscale_deriv"], sample_shape=(num_metrics,))
-        intercept = make_psi_gamma(psi_x, self.prior["c_max"] if not isinstance(self.prior["c_max"], Distribution) else sample("c_max", self.prior["c_max"] , sample_shape=(2 * self.m, num_metrics))) * sigma_c_max + offsets["c_max"]
+        c_max = make_psi_gamma(psi_x, self.prior["c_max"] if not isinstance(self.prior["c_max"], Distribution) else sample("c_max", self.prior["c_max"] , sample_shape=(2 * self.m, num_metrics))) * sigma_c_max + offsets["c_max"]
         alpha_time = self.prior["alpha"] if not isinstance(self.prior["alpha"], Distribution) else sample("alpha", self.prior["alpha"], sample_shape=(num_metrics, ))
         spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
         weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.m * 2, M_time, num_metrics))
-        weights =  weights * spd * .00001
-        phi_tmax = jnp.squeeze(jax.vmap(lambda x: vmap_make_convex_phi(x, L_time, M_time))(t_max))
-        phi_prime_tmax = jnp.squeeze(jax.vmap(lambda x: vmap_make_convex_phi_prime(x, L_time, M_time))(t_max))
-        gamma_phi_gamma_x_tmax = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_tmax[..., None, :, :] - phi_time[None, None], weights, psi_x)
-        gamma_phi_prime_gamma_x_tmax = jnp.einsum("nm, mdk, nkdz, jzk, nj, nkt -> knt", psi_x, weights, phi_prime_tmax, weights, psi_x, t_max[..., None] - (shifted_x_time - L_time)[None, None])
-        mu = jnp.transpose(intercept)[..., None]  + gamma_phi_gamma_x_tmax - gamma_phi_prime_gamma_x_tmax if not prior else numpyro.deterministic("mu", jnp.transpose(intercept)[..., None]  + gamma_phi_gamma_x_tmax - gamma_phi_prime_gamma_x_tmax)
+        weights =  weights * spd 
+        slope = (t_max + L_time) * (alpha_time[None])
+        intercept = c_max - .5 * jnp.square(t_max + L_time) * (alpha_time[None])
+        gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
+        mu = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, intercept[..., None]) if not prior else numpyro.deterministic("mu", make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, intercept[..., None]))
         if num_gaussians > 0:
             sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
             expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))
@@ -644,7 +643,7 @@ class ConvexMaxTVRFLVM(ConvexTVRFLVM):
                 rate = linear_predictor[mask]
                 dist = Normal(rate, expanded_sigmas[mask] / exposure[mask])
             elif family == "poisson":
-                rate = jnp.exp(linear_predictor[mask] + exposure[mask] - exposure[mask].mean())
+                rate = jnp.exp(linear_predictor[mask] + exposure[mask])
                 dist = Poisson(rate) 
             elif family == "binomial":
                 rate = linear_predictor[mask]
@@ -660,7 +659,7 @@ class ConvexMaxTVRFLVM(ConvexTVRFLVM):
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
         guide = AutoDelta(self.model_fn, prefix="", init_loc_fn = init_to_median, **guide_kwargs)
         print("Setup guide")
-        svi = SVI(self.model_fn, guide, optim=adam(.0003), loss=Trace_ELBO(num_particles=1)
+        svi = SVI(self.model_fn, guide, optim=adam(.000003), loss=Trace_ELBO(num_particles=1)
                   )
         print("Setup SVI")
         result = svi.run(jax.random.PRNGKey(0),
