@@ -5,9 +5,9 @@ import jax.numpy as jnp
 import plotly.express as px
 import numpy as np
 import arviz as az
-from model.inference_utils import create_metric_trajectory, create_metric_trajectory_map
+from model.inference_utils import create_metric_trajectory, create_metric_trajectory_map, create_metric_trajectory_prior
 
-def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str], metric_outputs: list[str], exposure_names: list[str],  posterior_mean_samples, observations, exposures, posterior_variance_samples):
+def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str], metric_outputs: list[str], exposure_names: list[str],  posterior_mean_samples, observations, exposures, posterior_variance_samples, posterior_dispersion_samples):
     """
     plots the posterior predictive career trajectory 
     """
@@ -15,7 +15,7 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
     
     observation_dict, posterior_dict = create_metric_trajectory(posterior_mean_samples, player_index,  observations, exposures, 
                                                                 exposure_names=exposure_names,
-                                                                metric_outputs=metric_outputs, metrics = metrics, posterior_variance_samples=posterior_variance_samples)
+                                                                metric_outputs=metric_outputs, metrics = metrics, posterior_variance_samples=posterior_variance_samples, posterior_dispersion_samples=posterior_dispersion_samples)
 
  
     obs = observation_dict["y"]
@@ -30,8 +30,8 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
             metric += " per 36 min"
         fig.add_trace(go.Scatter(x = x, y = obs[..., index], mode = "lines", 
                                  name = "Observed", line_color = "blue", showlegend=False), row = row, col=col)
-        fig.add_trace(go.Scatter(x = x, y = jnp.mean(posterior[..., index], axis = (0,1)), mode = "lines", name = "Posterior Mean", line_color = "red", showlegend=False), row = row, col = col)
-        hdi =  az.hdi(np.array(posterior[..., index]), hdi_prob = .95)
+        fig.add_trace(go.Scatter(x = x, y = jnp.nanmean(posterior[..., index], axis = (0,1)), mode = "lines", name = "Posterior Mean", line_color = "red", showlegend=False), row = row, col = col)
+        hdi =  az.hdi(np.array(posterior[..., index]), hdi_prob = .95, skipna=False)
         fig.add_trace(go.Scatter(
         name='Upper Bound',
         x=x,
@@ -53,6 +53,50 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
             showlegend=False,
         ), row = row, col=col)
 
+    fig.update_layout({'width':650, 'height': 650,
+                            'showlegend':False, 'hovermode': 'closest',
+                            })
+    
+    return fig
+
+
+def plot_prior_mean_trajectory(prior_mean_samples, thin = .1):
+    num_samples = prior_mean_samples.shape[0]
+    thin_val = int(thin * num_samples)
+    indices = np.random.choice(num_samples, size=thin_val, replace=False)
+    fig = make_subplots(rows = 1, cols=1)
+    x = list(range(18,39))
+    for sample_index in indices:
+        fig.add_trace(go.Scatter(x = x, y = prior_mean_samples[sample_index, 0], mode = "lines", line_color = "grey", opacity=.2, showlegend=False),
+                            row = 1, col = 1)
+        fig.update_layout({'width':650, 'height': 650,
+                                'showlegend':False, 'hovermode': 'closest',
+                                })
+    
+    return fig
+
+def plot_prior_predictive_career_trajectory(metrics: list[str], metric_outputs: list[str], exposure_names: list[str],  prior_mean_samples, prior_variance_samples, prior_dispersion_samples, thin = .1):
+    """
+    plots the prior predictive career trajectory 
+    """
+    fig = make_subplots(rows = 4, cols=4,  subplot_titles=metrics)
+    
+    prior_dict = create_metric_trajectory_prior(prior_mean_samples, metric_outputs, metrics, exposure_names, prior_variance_samples, prior_dispersion_samples)
+
+    
+ 
+    prior = prior_dict["y"]
+    num_samples = prior.shape[0]
+    thin_val = int(thin * num_samples)
+    indices = np.random.choice(num_samples, size=thin_val, replace=False)
+
+    x = list(range(18,39))
+    for index, metric in enumerate(metrics):
+        row = int(np.floor(index / 4)) + 1 
+        col = (index % 4) + 1
+        for sample_index in indices:
+            fig.add_trace(go.Scatter(x = x, y = prior[sample_index, :, index], mode = "lines", line_color = "grey", opacity=.2, showlegend=False),
+                        row = row, col = col)
     fig.update_layout({'width':650, 'height': 650,
                             'showlegend':False, 'hovermode': 'closest',
                             })
