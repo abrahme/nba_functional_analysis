@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/jax:24.10-py3
+FROM nvcr.io/nvidia/jax:25.04-py3
 
 ### Environment variables
 ENV GITHUB_CLI_VERSION 2.30.0
@@ -18,10 +18,7 @@ RUN apt-get update && \
         curl \
         g++ \
         tmux \
-        pandoc \
-        pandoc-citeproc \
         curl \
-        gdebi-core \
         ###################################################
         ### Add your own system dependencies installed  ###
         ### with `apt-get` as needed below this comment ###
@@ -63,8 +60,3 @@ RUN (type -p wget >/dev/null || ( apt update &&  apt-get install wget -y)) \
 && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" |  tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
 &&  apt update \
 &&  apt install gh -y
-
-
-# Quarto installation
-RUN curl -LO https://quarto.org/download/latest/quarto-linux-amd64.deb
-RUN gdebi --non-interactive quarto-linux-amd64.deb
