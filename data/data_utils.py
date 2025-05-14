@@ -95,7 +95,9 @@ def process_data(df, output_metric, exposure, model, input_metrics, player_indic
             for player_index, ent_index in zip (entrance_array, min_season_array[entrance_array]):
                 exposure_array[player_index, 0:ent_index] = 82 
                 metric_array[player_index, 0:ent_index] = 0
-            exposure_array[np.isnan(exposure_array)] = 82 ### all seasons have 82 games
+
+        metric_array[~np.isnan(metric_array)] = np.int32(metric_array[~np.isnan(metric_array)])
+        exposure_array[~np.isnan(metric_array)] = np.int32(exposure_array[~np.isnan(exposure_array)])
         if normalize:
             metric_array_obs = metric_array / exposure_array
             metric_array = (metric_array_obs - np.nanmean(metric_array_obs)) / np.nanstd(metric_array_obs)

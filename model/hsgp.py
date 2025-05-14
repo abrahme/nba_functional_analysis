@@ -66,17 +66,46 @@ def eigenindices(m: list[int] | int, dim: int) -> ArrayImpl:
 
 
 
-def safe_cos_term(divisor, x, L):
-    denom = 2 * L * jnp.square(divisor)
-    z = jnp.where(divisor == 0, 0, divisor * (x+L))
-    numer = 1 - jnp.cos(z)
-    return jnp.where(z == 0, jnp.square(x + L)/ (4 * L), numer / denom)
+# def safe_cos_term(divisor, x, L):
+#     denom = 2 * L * jnp.square(divisor)
+#     z = jnp.where(divisor == 0, 0, divisor * (x+L))
+#     numer = 1 - jnp.cos(z)
+#     return jnp.where(z == 0, jnp.square(x + L)/ (4 * L), numer / denom)
 
-def safe_sin_term(divisor, x, L):
-    denom = 2 * L * divisor
-    z = jnp.where(divisor == 0, 0, divisor * (x+L))
+# def safe_sin_term(divisor, x, L):
+#     denom = 2 * L * divisor
+#     z = jnp.where(divisor == 0, 0, divisor * (x+L))
+#     numer = jnp.sin(z)
+#     return jnp.where(z == 0, (x+L) / (2*L), numer / denom)
+
+
+
+def safe_cos_term(divisor, x, L, eps=1e-5):
+    divisor_safe = jnp.where(jnp.abs(divisor) < eps, eps, divisor)
+    z = divisor_safe * (x + L)
+    denom = 2 * L * jnp.square(divisor_safe)
+    numer = 1 - jnp.cos(z)
+    
+    base = numer / denom
+    limit = jnp.square(x + L) / (4 * L)
+
+    blend_weight = jnp.exp(-jnp.square(z / eps))
+
+    return blend_weight * limit + (1 - blend_weight) * base
+
+
+def safe_sin_term(divisor, x, L, eps=1e-5):
+    divisor_safe = jnp.where(jnp.abs(divisor) < eps, eps, divisor)
+    z = divisor_safe * (x + L)
+    denom = 2 * L * divisor_safe
     numer = jnp.sin(z)
-    return jnp.where(z == 0, (x+L) / 2*L, numer / denom)
+    
+    base = numer / denom
+    limit = (x + L) / (2 * L)
+
+    blend_weight = jnp.exp(-jnp.square(z / eps))
+
+    return blend_weight * limit + (1 - blend_weight) * base
 
 
 def sqrt_eigenvalues(

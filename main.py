@@ -17,8 +17,8 @@ from numpyro.diagnostics import print_summary
 from model.hsgp import make_convex_phi, diag_spectral_density, make_convex_f, make_psi_gamma, make_convex_phi_prime, vmap_make_convex_phi, vmap_make_convex_phi_prime, make_psi_gamma_kron
 jax.config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, create_cp_data
-from model.models import  NBAMixedOutputProbabilisticCPDecomposition, NBANormalApproxProbabilisticCPDecomposition, RFLVM, TVRFLVM, IFTVRFLVM, ConvexTVRFLVM, ConvexMaxTVRFLVM, ConvexKronTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsIFTVRFLVM
-from visualization.visualization import plot_posterior_predictive_career_trajectory_map
+from model.models import  NBAMixedOutputProbabilisticCPDecomposition, NBANormalApproxProbabilisticCPDecomposition, RFLVM, TVRFLVM, IFTVRFLVM, ConvexTVRFLVM, ConvexMaxTVRFLVM, ConvexKronTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsIFTVRFLVM, ConvexMaxAlternativeTVRFLVM
+from visualization.visualization import plot_posterior_predictive_career_trajectory_map, plot_prior_predictive_career_trajectory, plot_prior_mean_trajectory
 
 
 
@@ -95,6 +95,8 @@ if __name__ == "__main__":
             model = ConvexTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
             if "max" in model_name:
                 model = ConvexMaxTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+                if "prime" in model_name:
+                    model = ConvexMaxAlternativeTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
             elif "kron" in model_name:
                 model = ConvexKronTVRFLVM(latent_rank_1=basis_dims, rff_dim_1=rff_dim, latent_rank_2 = basis_dims_2, output_shape=(covariate_X.shape[0], len(basis)), basis=basis, num_metrics = len(metrics))
         elif "iftvrflvm" in model_name:
@@ -200,8 +202,8 @@ if __name__ == "__main__":
         if "convex" in model_name:
                 hsgp_params = {}
                 x_time = basis - basis.mean()
-                L_time = 1.5 * jnp.max(jnp.abs(x_time), 0, keepdims=True)
-                M_time = 15
+                L_time = 1.0 * jnp.max(jnp.abs(x_time), 0, keepdims=True)
+                M_time = 15 
                 phi_time = vmap_make_convex_phi(jnp.squeeze(x_time), jnp.squeeze(L_time), M_time)
                 hsgp_params["phi_x_time"] = phi_time
                 hsgp_params["M_time"] = M_time
@@ -222,12 +224,14 @@ if __name__ == "__main__":
                 if "max" in model_name:
                     model_args["offsets"] = {"t_max": offset_peak, "c_max": offset_max}
             if svi_inference:
-                samples = model.run_svi_inference(num_steps=500000, model_args=model_args, initial_values=initial_params)
+                samples = model.run_svi_inference(num_steps=10000, model_args=model_args, initial_values=initial_params)
+            elif prior_predictive:
+                print("sampling from prior")
+                model_args["prior"] = True
+                samples = model.predict({}, model_args, num_samples = 100)
             elif not neural_parametrization:
                 samples, extra_fields = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
-            elif prior_predictive:
-                model_args["prior"] = True
-                samples = model.predict({}, model_args)
+
 
             else:
                 mcmc_run, neutra = model.run_neutra_inference(num_chains=4, num_samples=2000, num_warmup=1000, num_steps=1000000, guide_kwargs={}, model_args=model_args)
@@ -236,6 +240,8 @@ if __name__ == "__main__":
             samples = neutra.transform_sample(samples)
             print_summary(samples)
         elif svi_inference:
+            pass
+        elif prior_predictive:
             pass
         else:
             print_summary(samples)
@@ -248,18 +254,19 @@ if __name__ == "__main__":
 
     if svi_inference:
         print(samples["sigma__loc"])
-        ls_deriv = samples["lengthscale_deriv__loc"]
         alpha_time = samples["alpha__loc"]
         shifted_x_time = hsgp_params["shifted_x_time"]
         ls_deriv = samples["lengthscale_deriv__loc"]
         spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
         weights = samples["beta__loc"]
         weights = weights * spd * .0001
-        lengthscale = samples["lengthscale__loc"][None]
+        lengthscale = samples["lengthscale__loc"]
+        print(1 / lengthscale)
         W = samples["W__loc"]
         X = samples["X__loc"]
-        X -= jnp.mean(X, keepdims = True, axis = 0)
-        X /= jnp.std(X, keepdims = True, axis = 0)
+        # X -= jnp.mean(X, keepdims = True, axis = 0)
+        # X /= jnp.std(X, keepdims = True, axis = 0)
+
         wTx = jnp.einsum("nr, mr -> nm", X, W * jnp.sqrt(lengthscale))    
         psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(rff_dim))
         gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
@@ -275,14 +282,21 @@ if __name__ == "__main__":
         elif "max" in model_name:
             sigma_c_max = samples["sigma_c__loc"]
             sigma_t_max = samples["sigma_t__loc"] 
-            t_max_raw = samples["t_max__loc"] 
+            t_max_raw = samples["t_max_raw__loc"] 
             weights /= .0001
-            t_max = model_args["offsets"]["t_max"] +  make_psi_gamma(psi_x, t_max_raw) * sigma_t_max
+            t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw) * sigma_t_max) * 2  + model_args["offsets"]["t_max"]  
             c_max = make_psi_gamma(psi_x, samples["c_max__loc"]) * sigma_c_max + model_args["offsets"]["c_max"]
-            slope = (t_max + L_time) * (alpha_time[None])
-            intercept = c_max - .5 * jnp.square(t_max + L_time) * (alpha_time[None])
-            gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
-            mu = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, intercept[..., None]) 
+            if "prime" in model_name:
+                phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
+                phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
+                intercept = jnp.transpose(c_max)[..., None]
+                gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
+                mu = intercept + gamma_phi_gamma_x
+            else:
+                slope = (t_max + L_time) * (alpha_time[None])
+                intercept = c_max - .5 * jnp.square(t_max + L_time) * (alpha_time[None])
+                gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
+                mu = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, intercept[..., None]) 
 
         else:
             intercept_sigma = 1
@@ -291,9 +305,15 @@ if __name__ == "__main__":
             mu = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, (intercept + offsets)[..., None]) 
 
     elif prior_predictive:
-        mu = samples["mu"].mean(0)
+        mu = samples["mu"]
+        tmax = samples["t_max"]
+        cmax = samples["c_max_"]
+        posterior_variance_samples = samples["sigma"]
+        posterior_dispersion_samples = samples["sigma_beta"]
+        X = samples["X"].mean(0)
 
-    if svi_inference:
+    if svi_inference or prior_predictive:
+        file_pre = "svi" if svi_inference else "prior"
         player_labels = ["Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", 
                             "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash", 
                             "Chris Paul", "Shaquille O'Neal"]
@@ -313,7 +333,7 @@ if __name__ == "__main__":
         fig = px.scatter(X_tsne_df, x = "Dim. 1", y = "Dim. 2", color = "Position", text="name", size = "minutes",
                         opacity = .1, title="T-SNE Visualization of Latent Player Embedding", )
         fig.update_traces(textfont = dict(size = 7))
-        fig.write_image(f"model_output/model_plots/latent_space/svi/{model_name}.png", format = "png")
+        fig.write_image(f"model_output/model_plots/latent_space/{file_pre}/{model_name}.png", format = "png")
 
         if "kron" in model_name:
             fig = px.imshow(metric_factor * metric_scale[..., None], zmin=0, labels = dict(x = "Dimension",
@@ -378,16 +398,40 @@ if __name__ == "__main__":
 
 
 
-
-            
-
-    if prior_predictive or svi_inference:
-        file_pre = "svi" if svi_inference else "prior"
         players_df = id_df[id_df["name"].isin(predict_players)]
         for index, row in players_df.iterrows():
             player_index = index
             name = row["name"]
-            fig = plot_posterior_predictive_career_trajectory_map(player_index, metrics, metric_output, mu[:, jnp.array(player_index), :].squeeze(), Y, exposures)
-            fig.update_layout(title = dict(text=name))
-            fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/ard_{model_name}_{name.replace(' ', '_')}.png", format = "png")
-                
+            if svi_inference:
+                fig = plot_posterior_predictive_career_trajectory_map(player_index, metrics, metric_output, mu[:, jnp.array(player_index), :].squeeze(), Y, exposures)
+                fig.update_layout(title = dict(text=name))
+                fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/ard_{model_name}_{name.replace(' ', '_')}.png", format = "png")
+        
+        if prior_predictive:
+            fig = plot_prior_predictive_career_trajectory(metrics, metric_output, exposure_list, mu[:, :, jnp.array(0), :].squeeze(), prior_variance_samples=jnp.transpose(posterior_variance_samples), prior_dispersion_samples = posterior_dispersion_samples)
+            fig.update_layout(title = "Prior Predictive Curves")
+            fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/ard_{model_name}.png", format = "png")
+
+            fig = plot_prior_mean_trajectory(mu[:, :, jnp.array(0), :])
+            fig.update_layout(title = "Prior Mean Curves")
+            fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/ard_{model_name}_mean_curve.png", format = "png")
+
+            df_peak_age = pd.DataFrame(tmax[:, 0, :] + basis.mean(), columns= metrics)
+            df_long_age = df_peak_age.melt(var_name='metric', value_name='peak_age')
+            df_peak_val = pd.DataFrame(cmax[:, 0, :], columns= metrics)
+            df_long_val = df_peak_val.melt(var_name='metric', value_name='peak_val')
+            df_long = pd.concat([df_long_val, df_long_age[["peak_age"]]], axis = 1)
+            # Step 2: Plot faceted histogram
+            fig = px.scatter(
+                df_long,
+                x='peak_age',
+                y = "peak_val",
+                facet_col='metric',
+                facet_col_wrap=4,       # wrap facets into rows
+                opacity=0.75,
+                title="Prior Peak Age, Peak Val by Metric"
+            )
+
+            fig.update_layout(height=300 * ((len(metrics) - 1) // 4 + 1))  # Adjust height based on number of facets
+            fig.for_each_yaxis(lambda yaxis: yaxis.update(showticklabels=True))
+            fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/ard_{model_name}_peak_age.png", format = "png")
