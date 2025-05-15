@@ -202,7 +202,7 @@ if __name__ == "__main__":
         if "convex" in model_name:
                 hsgp_params = {}
                 x_time = basis - basis.mean()
-                L_time = 1.0 * jnp.max(jnp.abs(x_time), 0, keepdims=True)
+                L_time = 2.0 * jnp.max(jnp.abs(x_time), 0, keepdims=True)
                 M_time = 15 
                 phi_time = vmap_make_convex_phi(jnp.squeeze(x_time), jnp.squeeze(L_time), M_time)
                 hsgp_params["phi_x_time"] = phi_time
@@ -224,7 +224,7 @@ if __name__ == "__main__":
                 if "max" in model_name:
                     model_args["offsets"] = {"t_max": offset_peak, "c_max": offset_max}
             if svi_inference:
-                samples = model.run_svi_inference(num_steps=10000, model_args=model_args, initial_values=initial_params)
+                samples = model.run_svi_inference(num_steps=100000, model_args=model_args, initial_values=initial_params)
             elif prior_predictive:
                 print("sampling from prior")
                 model_args["prior"] = True
