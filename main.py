@@ -17,7 +17,7 @@ from numpyro.diagnostics import print_summary
 from model.hsgp import make_convex_phi, diag_spectral_density, make_convex_f, make_psi_gamma, make_convex_phi_prime, vmap_make_convex_phi, vmap_make_convex_phi_prime, make_psi_gamma_kron
 jax.config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, create_cp_data
-from model.models import  NBAMixedOutputProbabilisticCPDecomposition, NBANormalApproxProbabilisticCPDecomposition, RFLVM, TVRFLVM, IFTVRFLVM, ConvexTVRFLVM, ConvexMaxTVRFLVM, ConvexKronTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsIFTVRFLVM, ConvexMaxAlternativeTVRFLVM
+from model.models import  NBAMixedOutputProbabilisticCPDecomposition, NBANormalApproxProbabilisticCPDecomposition, RFLVM, TVRFLVM, IFTVRFLVM, ConvexTVRFLVM, ConvexMaxTVRFLVM, ConvexKronTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsIFTVRFLVM
 from visualization.visualization import plot_posterior_predictive_career_trajectory_map, plot_prior_predictive_career_trajectory, plot_prior_mean_trajectory
 
 
@@ -95,8 +95,6 @@ if __name__ == "__main__":
             model = ConvexTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
             if "max" in model_name:
                 model = ConvexMaxTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
-                if "prime" in model_name:
-                    model = ConvexMaxAlternativeTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
             elif "kron" in model_name:
                 model = ConvexKronTVRFLVM(latent_rank_1=basis_dims, rff_dim_1=rff_dim, latent_rank_2 = basis_dims_2, output_shape=(covariate_X.shape[0], len(basis)), basis=basis, num_metrics = len(metrics))
         elif "iftvrflvm" in model_name:
@@ -286,18 +284,11 @@ if __name__ == "__main__":
             weights /= .0001
             t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw) * sigma_t_max) * 2  + model_args["offsets"]["t_max"]  
             c_max = make_psi_gamma(psi_x, samples["c_max__loc"]) * sigma_c_max + model_args["offsets"]["c_max"]
-            if "prime" in model_name:
-                phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
-                phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
-                intercept = jnp.transpose(c_max)[..., None]
-                gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
-                mu = intercept + gamma_phi_gamma_x
-            else:
-                slope = (t_max + L_time) * (alpha_time[None])
-                intercept = c_max - .5 * jnp.square(t_max + L_time) * (alpha_time[None])
-                gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
-                mu = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, intercept[..., None]) 
-
+            phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
+            phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
+            intercept = jnp.transpose(c_max)[..., None]
+            gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
+            mu = intercept + gamma_phi_gamma_x
         else:
             intercept_sigma = 1
             intercept = make_psi_gamma(psi_x, samples["intercept__loc"])   
@@ -306,10 +297,13 @@ if __name__ == "__main__":
 
     elif prior_predictive:
         mu = samples["mu"]
+        mu_18 = mu[..., 0]
+        mu_38 = mu[..., -1]
         tmax = samples["t_max"]
         cmax = samples["c_max_"]
         posterior_variance_samples = samples["sigma"]
         posterior_dispersion_samples = samples["sigma_beta"]
+        alpha = samples["alpha"]
         X = samples["X"].mean(0)
 
     if svi_inference or prior_predictive:
@@ -417,21 +411,21 @@ if __name__ == "__main__":
             fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/ard_{model_name}_mean_curve.png", format = "png")
 
             df_peak_age = pd.DataFrame(tmax[:, 0, :] + basis.mean(), columns= metrics)
-            df_long_age = df_peak_age.melt(var_name='metric', value_name='peak_age')
             df_peak_val = pd.DataFrame(cmax[:, 0, :], columns= metrics)
-            df_long_val = df_peak_val.melt(var_name='metric', value_name='peak_val')
-            df_long = pd.concat([df_long_val, df_long_age[["peak_age"]]], axis = 1)
-            # Step 2: Plot faceted histogram
-            fig = px.scatter(
-                df_long,
-                x='peak_age',
-                y = "peak_val",
-                facet_col='metric',
-                facet_col_wrap=4,       # wrap facets into rows
-                opacity=0.75,
-                title="Prior Peak Age, Peak Val by Metric"
-            )
+            df_f18 = pd.DataFrame(mu_18[..., 0], columns= metrics)
+            df_f38 = pd.DataFrame(mu_38[..., 0], columns= metrics)
+            df_alpha = pd.DataFrame(alpha, columns= metrics)
+            new_cols = ["tmax", "cmax", "f18", "f38", "alpha"]
 
-            fig.update_layout(height=300 * ((len(metrics) - 1) // 4 + 1))  # Adjust height based on number of facets
-            fig.for_each_yaxis(lambda yaxis: yaxis.update(showticklabels=True))
+            df_concatenated = pd.DataFrame(np.vstack([df_peak_age["obpm"].to_numpy(), 
+                                            df_peak_val["obpm"].to_numpy(),
+                                            df_f18["obpm"].to_numpy(),
+                                            df_f38["obpm"].to_numpy(),
+                                            df_alpha["obpm"].to_numpy()]).T, columns=new_cols)
+            # Step 2: Plot faceted scatter
+            fig = px.scatter_matrix(
+                df_concatenated,
+                opacity=0.75,
+                title="Prior Correlation Plot of Function Metrics"
+            )
             fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/ard_{model_name}_peak_age.png", format = "png")
