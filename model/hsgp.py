@@ -321,3 +321,6 @@ def make_convex_f(gamma_phi_gamma_time, shifted_x_time, slope, intercept):
     ### slope should be n x k 
 
     return jnp.swapaxes(intercept + jnp.einsum("nk, t -> nkt", slope, shifted_x_time) - gamma_phi_gamma_time, 0,1)
+
+
+

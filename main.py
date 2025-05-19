@@ -16,8 +16,8 @@ from numpyro.distributions import MatrixNormal
 from numpyro.diagnostics import print_summary
 from model.hsgp import make_convex_phi, diag_spectral_density, make_convex_f, make_psi_gamma, make_convex_phi_prime, vmap_make_convex_phi, vmap_make_convex_phi_prime, make_psi_gamma_kron
 jax.config.update("jax_enable_x64", True)
-from data.data_utils import create_fda_data, create_cp_data
-from model.models import  NBAMixedOutputProbabilisticCPDecomposition, NBANormalApproxProbabilisticCPDecomposition, RFLVM, TVRFLVM, IFTVRFLVM, ConvexTVRFLVM, ConvexMaxTVRFLVM, ConvexKronTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsIFTVRFLVM
+from data.data_utils import create_fda_data, create_cp_data, average_peak_differences
+from model.models import  NBAMixedOutputProbabilisticCPDecomposition, NBANormalApproxProbabilisticCPDecomposition, RFLVM, TVRFLVM, IFTVRFLVM, ConvexTVRFLVM, ConvexMaxTVRFLVM, ConvexKronTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsIFTVRFLVM, ConvexMaxBoundaryTVRFLVM
 from visualization.visualization import plot_posterior_predictive_career_trajectory_map, plot_prior_predictive_career_trajectory, plot_prior_mean_trajectory
 
 
@@ -95,6 +95,8 @@ if __name__ == "__main__":
             model = ConvexTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
             if "max" in model_name:
                 model = ConvexMaxTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+                if "boundary" in model_name:
+                    model = ConvexMaxBoundaryTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
             elif "kron" in model_name:
                 model = ConvexKronTVRFLVM(latent_rank_1=basis_dims, rff_dim_1=rff_dim, latent_rank_2 = basis_dims_2, output_shape=(covariate_X.shape[0], len(basis)), basis=basis, num_metrics = len(metrics))
         elif "iftvrflvm" in model_name:
@@ -155,38 +157,44 @@ if __name__ == "__main__":
         offset_list = []
         offset_max_list = []
         offset_peak_list = []
+        offset_boundary_l = []
+        offset_boundary_r = []
         for index, family in enumerate(metric_output):  
             if family == "gaussian":
                 offset_list.append(jnp.nanmean(Y[index]))
                 offset_max_list.append(jnp.nanmean(jnp.nanmax(Y[index], -1)))
                 peak = jnp.nanmean(jnp.nanargmax(Y[index], -1))
-
+                boundary_l, boundary_r = average_peak_differences(Y[index])
+                offset_boundary_l.append(boundary_l)
+                offset_boundary_r.append(boundary_r)
             else:
                 if family == "poisson":
                     p = jnp.nansum(Y[index]) / jnp.nansum(jnp.exp(exposures[index]))
                     p_max = jnp.nanmean(jnp.nanmax(Y[index] / jnp.exp(exposures[index]), -1))
                     peak = jnp.nanmean(jnp.nanargmax(Y[index] / jnp.exp(exposures[index]), -1))
                     offset_list.append(jnp.log(p))
-                    offset_max_list.append(jnp.log(p_max))
-                    
+                    offset_max_list.append(jnp.log(p_max))                 
                 elif family == "binomial":
                     p = jnp.nansum(Y[index]) / jnp.nansum(exposures[index])
                     p_max = jnp.nanmean(jnp.nanmax(Y[index] / exposures[index], -1))
                     offset_list.append(jnp.log(p/ (1-p)))
                     offset_max_list.append(jnp.log(p_max/(1-p_max)))
                     peak = jnp.nanmean(jnp.nanargmax(Y[index] / exposures[index], -1))
-
+                    p_star = Y[index] / exposures[index]     
                 elif family == "beta":
                     p = jnp.nanmean(Y[index])
                     p_max = jnp.nanmean(jnp.nanmax(Y[index], -1))
                     peak = jnp.nanmean(jnp.nanargmax(Y[index], -1))
                     offset_list.append(jnp.log(p / (1 - p)))
                     offset_max_list.append(jnp.log(p_max/(1-p_max)))
+
             offset_peak_list.append(peak + 18 - basis.mean())
 
         offsets = jnp.array(offset_list)[None]
         offset_max = jnp.array(offset_max_list)[None]
         offset_peak = jnp.array(offset_peak_list)[None]
+        offset_boundary_r = jnp.log(jnp.exp(2) - 1)
+        offset_boundary_l = jnp.log(jnp.exp(2) - 1)
         num_gaussians = 0 if "gaussian" not in distribution_indices else len(distribution_indices.get('gaussian'))
         data_dict = {}
         for family in distribution_families:
@@ -207,6 +215,8 @@ if __name__ == "__main__":
                 hsgp_params["M_time"] = M_time
                 hsgp_params["L_time"] = L_time
                 hsgp_params["shifted_x_time"] = x_time + L_time
+                hsgp_params["t_0"] = jnp.min(x_time)
+                hsgp_params["t_r"] = jnp.max(x_time)
         if "gibbs" in model_name:
             if "convex" in model_name:
                 samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict, "hsgp_params": hsgp_params}, gibbs_sites=[["X", "lengthscale", "alpha"], ["W", "beta_time","beta","sigma", "slope", "intercept"]])
@@ -220,9 +230,9 @@ if __name__ == "__main__":
             if "convex" in model_name:
                 model_args.update({ "hsgp_params": hsgp_params})
                 if "max" in model_name:
-                    model_args["offsets"] = {"t_max": offset_peak, "c_max": offset_max}
+                    model_args["offsets"] = {"t_max": offset_peak, "c_max": offset_max, "boundary_r": offset_boundary_r, "boundary_l": offset_boundary_l}
             if svi_inference:
-                samples = model.run_svi_inference(num_steps=100000, model_args=model_args, initial_values=initial_params)
+                samples = model.run_svi_inference(num_steps=5000, model_args=model_args, initial_values=initial_params)
             elif prior_predictive:
                 print("sampling from prior")
                 model_args["prior"] = True
@@ -281,12 +291,13 @@ if __name__ == "__main__":
             sigma_c_max = samples["sigma_c__loc"]
             sigma_t_max = samples["sigma_t__loc"] 
             t_max_raw = samples["t_max_raw__loc"] 
-            weights /= .0001
+            
             t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw) * sigma_t_max) * 2  + model_args["offsets"]["t_max"]  
             c_max = make_psi_gamma(psi_x, samples["c_max__loc"]) * sigma_c_max + model_args["offsets"]["c_max"]
             phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
             phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
             intercept = jnp.transpose(c_max)[..., None]
+            weights /= .0001
             gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
             mu = intercept + gamma_phi_gamma_x
         else:
@@ -298,6 +309,8 @@ if __name__ == "__main__":
     elif prior_predictive:
         mu = samples["mu"]
         mu_18 = mu[..., 0]
+        boundary_l = samples["boundary_l_"]
+        boundary_r = samples["boundary_r_"]
         mu_38 = mu[..., -1]
         tmax = samples["t_max"]
         cmax = samples["c_max_"]
@@ -414,14 +427,18 @@ if __name__ == "__main__":
             df_peak_val = pd.DataFrame(cmax[:, 0, :], columns= metrics)
             df_f18 = pd.DataFrame(mu_18[..., 0], columns= metrics)
             df_f38 = pd.DataFrame(mu_38[..., 0], columns= metrics)
+            df_bl = pd.DataFrame(boundary_l[..., 0, :], columns= metrics)
+            df_br = pd.DataFrame(boundary_r[..., 0, :], columns= metrics)
             df_alpha = pd.DataFrame(alpha, columns= metrics)
-            new_cols = ["tmax", "cmax", "f18", "f38", "alpha"]
+            new_cols = ["tmax", "cmax", "f18", "f38", "alpha", "b_l", "b_r"]
 
             df_concatenated = pd.DataFrame(np.vstack([df_peak_age["obpm"].to_numpy(), 
                                             df_peak_val["obpm"].to_numpy(),
                                             df_f18["obpm"].to_numpy(),
                                             df_f38["obpm"].to_numpy(),
-                                            df_alpha["obpm"].to_numpy()]).T, columns=new_cols)
+                                            df_alpha["obpm"].to_numpy(),
+                                            df_bl["obpm"].to_numpy(),
+                                            df_br["obpm"].to_numpy()]).T, columns=new_cols)
             # Step 2: Plot faceted scatter
             fig = px.scatter_matrix(
                 df_concatenated,

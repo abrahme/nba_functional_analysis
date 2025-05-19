@@ -327,3 +327,20 @@ def create_fda_data_time(data, basis_dims, metric_output, metrics, exposure_list
 
     basis = jnp.arange(18,39)
     return covariate_X, data_set, basis, time_basis
+
+def average_peak_differences(x):
+    mask = ~jnp.isnan(x)
+
+    first_idx = jnp.argmax(mask, axis=1)
+    last_idx = x.shape[1] - 1 - jnp.argmax(jnp.flip(mask, axis=1), axis=1)
+
+    peak_vals = jnp.nanmax(x, axis=1)
+    left_vals = x[jnp.arange(x.shape[0]), first_idx]
+    right_vals = x[jnp.arange(x.shape[0]), last_idx]
+    left_diffs = peak_vals - left_vals
+    right_diffs = peak_vals - right_vals
+
+    avg_left = jnp.nanmean(left_diffs)
+    avg_right = jnp.nanmean(right_diffs)
+
+    return avg_left, avg_right
