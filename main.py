@@ -14,10 +14,10 @@ from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import squareform, pdist
 from numpyro.distributions import MatrixNormal
 from numpyro.diagnostics import print_summary
-from model.hsgp import make_convex_phi, diag_spectral_density, make_convex_f, make_psi_gamma, make_convex_phi_prime, vmap_make_convex_phi, vmap_make_convex_phi_prime, make_psi_gamma_kron
+from model.hsgp import  diag_spectral_density, make_convex_f, make_psi_gamma,  vmap_make_convex_phi, vmap_make_convex_phi_prime
 jax.config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, create_cp_data, average_peak_differences
-from model.models import  NBAMixedOutputProbabilisticCPDecomposition, NBANormalApproxProbabilisticCPDecomposition, RFLVM, TVRFLVM, IFTVRFLVM, ConvexTVRFLVM, ConvexMaxTVRFLVM, ConvexKronTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsIFTVRFLVM, ConvexMaxBoundaryTVRFLVM
+from model.models import RFLVM, TVRFLVM, ConvexTVRFLVM, ConvexMaxTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, ConvexMaxBoundaryTVRFLVM, ConvexMaxBoundaryKronTVRFLVM
 from visualization.visualization import plot_posterior_predictive_career_trajectory_map, plot_prior_predictive_career_trajectory, plot_prior_mean_trajectory
 
 
@@ -28,21 +28,26 @@ if __name__ == "__main__":
     parser.add_argument("--basis_dims", help="size of the basis", required=True, type=int)
     parser.add_argument("--rff_dim", help="size of the rff approx", required=True, type=int)
     parser.add_argument("--basis_dims_2", help="size of the basis", required=False, type=int)
+    parser.add_argument("--num_chains", help = "number of chains to run mcmc (or first dimension of samples from approximate inference)"
+                        , required=False, type = int, default = 4)
+    parser.add_argument("--num_samples", help = "number of samples per chain", required=False, type = int, default = 2000)
+    parser.add_argument("--num_warmup", help = "number of warmup samples per chain", required = False, type = int, default = 1000)
     parser.add_argument("--fixed_param_path",help="where to read in the fixed params from", required=False, default="")
     parser.add_argument("--prior_x_path", help="if there is a prior on x, where to get the required params", required=False, default="")
     parser.add_argument("--output_path", help="where to store generated files", required = False, default="")
     parser.add_argument("--vectorized", help="whether to vectorize some chains so all gpus will be used", action="store_true")
-    parser.add_argument("--run_neutra", help = "whether or not to run neural reparametrization", action="store_true")
-    parser.add_argument("--run_svi", help = "whether or not to run variational inference", action="store_true")
-    parser.add_argument("--run_prior", help = "whether or not to generate prior samples", action = "store_true")
-    parser.add_argument("--init_path", help = "where to initialize mcmc from", required=False, default="")
+    parser.add_argument("--inference_method", help = "which inference method to run the model for", required=True, choices=["mcmc", "svi", "map", "prior"], default = "mcmc" )
+    parser.add_argument("--init_path", help = "where to initialize inference from", required=False, default="")
     parser.add_argument("--player_names", help = "which players to run the model for", required=False, default = [], type = lambda x: x.split(","))
     parser.add_argument("--position_group", help = "which position group to run the model for", required = True, choices=["G", "F", "C", "all"])
-    numpyro.set_platform("cuda")
+    numpyro.set_platform("cpu")
     args = vars(parser.parse_args())
-    neural_parametrization = args["run_neutra"]
-    svi_inference = args["run_svi"]
-    prior_predictive = args["run_prior"]
+    inference_method = args["inference_method"]
+    map_inference = (inference_method == "map")
+    svi_inference = (inference_method == "svi")
+    mcmc_inference = (inference_method == "mcmc")
+    prior_predictive = (inference_method == "prior")
+    num_warmup, num_samples, num_chains = args["num_warmup"], args["num_samples"], args["num_chains"]
     initial_params_path = args["init_path"]
     model_name = args["model_name"]
     basis_dims = args["basis_dims"]
@@ -79,15 +84,6 @@ if __name__ == "__main__":
     elif model_name == "gibbs_nba_tvrflvm":
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
         model = GibbsTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
-    elif model_name == "gibbs_nba_iftvrflvm":
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
-        model = GibbsIFTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)    
-    elif model_name == "exponential_cp":
-        exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics, player_indices)
-        model = NBAMixedOutputProbabilisticCPDecomposition(X, basis_dims, masks, exposures, outputs, metric_output, metrics)
-    elif model_name == "exponential_cp_normalize":
-        exposures, masks, X, outputs = create_cp_data(data, metric_output, exposure_list, metrics, player_indices, normalize=True)
-        model = NBANormalApproxProbabilisticCPDecomposition(X, basis_dims, masks, exposures)
     elif "rflvm" in model_name:
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
         model = RFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)))
@@ -97,10 +93,8 @@ if __name__ == "__main__":
                 model = ConvexMaxTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
                 if "boundary" in model_name:
                     model = ConvexMaxBoundaryTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
-            elif "kron" in model_name:
-                model = ConvexKronTVRFLVM(latent_rank_1=basis_dims, rff_dim_1=rff_dim, latent_rank_2 = basis_dims_2, output_shape=(covariate_X.shape[0], len(basis)), basis=basis, num_metrics = len(metrics))
-        elif "iftvrflvm" in model_name:
-            model = IFTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+                    if "kron" in model_name:
+                        model = ConvexMaxBoundaryKronTVRFLVM(latent_rank_1=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis, num_metrics=len(metrics), latent_rank_2=basis_dims_2)
         elif "tvrflvm" in model_name:
             model = TVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
    
@@ -109,14 +103,7 @@ if __name__ == "__main__":
 
     model.initialize_priors()
     initial_params = {}
-    if "cp" in model_name:
-        if initial_params_path:
-            with open(initial_params_path, "rb") as f_init:
-                initial_params = pickle.load(f_init)
-            f_init.close()
-        svi_run = model.run_inference(num_steps=10000000, initial_values=initial_params)
-        samples = svi_run.params
-    elif "rflvm" in model_name:
+    if "rflvm" in model_name:
         prior_dict = {}
         if param_path:
             with open(param_path, "rb") as f_param:
@@ -146,7 +133,9 @@ if __name__ == "__main__":
             with open(initial_params_path, "rb") as f_init:
                 initial_params = pickle.load(f_init)
             f_init.close()
-            if not svi_inference:
+            if (mcmc_inference or svi_inference):
+                ### we're usually initializing from autodelta in the numpyro sense so the loc suffix is present. need for all guide models but not for mcmc since 
+                ### the sample site is used and the name needs to match
                 initial_params = {key.replace("__loc",""):val for key,val in initial_params.items()}
         model.prior.update(prior_dict)
         distribution_families = set([data_entity["output"] for data_entity in data_set])
@@ -219,40 +208,33 @@ if __name__ == "__main__":
                 hsgp_params["t_r"] = jnp.max(x_time)
         if "gibbs" in model_name:
             if "convex" in model_name:
-                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict, "hsgp_params": hsgp_params}, gibbs_sites=[["X", "lengthscale", "alpha"], ["W", "beta_time","beta","sigma", "slope", "intercept"]])
+                samples = model.run_inference(num_chains=num_chains, num_samples=num_samples, num_warmup=num_warmup, model_args={"data_set": data_dict, "hsgp_params": hsgp_params}, gibbs_sites=[["X", "lengthscale", "alpha"], ["W", "beta_time","beta","sigma", "slope", "intercept"]])
             elif "tvrflvm" in model_name:
-                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X", "lengthscale"], ["W","beta","sigma"]])  
+                samples = model.run_inference(num_chains=num_chains, num_samples=num_samples, num_warmup=num_warmup, model_args={"data_set": data_dict}, gibbs_sites=[["X", "lengthscale"], ["W","beta","sigma"]])  
             else:
-                samples = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, model_args={"data_set": data_dict}, gibbs_sites=[["X"], ["W","beta","sigma"]])  
+                samples = model.run_inference(num_chains=num_chains, num_samples=num_samples, num_warmup=num_warmup, model_args={"data_set": data_dict}, gibbs_sites=[["X"], ["W","beta","sigma"]])  
 
         else:
-            model_args = {"data_set": data_dict, "offsets": offsets}
+            model_args = {"data_set": data_dict, "offsets": offsets, "inference_method": inference_method}
             if "convex" in model_name:
                 model_args.update({ "hsgp_params": hsgp_params})
                 if "max" in model_name:
                     model_args["offsets"] = {"t_max": offset_peak, "c_max": offset_max, "boundary_r": offset_boundary_r, "boundary_l": offset_boundary_l}
-            if svi_inference:
-                samples = model.run_svi_inference(num_steps=5000, model_args=model_args, initial_values=initial_params)
+            if map_inference:
+                samples = model.run_map_inference(num_steps=50000, model_args=model_args, initial_values=initial_params)
             elif prior_predictive:
                 print("sampling from prior")
-                model_args["prior"] = True
-                samples = model.predict({}, model_args, num_samples = 100)
-            elif not neural_parametrization:
-                samples, extra_fields = model.run_inference(num_chains=4, num_samples=2000, num_warmup=1000, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
+                samples = model.predict({}, model_args, num_samples = num_samples)
+            elif mcmc_inference:
+                samples, extra_fields = model.run_inference(num_chains=num_chains, num_samples=num_samples, num_warmup=num_warmup, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
 
-
-            else:
-                mcmc_run, neutra = model.run_neutra_inference(num_chains=4, num_samples=2000, num_warmup=1000, num_steps=1000000, guide_kwargs={}, model_args=model_args)
-                samples = mcmc_run.get_samples(group_by_chain=True)
-        if neural_parametrization:
-            samples = neutra.transform_sample(samples)
-            print_summary(samples)
-        elif svi_inference:
-            pass
-        elif prior_predictive:
-            pass
-        else:
-            print_summary(samples)
+            elif svi_inference:
+                samples = model.run_svi_inference(num_steps=500000, guide_kwargs={}, model_args=model_args, initial_values=initial_params, 
+                                                         sample_shape = (num_chains, num_samples))
+    if mcmc_inference:
+        # print_summary(samples)
+        for site in samples:
+            print(f"site: {site}, error : {jnp.linalg.norm(samples[site].mean((0,1)) - initial_params[site])}")
 
     if not prior_predictive:
         with open(output_path, "wb") as f:
@@ -260,7 +242,7 @@ if __name__ == "__main__":
         f.close()
 
 
-    if svi_inference:
+    if map_inference:
         print(samples["sigma__loc"])
         alpha_time = samples["alpha__loc"]
         shifted_x_time = hsgp_params["shifted_x_time"]
@@ -279,27 +261,29 @@ if __name__ == "__main__":
         psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(rff_dim))
         gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
      
-        if "kron" in model_name:
- 
-            intercept = make_psi_gamma(psi_x, samples["intercept__loc"])
-            metric_factor = samples["metric_factor__loc"]
-            metric_scale = samples["metric_scale__loc"]
-            slope =  make_psi_gamma(psi_x, samples["slope__loc"])
-            mu_core = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, (intercept)[..., None]) 
-            mu =  offsets.T[..., None] + jnp.einsum("dnt, kd -> knt", mu_core, metric_factor * metric_scale[..., None])
-        elif "max" in model_name:
+
+        if "max" in model_name:
             sigma_c_max = samples["sigma_c__loc"]
             sigma_t_max = samples["sigma_t__loc"] 
             t_max_raw = samples["t_max_raw__loc"] 
-            
-            t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw) * sigma_t_max) * 2  + model_args["offsets"]["t_max"]  
-            c_max = make_psi_gamma(psi_x, samples["c_max__loc"]) * sigma_c_max + model_args["offsets"]["c_max"]
+            if "kron" in model_name:
+                t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw) * sigma_t_max) * 5
+                c_max = make_psi_gamma(psi_x, samples["c_max__loc"]) * sigma_c_max 
+            else:
+                t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw) * sigma_t_max) * 2  + model_args["offsets"]["t_max"]  
+                c_max = make_psi_gamma(psi_x, samples["c_max__loc"]) * sigma_c_max + model_args["offsets"]["c_max"]
+
             phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
             phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
             intercept = jnp.transpose(c_max)[..., None]
             weights /= .0001
             gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
             mu = intercept + gamma_phi_gamma_x
+            if "kron" in model_name:
+                metric_scale = samples["metric_scale__loc"]
+                metric_factor_raw = samples["metric_factor__loc"]
+                metric_factor = metric_scale * metric_factor_raw
+                mu = jnp.einsum("dk, knt -> dnt", metric_factor, mu)
         else:
             intercept_sigma = 1
             intercept = make_psi_gamma(psi_x, samples["intercept__loc"])   
@@ -319,8 +303,8 @@ if __name__ == "__main__":
         alpha = samples["alpha"]
         X = samples["X"].mean(0)
 
-    if svi_inference or prior_predictive:
-        file_pre = "svi" if svi_inference else "prior"
+    if map_inference or prior_predictive:
+        file_pre = inference_method
         player_labels = ["Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", 
                             "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash", 
                             "Chris Paul", "Shaquille O'Neal"]
@@ -343,16 +327,16 @@ if __name__ == "__main__":
         fig.write_image(f"model_output/model_plots/latent_space/{file_pre}/{model_name}.png", format = "png")
 
         if "kron" in model_name:
-            fig = px.imshow(metric_factor * metric_scale[..., None], zmin=0, labels = dict(x = "Dimension",
+            fig = px.imshow(metric_factor * metric_scale, zmin=0, labels = dict(x = "Dimension",
                                                      y = "Metric"),
                                                      x = [f"Dimension {i+1}" for i in range(basis_dims_2)],
                                                      y = metrics,
 
                                                      )
-            fig.write_image(f"model_output/model_plots/loading/svi/{model_name}.png", format = "png")
+            fig.write_image(f"model_output/model_plots/loading/{inference_method}/{model_name}.png", format = "png")
 
             
-            D = jnp.linalg.norm((metric_factor * metric_scale[..., None])[:, None, :] - (metric_factor * metric_scale[..., None])[None], axis = -1)
+            D = jnp.linalg.norm((metric_factor * metric_scale)[:, None, :] - (metric_factor * metric_scale)[None], axis = -1)
                 # ---- Hierarchical clustering ----
             linkage_mat = linkage(squareform(D, checks=False), method="ward")
             order = leaves_list(linkage_mat)
@@ -401,7 +385,7 @@ if __name__ == "__main__":
 
             # Plot!
 
-            fig.write_image(f"model_output/model_plots/loading_correlation/svi/{model_name}.png", format = "png")
+            fig.write_image(f"model_output/model_plots/loading_correlation/{file_pre}/{model_name}.png", format = "png")
 
 
 
@@ -409,19 +393,19 @@ if __name__ == "__main__":
         for index, row in players_df.iterrows():
             player_index = index
             name = row["name"]
-            if svi_inference:
+            if map_inference:
                 fig = plot_posterior_predictive_career_trajectory_map(player_index, metrics, metric_output, mu[:, jnp.array(player_index), :].squeeze(), Y, exposures)
                 fig.update_layout(title = dict(text=name))
-                fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/ard_{model_name}_{name.replace(' ', '_')}.png", format = "png")
+                fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/{model_name}_{name.replace(' ', '_')}.png", format = "png")
         
         if prior_predictive:
             fig = plot_prior_predictive_career_trajectory(metrics, metric_output, exposure_list, mu[:, :, jnp.array(0), :].squeeze(), prior_variance_samples=jnp.transpose(posterior_variance_samples), prior_dispersion_samples = posterior_dispersion_samples)
             fig.update_layout(title = "Prior Predictive Curves")
-            fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/ard_{model_name}.png", format = "png")
+            fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/{model_name}.png", format = "png")
 
             fig = plot_prior_mean_trajectory(mu[:, :, jnp.array(0), :])
             fig.update_layout(title = "Prior Mean Curves")
-            fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/ard_{model_name}_mean_curve.png", format = "png")
+            fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/{model_name}_mean_curve.png", format = "png")
 
             df_peak_age = pd.DataFrame(tmax[:, 0, :] + basis.mean(), columns= metrics)
             df_peak_val = pd.DataFrame(cmax[:, 0, :], columns= metrics)
@@ -445,4 +429,4 @@ if __name__ == "__main__":
                 opacity=0.75,
                 title="Prior Correlation Plot of Function Metrics"
             )
-            fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/ard_{model_name}_peak_age.png", format = "png")
+            fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/{model_name}_peak_age.png", format = "png")

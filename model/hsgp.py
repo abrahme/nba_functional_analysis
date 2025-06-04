@@ -79,7 +79,7 @@ def eigenindices(m: list[int] | int, dim: int) -> ArrayImpl:
 #     return jnp.where(z == 0, (x+L) / (2*L), numer / denom)
 
 
-
+@jax.jit
 def safe_cos_term(divisor, x, L, eps=1e-5):
     divisor_safe = jnp.where(jnp.abs(divisor) < eps, eps, divisor)
     z = divisor_safe * (x + L)
@@ -93,7 +93,7 @@ def safe_cos_term(divisor, x, L, eps=1e-5):
 
     return blend_weight * limit + (1 - blend_weight) * base
 
-
+@jax.jit
 def safe_sin_term(divisor, x, L, eps=1e-5):
     divisor_safe = jnp.where(jnp.abs(divisor) < eps, eps, divisor)
     z = divisor_safe * (x + L)
@@ -284,37 +284,8 @@ def vmap_make_convex_phi_prime(x, L, M):
 def vmap_make_convex_phi(x, L, M):
     return jax.vmap(lambda t: make_convex_phi(t, L, M))(x)
 
-
-def make_convex_gamma(x, L, M = 1):
-    assert len(x.shape) == 1 ### only have capacity for single dimension concavity
-    eig_vals = jnp.squeeze(sqrt_eigenvalues(L, M, 1))
-    eig_vals_square = jnp.power(eig_vals, 2)
-    x_shifted = x + L
-    outer_eig_time = jnp.einsum("t,m... -> tm...", x_shifted, eig_vals)
-    return  2 * (outer_eig_time - jnp.sin(outer_eig_time))/ (jnp.sqrt(L) * eig_vals_square)
-
-def make_gamma_phi_gamma(phi, gamma):
-    right_result = jnp.einsum("njk,k... -> nj...", phi, gamma)
-    result = jnp.einsum("nj..., j... -> n...",right_result, gamma)
-     ## output is length of x and output size (mult by -1 to make sure we get concave functions)    
-    return result
-
-
-def make_gamma(weights, alpha, length, M, L, output_size, dim):
-
-    spd = jnp.sqrt(diag_spectral_density(dim, alpha, length, L, M))
-    if spd.shape[-1] != 1:
-        spd_ = jnp.expand_dims(spd, -1)
-    else:
-        spd_ = spd
-    gamma = spd_ * weights
-    return gamma
-
 def make_psi_gamma(psi, gamma):
     return jnp.einsum("nm, m... -> n...", psi,gamma)
-
-def make_psi_gamma_kron(psi, gamma):
-    return jnp.einsum("nkdm, md -> nk", psi, gamma)
 
 def make_convex_f(gamma_phi_gamma_time, shifted_x_time, slope, intercept):
     ## intercept should be n x k

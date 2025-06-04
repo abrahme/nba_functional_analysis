@@ -3,28 +3,72 @@ import ridgeplot as rp
 import plotly.express as px
 import pickle
 import plotly.graph_objects as go
-from plotly.figure_factory import create_dendrogram
 import numpy as np
+import argparse
 import arviz as az
+from jax import config
+config.update("jax_enable_x64", True)
 import jax 
-import xarray as xr
+from data.data_utils import create_fda_data, average_peak_differences
+import numpyro
 import jax.numpy as jnp
 import jax.scipy.special as jsci
-from model.hsgp import make_convex_f, diag_spectral_density, make_convex_phi, make_psi_gamma
+from model.hsgp import  diag_spectral_density, make_psi_gamma, make_convex_phi, make_convex_phi_prime, vmap_make_convex_phi, vmap_make_convex_phi_prime
 from plotly.subplots import make_subplots
 from sklearn.manifold import TSNE
-from sklearn.cluster import SpectralClustering
-from sklearn.mixture import GaussianMixture
-from geomstats.geometry.discrete_curves import (
-    DiscreteCurves,
-    SRVMetric,
-
-)
 from scipy.stats import gaussian_kde
-from scipy.spatial.distance import pdist, squareform
-from scipy.cluster.hierarchy import linkage, leaves_list, fcluster
+from scipy.spatial.distance import squareform
+from scipy.cluster.hierarchy import linkage, leaves_list
 from visualization.visualization import plot_posterior_predictive_career_trajectory
 from model.inference_utils import create_metric_trajectory_all
+
+@jax.jit
+def contract_single_nkt_lazy(psi_n, psi_k, weights_mdk, weights_jzk,
+                              ptm, pptm, phi_time_t, shifted, t_m):
+    delta = (shifted - t_m)  # (d, 1)
+    intermediate = ptm[None] - phi_time_t + jnp.einsum("dz ,t -> tdz",pptm , delta)  # (t, d, z)
+    return jnp.einsum("m,md,tdz,jz,j->t", psi_n, weights_mdk, intermediate, weights_jzk, psi_k)
+
+@jax.jit
+def compute_nk_lazy(psi, w, ptm, pptm, phi_time, shifted, t_mx, n, k):
+    psi_n = psi[n]                  # (M,)
+                 # (J,) assumed same
+    weights_mdk = w[:, :, k]        # (M, D)
+        # (J, Z)
+
+    ptm_nkt = ptm[n, k]             # (D, Z)
+    pptm_nkt = pptm[n, k]           # (D, Z)
+    t_m = t_mx[n, k]                # scalar
+
+    return contract_single_nkt_lazy(
+        psi_n, psi_n, weights_mdk, weights_mdk,
+        ptm_nkt, pptm_nkt, phi_time, shifted, t_m
+    )
+
+@jax.jit
+def compute_gamma_lazy_batched(psi_x, weights, phi_t_max, phi_prime_t_max,
+                                phi_time, shifted_x_time, L_time, t_max):
+    S, C, N, K = t_max.shape[:4]  # Sample, Chain, N, K
+    shifted = shifted_x_time - L_time
+
+    def process_single_sc(s, c):
+        psi = psi_x[s, c]              # (N, M)
+        w = weights[s, c]              # (M, D, K)
+        ptm = phi_t_max[s, c]          # (N, K, D, Z)
+        pptm = phi_prime_t_max[s, c]   # (N, K, D, Z)
+        t_mx = t_max[s, c]             # (N, K)
+
+        compute = lambda n, k: compute_nk_lazy(psi, w, ptm, pptm, phi_time, shifted, t_mx, n, k)
+        return jax.vmap(jax.vmap(compute, in_axes=(None, 0)), in_axes=(0, None))(jnp.arange(N), jnp.arange(K))
+
+    return jax.vmap(jax.vmap(process_single_sc, in_axes=(0, None)), in_axes=(None, 0))(jnp.arange(S), jnp.arange(C))
+
+
+
+
+
+
+
 
 
 def transform_mu(mu, metric_outputs):
@@ -36,458 +80,382 @@ def transform_mu(mu, metric_outputs):
             transform_function = lambda x: jnp.exp(x) 
         elif output_type == "binomial":
             transform_function = lambda x: jsci.expit(x)
+        elif output_type == "beta":
+            transform_function = lambda x: jsci.expit(x)
         transformed_mu[:,:,index,...] = transform_function(mu[:,:,index,...])
 
     return transformed_mu
 
-def make_mu_mcmc(X, ls_deriv, alpha_time, weights, W, ls, slope_weights, intercept_weights, L_time, M_time, phi_time, shifted_x_time):
-    spd = jax.vmap(jax.vmap(lambda a, ls: jnp.sqrt(diag_spectral_density(1, a, ls, L_time, M_time))))(alpha_time, ls_deriv)
-    weights = weights * spd[:, :, None, ...] * .0001
-    wTx = jnp.einsum("...nr,...mr -> ...nm", X, W / ls[..., None, None])
-    psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], -1) * (1/ jnp.sqrt(W.shape[2]))
-    slope = jnp.einsum("ijnm, ijm... -> ijn...", psi_x,slope_weights)
-    intercept = jnp.einsum("ijnm, ijm... -> ijn...", psi_x, intercept_weights)
-    gamma_phi_gamma_x = jnp.einsum("...nm, ...mdk, tdz, ...jzk, ...nj -> ...nkt", psi_x, weights, phi_time, weights, psi_x)
-    mu = intercept + jnp.einsum("...nk, t -> ...nkt", slope, shifted_x_time) - gamma_phi_gamma_x
-    return jnp.swapaxes(mu, 2,3)
 
-def make_mu(X, ls_deriv, alpha_time, weights, W, ls, slope_weights, intercept_weights, L_time, M_time, phi_time):
+def make_mu_mcmc(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, shifted_x_time, offset_dict):
+    spd = jax.vmap(jax.vmap(lambda a, l: jnp.sqrt(diag_spectral_density(1, a, l, L_time, M_time))))(alpha_time, ls_deriv)
+    weights = weights * spd[..., None, :, :]
+    wTx = jnp.einsum("...nr, ...mr -> ...nm", X, W * jnp.sqrt(ls[..., None, None]))  
+    psi_x = jnp.concatenate([np.cos(wTx), np.sin(wTx)],-1) * (1/ jnp.sqrt(W.shape[0]))
+    t_max = jnp.tanh(jnp.einsum("...nm, ...mk -> ...nk", psi_x, t_max_raw, optimize = True) * sigma_t_max) * 2  + offset_dict["t_max"]  
+    c_max = (jnp.einsum("...nm, ...mk -> ...nk", psi_x, c_max, optimize = True)) * sigma_c_max + offset_dict["c_max"]
+    phi_prime_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))))(t_max)
+    phi_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))))(t_max)
+    intercept = jnp.swapaxes(c_max, -2, -1)[..., None]
+    # gamma_phi_gamma_x =  compute_gamma_lazy_batched(psi_x, weights, phi_t_max, phi_prime_t_max, phi_time, shifted_x_time, L_time, t_max)
+    # mu = intercept + jnp.transpose(gamma_phi_gamma_x, (1,0, 3, 2, 4))
+    gamma_phi_gamma_x = jnp.einsum("...nm, ...mdk, ...nktdz, ...jzk, ...nj -> ...knt", psi_x, weights, phi_t_max[:,:,:,:,None,...] - phi_time[None, None, None, None] +  phi_prime_t_max[:, :,:,:, None, ...] * (((shifted_x_time - L_time)[None, None, None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
+    mu = gamma_phi_gamma_x + intercept
+    return mu, t_max, c_max
+
+def make_mu(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, phi_time, shifted_x_time, offset_dict):
     spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
-    weights = weights * spd * .0001
-    wTx = jnp.einsum("nr,mr -> nm", X, W / ls)
+    weights = weights * spd 
+    wTx = jnp.einsum("nr, mr -> nm", X, W * jnp.sqrt(ls))   
     psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(W.shape[0]))
-    slope = make_psi_gamma(psi_x, slope_weights)
-    intercept = make_psi_gamma(psi_x, intercept_weights)
-    gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
-    mu = make_convex_f(gamma_phi_gamma_x, x_time + L_time, slope, intercept)
-    return mu
+    t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw) * sigma_t_max) * 2  + offset_dict["t_max"]  
+    c_max = make_psi_gamma(psi_x, c_max) * sigma_c_max + offset_dict["c_max"]
+    phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
+    phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
+    intercept = jnp.transpose(c_max)[..., None]
+    gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
+    mu = intercept + gamma_phi_gamma_x
+    return mu, t_max, c_max
 
 
 
 
 
 ### set up 
-from data.data_utils import create_fda_data
-data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
-names = data.groupby("id")["name"].first().values
-names_df = pd.DataFrame(names, columns = ["Name"])
-names_df["Player"] = range(len(names))
-metric_output = ["binomial", "poisson"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
-metrics = ["games", "minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
-metric_df = pd.DataFrame(metrics, columns=["Statistic"])
-metric_df["Metric"] = range(len(metrics))
-basis = np.arange(18, 39)
-age_df = pd.DataFrame(range(18,39), columns = ["Age"])
-age_df["Time"] = age_df["Age"] - 18
-exposure_list = (["games_exposure", "games"]) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
-data["games_exposure"] = np.maximum(82, data["games"]) ### 82 or whatever
-data["retirement"] = 1
-print(f"mean age of retirement: {data.groupby('id')['age'].max().median()}")
-data["log_min"] = np.log(data["minutes"])
-data["simple_exposure"] = 1 
-_ , outputs, _ = create_fda_data(data, basis_dims=3, metric_output=metric_output, 
-                                     metrics = metrics
-, exposure_list =  exposure_list)
-observations = np.stack([output["output_data"] for output in outputs], axis = 1)
-exposures = np.stack([output["exposure_data"] for output in outputs], axis = 0)
-agg_dict = {"obpm":"mean", "dbpm":"mean", "bpm":"mean", 
+
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Description of your program')
+    parser.add_argument('--model_name', help='which model to fit', required=True)
+    parser.add_argument("--basis_dims", help="size of the basis", required=True, type=int)
+    parser.add_argument("--rff_dim", help="size of the rff approx", required=True, type=int)
+    parser.add_argument("--mcmc_path", help="where to get mcmc from", required = False, default="")
+    parser.add_argument("--svi_path", help = "where to get svi from", required=False, default="")
+    parser.add_argument("--position_group", help = "which position group to run the model for", required = True, choices=["G", "F", "C", "all"])
+    numpyro.set_platform("cpu")
+    args = vars(parser.parse_args())
+    mcmc_path = args["mcmc_path"]
+    model_name = args["model_name"]
+    basis_dims = args["basis_dims"]
+    rff_dim = args["rff_dim"]
+    svi_path = args["svi_path"]
+    position_group = args["position_group"]
+
+    data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
+    names = data.groupby("id")["name"].first().values.tolist()
+    data["log_min"] = np.log(data["minutes"])
+    data["simple_exposure"] = 1
+    data["games_exposure"] = np.maximum(82, data["games"]) ### 82 or whatever
+    data["pct_minutes"] = (data["minutes"] / data["games_exposure"]) / 48
+    data["retirement"] = 1
+    metric_output = ["binomial", "beta"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+    metrics = ["games", "pct_minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
+    exposure_list = (["games_exposure", "games_exposure"]) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
+    agg_dict = {"obpm":"mean", "dbpm":"mean", "bpm":"mean", 
             "position_group": "max",
         "minutes":"sum", "dreb": "sum", "fta":"sum", "ftm":"sum", "oreb":"sum",
         "ast":"sum", "tov":"sum", "fg2m":"sum", "fg3m":"sum", "fg3a":"sum", "fg2a":"sum", "blk":"sum", "stl":"sum"}
-data["total_minutes"] = data["median_minutes_per_game"] * data["games"] 
-agged_data = data.groupby("id").agg(agg_dict).reset_index()
-agged_data["ft_pct"] = agged_data["ftm"] / agged_data["fta"]
-agged_data["fg2_pct"] = agged_data["fg2m"] / agged_data["fg2a"]
-agged_data["fg3_pct"] = agged_data["fg3m"] / agged_data["fg3a"]
-agged_data["dreb_rate"] = 36.0 * agged_data["dreb"] / agged_data["minutes"]
-agged_data["oreb_rate"] = 36.0 * agged_data["oreb"] / agged_data["minutes"]
-agged_data["ast_rate"] = 36.0 * agged_data["ast"] / agged_data["minutes"]
-agged_data["tov_rate"] = 36.0 * agged_data["tov"] / agged_data["minutes"]
-agged_data["blk_rate"] = 36.0 * agged_data["blk"] / agged_data["minutes"]
-agged_data["stl_rate"] = 36.0 * agged_data["stl"] / agged_data["minutes"]
-agged_data["ft_rate"] = 36.0 * agged_data["fta"] / agged_data["minutes"]
-agged_data["fg2_rate"] = 36.0 * agged_data["fg2a"] / agged_data["minutes"]
-agged_data["fg3_rate"] = 36.0 * agged_data["fg3a"] / agged_data["minutes"]
-agged_data.fillna(0, inplace=True)
+    data["total_minutes"] = data["median_minutes_per_game"] * data["games"] 
+    agged_data = data.groupby("id").agg(agg_dict).reset_index()
+    agged_data["ft_pct"] = agged_data["ftm"] / agged_data["fta"]
+    agged_data["fg2_pct"] = agged_data["fg2m"] / agged_data["fg2a"]
+    agged_data["fg3_pct"] = agged_data["fg3m"] / agged_data["fg3a"]
+    agged_data["dreb_rate"] = 36.0 * agged_data["dreb"] / agged_data["minutes"]
+    agged_data["oreb_rate"] = 36.0 * agged_data["oreb"] / agged_data["minutes"]
+    agged_data["ast_rate"] = 36.0 * agged_data["ast"] / agged_data["minutes"]
+    agged_data["tov_rate"] = 36.0 * agged_data["tov"] / agged_data["minutes"]
+    agged_data["blk_rate"] = 36.0 * agged_data["blk"] / agged_data["minutes"]
+    agged_data["stl_rate"] = 36.0 * agged_data["stl"] / agged_data["minutes"]
+    agged_data["ft_rate"] = 36.0 * agged_data["fta"] / agged_data["minutes"]
+    agged_data["fg2_rate"] = 36.0 * agged_data["fg2a"] / agged_data["minutes"]
+    agged_data["fg3_rate"] = 36.0 * agged_data["fg3a"] / agged_data["minutes"]
+    agged_data.fillna(0, inplace=True)
 
-print("setup data")
+    print("setup data")
+    if position_group in ["G","F","C"]:
+        all_indices = data.drop_duplicates(subset=["position_group","name","id"]).reset_index()
+        player_indices = all_indices[all_indices["position_group"] == position_group].index.values.tolist()
+    else:
+        player_indices = []
+    positions = ["G", "F", "C"]
+    covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
 
-positions = ["G", "F", "C"]
+    hsgp_params = {}
+    x_time = basis - basis.mean()
+    L_time = 2.0 * np.max(np.abs(x_time), 0, keepdims=True)
+    M_time = 15 
+    phi_time = vmap_make_convex_phi(np.squeeze(x_time), np.squeeze(L_time), M_time)
+    hsgp_params["phi_x_time"] = phi_time
+    hsgp_params["M_time"] = M_time
+    hsgp_params["L_time"] = L_time
+    hsgp_params["shifted_x_time"] = x_time + L_time
+
+    masks = jnp.stack([data_entity["mask"] for data_entity in data_set])
+    exposures = jnp.stack([data_entity["exposure_data"] for data_entity in data_set])
+    Y = jnp.stack([data_entity["output_data"] for data_entity in data_set])
+    offset_list = []
+    offset_max_list = []
+    offset_peak_list = []
+    offset_boundary_l = []
+    offset_boundary_r = []
+    for index, family in enumerate(metric_output):  
+        if family == "gaussian":
+            offset_list.append(jnp.nanmean(Y[index]))
+            offset_max_list.append(jnp.nanmean(jnp.nanmax(Y[index], -1)))
+            peak = jnp.nanmean(jnp.nanargmax(Y[index], -1))
+            boundary_l, boundary_r = average_peak_differences(Y[index])
+            offset_boundary_l.append(boundary_l)
+            offset_boundary_r.append(boundary_r)
+        else:
+            if family == "poisson":
+                p = jnp.nansum(Y[index]) / jnp.nansum(np.exp(exposures[index]))
+                p_max = jnp.nanmean(jnp.nanmax(Y[index] / np.exp(exposures[index]), -1))
+                peak = jnp.nanmean(jnp.nanargmax(Y[index] / np.exp(exposures[index]), -1))
+                offset_list.append(np.log(p))
+                offset_max_list.append(np.log(p_max))                 
+            elif family == "binomial":
+                p = jnp.nansum(Y[index]) / jnp.nansum(exposures[index])
+                p_max = jnp.nanmean(jnp.nanmax(Y[index] / exposures[index], -1))
+                offset_list.append(np.log(p/ (1-p)))
+                offset_max_list.append(np.log(p_max/(1-p_max)))
+                peak = jnp.nanmean(jnp.nanargmax(Y[index] / exposures[index], -1))
+                p_star = Y[index] / exposures[index]     
+            elif family == "beta":
+                p = jnp.nanmean(Y[index])
+                p_max = jnp.nanmean(jnp.nanmax(Y[index], -1))
+                peak = jnp.nanmean(jnp.nanargmax(Y[index], -1))
+                offset_list.append(np.log(p / (1 - p)))
+                offset_max_list.append(np.log(p_max/(1-p_max)))
+
+        offset_peak_list.append(peak + 18 - basis.mean())
+
+    offsets = np.array(offset_list)[None]
+    offset_max = np.array(offset_max_list)[None]
+    offset_peak = np.array(offset_peak_list)[None]
+    offset_boundary_r = np.log(np.exp(2) - 1)
+    offset_boundary_l = np.log(np.exp(2) - 1)
+    offset_dict = {"t_max": offset_peak, "c_max": offset_max, "boundary_r": offset_boundary_r, "boundary_l": offset_boundary_l}
+    with open(svi_path, "rb") as f:
+        results_map = pickle.load(f)
+    f.close()
+
+    with open(mcmc_path, "rb") as f:
+        results_mcmc = pickle.load(f)
+    f.close()
 
 
-hsgp_params = {}
-x_time = basis - basis.mean()
-L_time = 1.5 * jnp.max(jnp.abs(x_time), 0, keepdims=True)
-M_time = 15
-phi_time = make_convex_phi(x_time, L_time, M_time)
-hsgp_params["phi_x_time"] = phi_time
-hsgp_params["M_time"] = M_time
-hsgp_params["L_time"] = L_time
-hsgp_params["shifted_x_time"] = x_time + L_time
+    mu_mcmc, tmax_mcmc, cmax_mcmc = make_mu_mcmc(results_mcmc["X"], results_mcmc["lengthscale_deriv"], results_mcmc["alpha"],
+                        results_mcmc["beta"], results_mcmc["W"], results_mcmc["lengthscale"], results_mcmc["c_max"],
+                        results_mcmc["t_max_raw"], results_mcmc["sigma_t"], results_mcmc["sigma_c"], L_time, M_time, x_time + L_time, offset_dict)
+
+    peaks = tmax_mcmc + basis.mean()
+    peak_val = cmax_mcmc
 
 
-with open(f"model_output/fixed_latent_convex_nba_tvrflvm_no_init_games_poisson_minutes_svi.pkl", "rb") as f:
-    results_map = pickle.load(f)
-f.close()
-
-with open(f"model_output/fixed_latent_convex_nba_tvrflvm_no_init_games_poisson_minutes_mcmc.pkl", "rb") as f:
-    results_tvrflvm = pickle.load(f)
-f.close()
-
-mu_mcmc = make_mu_mcmc(results_tvrflvm["X"], results_tvrflvm["lengthscale_deriv"], 
-    results_tvrflvm["alpha"],
-    results_tvrflvm["beta"], results_tvrflvm["W"], results_tvrflvm["lengthscale"],
-    results_tvrflvm["slope"], results_tvrflvm["intercept"], 
-    L_time, M_time, phi_time, hsgp_params["shifted_x_time"])
-
-transformed_mu_mcmc = transform_mu(mu_mcmc, metric_output)
+    # pos_indices = data.drop_duplicates(subset=["id","position_group","name"]).reset_index()
+    # position_samples_list =  []
+    # for pos in positions:
+    #     player_indices = pos_indices[pos_indices["position_group"] == pos].index.values
+    #     player_samples = np.vstack(peaks[..., player_indices, :].mean(-2))
+    #     pos_samples_df = pd.DataFrame(player_samples, columns=metrics).melt(value_name="peak", var_name="metric")
+    #     pos_samples_df['position'] = pos
+    #     position_samples_list.append(pos_samples_df)
 
 
-peaks = jnp.argmax(transformed_mu_mcmc, -1) + 18
-peak_val = jnp.take_along_axis(transformed_mu_mcmc, (peaks - 18)[..., None], axis = -1).squeeze()
-decay = (jnp.take_along_axis(transformed_mu_mcmc, jnp.minimum(peaks - 18 + 3,20)[..., None], axis = -1).squeeze() - peak_val) / peak_val
+    # position_samples_df = pd.concat(position_samples_list)
 
-decay = decay.at[jnp.isinf(decay)].set(jnp.nan)
-
-
-
-pos_indices = data.drop_duplicates(subset=["id","position_group","name"]).reset_index()
-
-
-player_indices = pos_indices.index.values
-player_samples = jnp.vstack(peaks[..., player_indices].mean(-1))
-player_samples_decay = jnp.vstack(jnp.nanmean(decay[..., player_indices],-1))
-player_samples_decay_kde = np.zeros((100, len(metrics)))
-player_samples_decay_x = np.zeros((100, len(metrics)))
-metric_kde_list = []
-position_samples_list =  []
-position_samples_decay_list = []
-position_samples_decay_kde_list = []
-for index, metric in enumerate(metrics):
-    metric_kde = gaussian_kde(player_samples_decay[..., index])
-    player_samples_decay_kde[..., index] = metric_kde.evaluate(jnp.linspace(
-    player_samples_decay[..., index].min(), player_samples_decay[..., index].max(), 100))
-    player_samples_decay_x[..., index] = jnp.linspace(
-    player_samples_decay[..., index].min(), player_samples_decay[..., index].max(), 100)
-    player_samples_decay_kde[..., index] /= player_samples_decay_kde[..., index].sum()
-    metric_kde_df = pd.DataFrame(jnp.stack([player_samples_decay_x[..., index],player_samples_decay_kde[..., index]]).T, columns = ["x","density"])
-    metric_kde_df["metric"] = metric
-    metric_kde_list.append(metric_kde_df)
-    pos_samples_decay_df = pd.DataFrame(player_samples_decay, columns= metrics).melt(value_name = "decay", var_name="metric")
-    pos_samples_decay_kde_df = pd.concat(metric_kde_list)
-
-    pos_samples_df = pd.DataFrame(player_samples, columns=metrics).melt(value_name="peak", var_name="metric")
-    position_samples_list.append(pos_samples_df)
-    position_samples_decay_list.append(pos_samples_decay_df)
-    position_samples_decay_kde_list.append(pos_samples_decay_kde_df)
-
-position_samples_df = pd.concat(position_samples_list)
-position_samples_decay_df = pd.concat(position_samples_decay_list)
-position_samples_decay_kde_df = pd.concat(position_samples_decay_kde_list)
-
-labels_sorted = position_samples_df.groupby("metric")["peak"].mean().reset_index().sort_values(by = "peak")["metric"]
-
-samples_ridgeplot = [
-        position_samples_df[(position_samples_df["metric"] == metric)]["peak"].to_numpy()
-    for metric in labels_sorted
-]
-
-samples_ridgeplot_decay = [
-        position_samples_decay_df[ (position_samples_decay_df["metric"] == metric)]["decay"].to_numpy()
-    for metric in labels_sorted
-]
-
-print("setup samples for plotting")
-   
-
-fig = rp.ridgeplot(
-    samples=samples_ridgeplot,
-    labels=labels_sorted,
-    colormode="trace-index-row-wise",
-    spacing=.5,
-    norm = "probability",
     
-    )
+    # labels_sorted = position_samples_df.groupby("metric")["peak"].mean().reset_index().sort_values(by = "peak")["metric"]
 
-fig.update_layout(
-title="Distribution of Peak Performance by Position",
-height=650,
-width=950,
-font_size=14,
-plot_bgcolor="rgb(245, 245, 245)",
-xaxis_gridcolor="white",
-yaxis_gridcolor="white",
-xaxis_gridwidth=2,
-yaxis_title="Metric",
-xaxis_title="Peak Age",
-showlegend=False,
-    )
+    # samples_ridgeplot = [
+    #     [
+    #         position_samples_df[(position_samples_df["metric"] == metric) & (position_samples_df["position"] == pos)]["peak"].to_numpy()
+    #     for pos in positions ]
+    #     for metric in labels_sorted
+    # ]
 
 
+    # print("setup samples for plotting")
+    
 
-fig.write_image("model_output/model_plots/peak_full_no_init_games_poisson_minutes.png", format = "png")
-
-
-
-fig = make_subplots(rows = 4, cols=4,  subplot_titles=metrics)
-
-for index, metric in enumerate(labels_sorted):
-    row = int(np.floor(index / 4)) + 1 
-    col = (index % 4) + 1
-    metric_type = metric_output[index]
-    pos_metric_df = position_samples_decay_kde_df[(position_samples_decay_kde_df["metric"] == metric)]
-    x = pos_metric_df["x"].to_numpy()
-    y = pos_metric_df["density"].to_numpy()
-    fig.add_trace(go.Scatter(x = np.append(x, None), y = np.append(y, None), mode = "lines", showlegend=False), row = row, col=col)
+    # fig = rp.ridgeplot(
+    #     samples=samples_ridgeplot,
+    #     labels=labels_sorted,
+    #     colormode="trace-index-row-wise",
+    #     spacing=.5,
+    #     colorscale = ["red", "green", "blue"],
+    #     norm = "probability",
         
-fig.update_xaxes(tickangle=90)
-fig.update_layout({'width':650, 'height': 650,
-                            'showlegend':False, 'hovermode': 'closest',
-                            })
-fig.write_image("model_output/model_plots/decay_full_no_init_games_poisson_minutes.png", format = "png")
-print("finished plotting the samples")
+    #     )
+
+    # fig.update_layout(
+    # title="Distribution of Peak Performance",
+    # height=650,
+    # width=950,
+    # font_size=14,
+    # plot_bgcolor="rgb(245, 245, 245)",
+    # xaxis_gridcolor="white",
+    # yaxis_gridcolor="white",
+    # xaxis_gridwidth=2,
+    # yaxis_title="Metric",
+    # xaxis_title="Peak Age",
+    # showlegend=False,
+    #     )
+
+    # fig.write_image(f"model_output/model_plots/peaks/{model_name}.png", format = "png")
 
 
 
-player_labels = ["Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", 
-                         "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash", 
-                         "Chris Paul", "Shaquille O'Neal"]
-
-
-X = results_map["X__loc"]
-W = results_map["W__loc"]
-wTx = jnp.einsum("nr,mr -> nm", X, W / results_map["lengthscale__loc"])
-psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(W.shape[0]))
-K_X = jnp.einsum("nk,mk -> nm", psi_x, psi_x)
-Dinv = np.diag(1 / np.sqrt(np.diag(K_X))) 
-corr = Dinv @ K_X @ Dinv
-dist_matrix = 1 - np.abs(corr)
-linkage_matrix = linkage(squareform(dist_matrix,checks = False), method="centroid")
-row_order = leaves_list(linkage_matrix)
-
-distances = linkage_matrix[:, 2]
-
-
-# # Step 4: Reorder the distance matrix
-clustered_matrix = dist_matrix[row_order][:, row_order]
-
-# Step 5: Plot the heatmap
-
-
-fig = go.Figure(data=go.Heatmap(
-    z=clustered_matrix,
-    colorscale='Viridis',
-    colorbar=dict(title='Distance',
-    ),
-    reversescale=True
-))
-
-fig.update_layout(
-    title='Clustered K_X',
-    xaxis=dict(showticklabels=False),
-    yaxis=dict(showticklabels=False),
-)
-
-fig.write_image(f"model_output/model_plots/no_init_latent_space_K_X.png", format = "png")
-tsne = TSNE(n_components=2)
-X_tsne_df = pd.DataFrame(tsne.fit_transform(X), columns = ["Dim. 1", "Dim. 2"])
-id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
-X_tsne_df = pd.concat([X_tsne_df, id_df], axis = 1)
-X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in player_labels else "")
-X_tsne_df["minutes"] /= np.max(X_tsne_df["minutes"])
-X_tsne_df.rename(mapper = {"position_group": "Position"}, inplace=True, axis=1)
-fig = px.scatter(X_tsne_df, x = "Dim. 1", y = "Dim. 2", color = "Position", text="name", size = "minutes",
-                    opacity = .1, title="T-SNE Visualization of Latent Player Embedding", )
-fig.write_image(f"model_output/model_plots/no_init_latent_space.png", format = "png")
-
-transformed_mu_mcmc_mean = transformed_mu_mcmc.mean((0,1)) ## get posterior mean across all samples and add an arbitrary ambient dim
-denom =  np.max(np.abs(transformed_mu_mcmc_mean), -1, keepdims=True)
-denom[np.argmax(transformed_mu_mcmc_mean, -1) == 0] = np.max(np.abs(transformed_mu_mcmc_mean), -1, keepdims=True)[np.argmax(transformed_mu_mcmc_mean, -1) == 0]
-transformed_mu_mcmc_mean_scaled = transformed_mu_mcmc_mean / denom
-
-basis_stack = (basis - 18)[None, None, :].repeat(len(metrics), axis=0).repeat(X.shape[0], axis=1)
-transformed_mu_mcmc_curves = jnp.stack([basis_stack, transformed_mu_mcmc_mean_scaled], axis = -1)
-
-curves_r2 = DiscreteCurves(
-    ambient_dim=2, k_sampling_points=len(basis), equip=True, starting_at_origin=False,
-)
-
-curves_r2.equip_with_group_action(("rotations", "reparametrizations"))
-
-metric_shape_curves = {}
-
-dist_vectorized = np.vectorize(curves_r2.metric.dist, signature="(t,2),(t,2)->()")
-tsne_shape_curves = TSNE(n_components=2,init="random", metric="precomputed", random_state=0)
-spectral_shape_curves = SpectralClustering(affinity="precomputed", n_clusters=3)
-tsne_latent_space = TSNE(n_components=2, )
-for index , metric in enumerate(metrics):
-
-
-    pairwise_dists = dist_vectorized(transformed_mu_mcmc_curves[index][None,...], transformed_mu_mcmc_curves[index][:, None, ...])
-    metric_shape_curves[metric] = pairwise_dists
-
-    X_tsne_df = pd.DataFrame(tsne_shape_curves.fit_transform(pairwise_dists), columns = ["Dim. 1", "Dim. 2"])
-    X_tsne_df["cluster"] = spectral_shape_curves.fit_predict(np.exp(-pairwise_dists))
+    player_labels =  ["Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", 
+                            "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash", 
+                            "Chris Paul", "Shaquille O'Neal"]
+    predict_players = player_labels + ["Anthony Edwards", "Jamal Murray", "Donovan Mitchell", "Ray Allen", "Klay Thompson",
+                                        "Scottie Pippen", "Amar'e Stoudemire", "Shawn Marion", "Dirk Nowitzki", "Jason Kidd",
+                                        "Marcus Camby", "Rudy Gobert", "Tim Duncan", "Manu Ginobili", "James Harden", "Russell Westbrook",
+                                        "Luka Doncic", "Devin Booker", "Paul Pierce", "Allen Iverson", "Tyrese Haliburton", "LaMelo Ball",
+                                        "Carmelo Anthony", "Dwyane Wade", "Derrick Rose", "Chris Bosh", "Karl-Anthony Towns", "Kristaps Porzingis", 
+                                        "Giannis Antetokounmpo", "Jrue Holiday"]
+    
     id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
-    X_tsne_df = pd.concat([X_tsne_df, id_df], axis = 1)
-    X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in player_labels else "")
-    X_tsne_df["minutes"] /= np.max(X_tsne_df["minutes"])
-    X_tsne_df["peak_age"] = basis[np.argmax(transformed_mu_mcmc_mean[index], -1)]
-    X_tsne_df["peak_val"] = np.max(transformed_mu_mcmc_mean[index], -1)
-    X_tsne_df.rename(mapper = {"position_group": "Position"}, inplace=True, axis=1)
+    predict_indices = id_df[id_df["name"].isin(predict_players)].index.values
+    X = results_map["X__loc"][predict_indices]
+    W = results_map["W__loc"]
+    wTx = np.einsum("nr,mr -> nm", X, W * np.sqrt(results_map["lengthscale__loc"]))
+    psi_x = np.hstack([np.cos(wTx), np.sin(wTx)]) * (1/ rff_dim)
+    K_X = np.einsum("nk,mk -> nm", psi_x, psi_x)
+    Dinv = np.diag(1 / np.sqrt(np.diag(K_X))) 
+    corr = Dinv @ K_X @ Dinv
+    dist_matrix = 1 - np.abs(corr)
+    linkage_matrix = linkage(squareform(dist_matrix,checks = False), method="centroid")
+    row_order = leaves_list(linkage_matrix)
     
+    distances = linkage_matrix[:, 2]
+    reordered_labels = np.array(predict_players)[row_order]
 
-    cluster_avg = []
-    subplot_titles = [f"Cluster {i}" for i in range(X_tsne_df["cluster"].max() + 1)]
-    fig = make_subplots(rows=2, cols=3, subplot_titles=subplot_titles, shared_xaxes=True,
-    shared_yaxes=True,specs=[[{"type": "table"}, {"type": "table"}, {"type": "table"}],
-                             [{"type": "xy"},    {"type": "xy"},    {"type": "xy"}]],
-                             vertical_spacing=0.2)
-    for cluster_idx in range(X_tsne_df["cluster"].max() + 1):
-        cluster_indices = X_tsne_df[X_tsne_df["cluster"] == cluster_idx].index.values
-        cluster_avg_curve = np.mean(transformed_mu_mcmc_curves[index, cluster_indices], 0)
-        cluster_df = pd.DataFrame(cluster_avg_curve, columns = ["x","value"])
-        cluster_df["cluster"] = "Cluster " + str(int(cluster_idx)) 
-        cluster_avg.append(cluster_df)
-        row = 1
-        col = cluster_idx + 1
-        for i in cluster_indices:
-            inter_cluster_curve = transformed_mu_mcmc_curves[index, i]
-            fig.add_trace(go.Scatter(
-                x=inter_cluster_curve[:,0], y=inter_cluster_curve[:,1],
-                mode='lines',
-                line=dict(color='gray', width=1),
-                opacity=0.05,
-                showlegend=False), 
-                row=row+1, col=col)
-                ## example players in cluster
-        example_players = X_tsne_df[X_tsne_df["cluster"] == cluster_idx].sort_values(by = "minutes", ascending = False)[["id"]].merge(id_df[["id", "name"]], on = ["id"])[["name"]]
-        fig.add_trace(
-                go.Table(
-                    header=dict(values=list(example_players.columns)),
-                    cells=dict(values=[example_players[col].tolist() for col in example_players.columns])
-                ),
-                row=1, col=col
-            )
-        # Plot one red curve
-        fig.add_trace(go.Scatter(
-            x=cluster_df["x"], y=cluster_df["value"],
-            mode='lines',
-            line=dict(color='red', width=2),
-            showlegend=False
-        ), row=row+1, col=col)
-        
+
+    # # Step 4: Reorder the distance matrix
+    clustered_matrix = dist_matrix[row_order][:, row_order]
+
+    # Step 5: Plot the heatmap
+
+
+    fig = go.Figure(data=go.Heatmap(
+        z=clustered_matrix,
+        x = reordered_labels,
+        y = reordered_labels,
+        colorscale='Viridis',
+        colorbar=dict(title='Distance',
+        ),
+        reversescale=True
+    ))
+    fig.update_xaxes(tickangle=90)
+    fig.update_yaxes(autorange='reversed') 
+    fig.update_yaxes(tickangle=90)
 
     fig.update_layout(
-        title_text=f"Per Cluster Curves for {metric}",
-        title_x=0.5  )
-    fig.write_image(f"model_output/model_plots/{metric}_shape_curve_cluster_spaghetti.png", format = "png")
+        title='Clustered K_X',
+        xaxis=dict(showticklabels=True, tickfont=dict(size=5) ),
+        yaxis=dict(showticklabels=False),
+    )
 
-
-
-    metric_cluster_df = pd.concat(cluster_avg)
-    X_tsne_df = X_tsne_df.sort_values(by = "cluster")
-    X_tsne_df["cluster"] = X_tsne_df["cluster"].apply(lambda x: f"Cluster {x}")
-    fig = px.scatter(X_tsne_df, x = "Dim. 1", y = "Dim. 2", color = "cluster", text="name", size = "minutes",
-                        opacity = .1, title="T-SNE Visualization of Player Curve Shapes",)
+    fig.write_image(f"model_output/model_plots/latent_space/{model_name}_K_X.png", format = "png")
     
-    fig.write_image(f"model_output/model_plots/{metric}_shape_curve_tsne.png", format = "png")
-    fig = px.scatter(X_tsne_df, x = "Dim. 1", y = "Dim. 2", color = "peak_val", text="name", size = "minutes",
-                        opacity = .1, title="T-SNE Visualization of Player Curve Shapes: Peak Value",)
+
+
+
     
-    fig.write_image(f"model_output/model_plots/{metric}_shape_curve_tsne_peak_val.png", format = "png")
-    fig = px.scatter(X_tsne_df, x = "Dim. 1", y = "Dim. 2", color = "peak_age", text="name", size = "minutes",
-                        opacity = .1, title="T-SNE Visualization of Player Curve Shapes: Peak Age",)
+
+
+
+    # tsne_latent_space = TSNE(n_components=2, )
+
+    # X_tsne_df = pd.DataFrame(tsne_latent_space.fit_transform(X), columns = ["Dim. 1", "Dim. 2"])
     
-    fig.write_image(f"model_output/model_plots/{metric}_shape_curve_tsne_peak_age.png", format = "png")
-    fig = px.line(metric_cluster_df, x="x", y = "value", color = "cluster")
-    fig.write_image(f"model_output/model_plots/{metric}_shape_curve_cluster_curves.png", format = "png")
-    print(f"finished plotting curve analysis for {metric}")
+    # X_tsne_df = pd.concat([X_tsne_df, id_df], axis = 1)
+    # clusters = GaussianMixture(n_components=3).fit_predict(X)
+    # X_tsne_df["cluster"] = clusters
+    # X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in player_labels else "")
+    # X_tsne_df["minutes"] /= np.max(X_tsne_df["minutes"])
+    # X_tsne_df.rename(mapper = {"position_group": "Position"}, inplace=True, axis=1)
+    # for index , metric in enumerate(metrics):
+    #     X_tsne_df["peak_age"] = basis[np.argmax(transformed_mu_mcmc_mean[index], -1)]
+    #     X_tsne_df["peak_val"] = np.max(transformed_mu_mcmc_mean[index], -1)
+    #     cluster_avg = []
+    #     subplot_titles = [f"Cluster {i}"  for i in range(0, X_tsne_df["cluster"].max() + 1)]
+    #     fig = make_subplots(rows=2, cols=int(clusters.max()) + 1, subplot_titles=subplot_titles, shared_xaxes=True,
+    #     shared_yaxes=True,specs=[[{"type": "table"}] * 3,
+    #                             [{"type": "xy"}] * 3],
+    #                             vertical_spacing=0.2)
+    #     for cluster_idx in range(0, X_tsne_df["cluster"].max() + 1):
+    #         cluster_indices = X_tsne_df[X_tsne_df["cluster"] == cluster_idx].index.values
+    #         cluster_avg_curve = np.mean(transformed_mu_mcmc_curves[index, cluster_indices], 0)
+    #         cluster_df = pd.DataFrame(cluster_avg_curve, columns = ["x","value"])
+    #         cluster_df["cluster"] = f"Cluster {cluster_idx}" 
+    #         cluster_avg.append(cluster_df)
+    #         row = 1
+    #         col = cluster_idx + 1
+    #         for i in cluster_indices:
+    #             inter_cluster_curve = transformed_mu_mcmc_curves[index, i]
+    #             fig.add_trace(go.Scatter(
+    #                 x=inter_cluster_curve[:,0], y=inter_cluster_curve[:,1],
+    #                 mode='lines',
+    #                 line=dict(color='gray', width=1),
+    #                 opacity=0.05,
+    #                 showlegend=False), 
+    #                 row=row+1, col=col)
+    #                 ## example players in cluster
+    #         example_players = X_tsne_df[X_tsne_df["cluster"] == cluster_idx].sort_values(by = "minutes", ascending = False)[["id"]].merge(id_df[["id", "name"]], on = ["id"])[["name"]]
+    #         fig.add_trace(
+    #                 go.Table(
+    #                     header=dict(values=list(example_players.columns)),
+    #                     cells=dict(values=[example_players[col].tolist() for col in example_players.columns])
+    #                 ),
+    #                 row=1, col=col
+    #             )
+    #         # Plot one red curve
+    #         fig.add_trace(go.Scatter(
+    #             x=cluster_df["x"], y=cluster_df["value"],
+    #             mode='lines',
+    #             line=dict(color='red', width=2),
+    #             showlegend=False
+    #         ), row=row+1, col=col)
+            
 
-X_tsne_df = pd.DataFrame(tsne_latent_space.fit_transform(X), columns = ["Dim. 1", "Dim. 2"])
-id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
-X_tsne_df = pd.concat([X_tsne_df, id_df], axis = 1)
-clusters = GaussianMixture(n_components=3).fit_predict(X)
-X_tsne_df["cluster"] = clusters
-X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in player_labels else "")
-X_tsne_df["minutes"] /= np.max(X_tsne_df["minutes"])
-X_tsne_df.rename(mapper = {"position_group": "Position"}, inplace=True, axis=1)
-for index , metric in enumerate(metrics):
-    X_tsne_df["peak_age"] = basis[np.argmax(transformed_mu_mcmc_mean[index], -1)]
-    X_tsne_df["peak_val"] = np.max(transformed_mu_mcmc_mean[index], -1)
-    cluster_avg = []
-    subplot_titles = [f"Cluster {i}"  for i in range(0, X_tsne_df["cluster"].max() + 1)]
-    fig = make_subplots(rows=2, cols=int(clusters.max()) + 1, subplot_titles=subplot_titles, shared_xaxes=True,
-    shared_yaxes=True,specs=[[{"type": "table"}] * 3,
-                             [{"type": "xy"}] * 3],
-                             vertical_spacing=0.2)
-    for cluster_idx in range(0, X_tsne_df["cluster"].max() + 1):
-        cluster_indices = X_tsne_df[X_tsne_df["cluster"] == cluster_idx].index.values
-        cluster_avg_curve = np.mean(transformed_mu_mcmc_curves[index, cluster_indices], 0)
-        cluster_df = pd.DataFrame(cluster_avg_curve, columns = ["x","value"])
-        cluster_df["cluster"] = f"Cluster {cluster_idx}" 
-        cluster_avg.append(cluster_df)
-        row = 1
-        col = cluster_idx + 1
-        for i in cluster_indices:
-            inter_cluster_curve = transformed_mu_mcmc_curves[index, i]
-            fig.add_trace(go.Scatter(
-                x=inter_cluster_curve[:,0], y=inter_cluster_curve[:,1],
-                mode='lines',
-                line=dict(color='gray', width=1),
-                opacity=0.05,
-                showlegend=False), 
-                row=row+1, col=col)
-                ## example players in cluster
-        example_players = X_tsne_df[X_tsne_df["cluster"] == cluster_idx].sort_values(by = "minutes", ascending = False)[["id"]].merge(id_df[["id", "name"]], on = ["id"])[["name"]]
-        fig.add_trace(
-                go.Table(
-                    header=dict(values=list(example_players.columns)),
-                    cells=dict(values=[example_players[col].tolist() for col in example_players.columns])
-                ),
-                row=1, col=col
-            )
-        # Plot one red curve
-        fig.add_trace(go.Scatter(
-            x=cluster_df["x"], y=cluster_df["value"],
-            mode='lines',
-            line=dict(color='red', width=2),
-            showlegend=False
-        ), row=row+1, col=col)
-        
-
-    fig.update_layout(
-        title_text=f"Per Cluster Curves for {metric}",
-        title_x=0.5  )
-    fig.write_image(f"model_output/model_plots/{metric}_latent_space_cluster_spaghetti.png", format = "png")
+    #     fig.update_layout(
+    #         title_text=f"Per Cluster Curves for {metric}",
+    #         title_x=0.5  )
+    #     fig.write_image(f"model_output/model_plots/{metric}_latent_space_cluster_spaghetti.png", format = "png")
 
 
 
-    metric_cluster_df = pd.concat(cluster_avg)
+    #     metric_cluster_df = pd.concat(cluster_avg)
 
-    fig = px.line(metric_cluster_df, x="x", y = "value", color = "cluster")
-    fig.write_image(f"model_output/model_plots/{metric}_latent_space_cluster_curves.png", format = "png")
-    print(f"finished plotting curve analysis for {metric}")
+    #     fig = px.line(metric_cluster_df, x="x", y = "value", color = "cluster")
+    #     fig.write_image(f"model_output/model_plots/{metric}_latent_space_cluster_curves.png", format = "png")
+    #     print(f"finished plotting curve analysis for {metric}")
 
 
-for player in player_labels:
-    index_player = id_df[id_df["name"] == player].index.values[0]
-    fig = plot_posterior_predictive_career_trajectory(index_player, metrics, metric_output , posterior_mean_samples=mu_mcmc[..., index_player, :], observations=observations,
-                                                      exposures= exposures, 
-                                                      posterior_variance_samples=jnp.transpose(results_tvrflvm["sigma"], (2,0,1)),
-                                                      exposure_names= exposure_list)
-    fig.write_image(f"model_output/model_plots/player_plots/no_init_{player}.png", format = "png")
+    for player in predict_players:
+        index_player = id_df[id_df["name"] == player].index.values[0]
+        fig = plot_posterior_predictive_career_trajectory(index_player, metrics, metric_output , posterior_mean_samples=mu_mcmc[..., index_player, :], observations=Y,
+                                                        exposures= exposures, 
+                                                        posterior_variance_samples=jnp.transpose(results_mcmc["sigma"], (2,0,1)),
+                                                        posterior_dispersion_samples=results_mcmc["sigma_beta"],
+                                                        exposure_names= exposure_list)
+        fig.write_image(f"model_output/model_plots/player_plots/predictions/mcmc/{model_name}_{player}.png", format = "png")
 
-obs, pos = create_metric_trajectory_all(mu_mcmc, observations, exposures, 
-                                        metric_output, metrics, exposure_list, 
-                                        jnp.transpose(results_tvrflvm["sigma"], (2,0,1)))
+    obs, pos = create_metric_trajectory_all(mu_mcmc, Y, exposures, 
+                                            metric_output, metrics, exposure_list, 
+                                            jnp.transpose(results_mcmc["sigma"], (2,0,1)),
+                                            results_mcmc["sigma_beta"][..., None, None]) 
 
-hdi = az.hdi(np.array(pos), hdi_prob = .95)
+    hdi = az.hdi(np.array(pos), hdi_prob = .95)
 
-hdi_low = hdi[..., 0]
-hdi_high = hdi[..., 1]
-avg_coverages = ((obs <= hdi_high) & (obs >= hdi_low)).sum((0,1)) / (~np.isnan(obs)).sum((0, 1))
-coverage_df = pd.DataFrame(avg_coverages, columns=["coverage"])
-coverage_df["metric"] = metrics
-fig = px.bar(coverage_df.sort_values(by = "coverage"), x='metric', y='coverage')
-fig.write_image(f"model_output/model_plots/no_init_coverage.png")
+    hdi_low = hdi[..., 0]
+    hdi_high = hdi[..., 1]
+    avg_coverages = ((obs <= hdi_high) & (obs >= hdi_low)).sum((0,1)) / (~np.isnan(obs)).sum((0, 1))
+    coverage_df = pd.DataFrame(avg_coverages, columns=["coverage"])
+    coverage_df["metric"] = metrics
+    fig = px.bar(coverage_df.sort_values(by = "coverage"), x='metric', y='coverage')
+    fig.write_image(f"model_output/model_plots/coverage/{model_name}.png")
