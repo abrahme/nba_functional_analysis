@@ -33,7 +33,6 @@ if __name__ == "__main__":
     parser.add_argument("--num_samples", help = "number of samples per chain", required=False, type = int, default = 2000)
     parser.add_argument("--num_warmup", help = "number of warmup samples per chain", required = False, type = int, default = 1000)
     parser.add_argument("--fixed_param_path",help="where to read in the fixed params from", required=False, default="")
-    parser.add_argument("--prior_x_path", help="if there is a prior on x, where to get the required params", required=False, default="")
     parser.add_argument("--output_path", help="where to store generated files", required = False, default="")
     parser.add_argument("--vectorized", help="whether to vectorize some chains so all gpus will be used", action="store_true")
     parser.add_argument("--inference_method", help = "which inference method to run the model for", required=True, choices=["mcmc", "svi", "map", "prior"], default = "mcmc" )
@@ -55,7 +54,6 @@ if __name__ == "__main__":
     basis_dims_2 = args["basis_dims_2"]
     param_path = args["fixed_param_path"]
     vectorized = args["vectorized"]
-    prior_x_path = args["prior_x_path"]
     output_path = args["output_path"] if args["output_path"] else f"model_output/{model_name}.pkl"
     players = args["player_names"]
     position_group = args["position_group"]
@@ -109,26 +107,17 @@ if __name__ == "__main__":
             with open(param_path, "rb") as f_param:
                 results_param = pickle.load(f_param)
             f_param.close()
+            if (mcmc_inference or svi_inference):
+                ### we're usually initializing from autodelta in the numpyro sense so the loc suffix is present. need for all guide models but not for mcmc since 
+                ### the sample site is used and the name needs to match
+                results_param = {key.replace("__loc",""):val for key,val in results_param.items()}
             for param_name in results_param:
                 value = results_param[param_name]
                 if (param_name == "X") and (player_indices):
                     value = results_param[param_name][jnp.array(player_indices)]
-                prior_dict[param_name] = numpyro.deterministic(param_name, value)
-        if prior_x_path:
-            with open(prior_x_path, "rb") as f_prior:
-                results_prior = pickle.load(f_prior)
-            f_prior.close()
-            X_rflvm = results_prior["X"]
-            U, _, _ = jnp.linalg.svd(X_rflvm, full_matrices=False)
-            L       = jnp.linalg.cholesky(jnp.cov(U.T) + 1e-6 * jnp.eye(basis_dims)).T
-            aligned_X  = np.linalg.solve(L, U.T).T
-            X = aligned_X / jnp.std(X_rflvm, axis=0) 
-            n, r = X.shape
-            cov_rows = jnp.cov(X) + jnp.eye(n) * (1e-6) 
-            cholesky_rows = jnp.linalg.cholesky(cov_rows) + jnp.eye(n) * (1e-6)
-            cov_cols = jnp.cov(X.T) + jnp.eye(r) * (1e-6)
-            cholesky_cols = jnp.linalg.cholesky(cov_cols) + jnp.eye(r) * (1e-6)
-            prior_dict["X"] = MatrixNormal(loc = X, scale_tril_column=cholesky_cols, scale_tril_row=cholesky_rows)
+                response = input(f"Fix parameter {param_name} ?" + " [Y/N]: ")
+                if response == "Y":
+                    prior_dict[param_name] = numpyro.deterministic(param_name, value)
         if initial_params_path:
             with open(initial_params_path, "rb") as f_init:
                 initial_params = pickle.load(f_init)
@@ -137,6 +126,9 @@ if __name__ == "__main__":
                 ### we're usually initializing from autodelta in the numpyro sense so the loc suffix is present. need for all guide models but not for mcmc since 
                 ### the sample site is used and the name needs to match
                 initial_params = {key.replace("__loc",""):val for key,val in initial_params.items()}
+                for param_name in initial_params:
+                    if (param_name == "X") and (player_indices):
+                        initial_params[param_name] = initial_params[param_name][jnp.array(player_indices)]
         model.prior.update(prior_dict)
         distribution_families = set([data_entity["output"] for data_entity in data_set])
         distribution_indices = {family: jnp.array([index for index, data_entity in enumerate(data_set) if family == data_entity["output"]]) for family in distribution_families}
@@ -229,7 +221,7 @@ if __name__ == "__main__":
                 samples, extra_fields = model.run_inference(num_chains=num_chains, num_samples=num_samples, num_warmup=num_warmup, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
 
             elif svi_inference:
-                samples = model.run_svi_inference(num_steps=500000, guide_kwargs={}, model_args=model_args, initial_values=initial_params, 
+                samples = model.run_svi_inference(num_steps=300, guide_kwargs={}, model_args=model_args, initial_values=initial_params, 
                                                          sample_shape = (num_chains, num_samples))
     if mcmc_inference:
         # print_summary(samples)

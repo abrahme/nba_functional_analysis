@@ -88,20 +88,22 @@ def transform_mu(mu, metric_outputs):
 
 
 def make_mu_mcmc(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, shifted_x_time, offset_dict):
-    spd = jax.vmap(jax.vmap(lambda a, l: jnp.sqrt(diag_spectral_density(1, a, l, L_time, M_time))))(alpha_time, ls_deriv)
-    weights = weights * spd[..., None, :, :]
-    wTx = jnp.einsum("...nr, ...mr -> ...nm", X, W * jnp.sqrt(ls[..., None, None]))  
+    # spd = jax.vmap(jax.vmap(lambda a, l: jnp.sqrt(diag_spectral_density(1, a, l, L_time, M_time))))(alpha_time, ls_deriv)
+    spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
+    # weights = weights * spd[..., None, :, :]
+    weights *= spd
+    wTx = jnp.einsum("...nr, mr -> ...nm", X, W * jnp.sqrt(ls))  
     psi_x = jnp.concatenate([np.cos(wTx), np.sin(wTx)],-1) * (1/ jnp.sqrt(W.shape[0]))
-    t_max = jnp.tanh(jnp.einsum("...nm, ...mk -> ...nk", psi_x, t_max_raw, optimize = True) * sigma_t_max) * 2  + offset_dict["t_max"]  
-    c_max = (jnp.einsum("...nm, ...mk -> ...nk", psi_x, c_max, optimize = True)) * sigma_c_max + offset_dict["c_max"]
+    t_max = jnp.tanh(jnp.einsum("...nm, mk -> ...nk", psi_x, t_max_raw, optimize = True) * sigma_t_max) * 2  + offset_dict["t_max"]  
+    c_max = (jnp.einsum("...nm, mk -> ...nk", psi_x, c_max, optimize = True)) * sigma_c_max + offset_dict["c_max"]
     phi_prime_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))))(t_max)
     phi_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))))(t_max)
     intercept = jnp.swapaxes(c_max, -2, -1)[..., None]
     # gamma_phi_gamma_x =  compute_gamma_lazy_batched(psi_x, weights, phi_t_max, phi_prime_t_max, phi_time, shifted_x_time, L_time, t_max)
     # mu = intercept + jnp.transpose(gamma_phi_gamma_x, (1,0, 3, 2, 4))
-    gamma_phi_gamma_x = jnp.einsum("...nm, ...mdk, ...nktdz, ...jzk, ...nj -> ...knt", psi_x, weights, phi_t_max[:,:,:,:,None,...] - phi_time[None, None, None, None] +  phi_prime_t_max[:, :,:,:, None, ...] * (((shifted_x_time - L_time)[None, None, None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
+    gamma_phi_gamma_x = jnp.einsum("...nm, mdk, ...nktdz, jzk, ...nj -> ...knt", psi_x, weights, phi_t_max[:,:,:,:,None,...] - phi_time[None, None, None, None] +  phi_prime_t_max[:, :,:,:, None, ...] * (((shifted_x_time - L_time)[None, None, None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
     mu = gamma_phi_gamma_x + intercept
-    return mu, t_max, c_max
+    return wTx, mu, t_max, c_max
 
 def make_mu(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, phi_time, shifted_x_time, offset_dict):
     spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
@@ -133,6 +135,8 @@ if __name__ == "__main__":
     parser.add_argument("--mcmc_path", help="where to get mcmc from", required = False, default="")
     parser.add_argument("--svi_path", help = "where to get svi from", required=False, default="")
     parser.add_argument("--position_group", help = "which position group to run the model for", required = True, choices=["G", "F", "C", "all"])
+    parser.add_argument("--player_names", help = "which players to run the model for", required=False, default = [], type = lambda x: x.split(","))
+    parser.add_argument("--thin", help = "keep every thin sample per chain", required=False, default=100, type = int)
     numpyro.set_platform("cpu")
     args = vars(parser.parse_args())
     mcmc_path = args["mcmc_path"]
@@ -141,6 +145,8 @@ if __name__ == "__main__":
     rff_dim = args["rff_dim"]
     svi_path = args["svi_path"]
     position_group = args["position_group"]
+    players = args["player_names"]
+    thin = args["thin"]
 
     data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
     names = data.groupby("id")["name"].first().values.tolist()
@@ -173,7 +179,9 @@ if __name__ == "__main__":
     agged_data.fillna(0, inplace=True)
 
     print("setup data")
-    if position_group in ["G","F","C"]:
+    if players:
+        player_indices = [names.index(item) for item in players]
+    elif position_group in ["G","F","C"]:
         all_indices = data.drop_duplicates(subset=["position_group","name","id"]).reset_index()
         player_indices = all_indices[all_indices["position_group"] == position_group].index.values.tolist()
     else:
@@ -239,13 +247,15 @@ if __name__ == "__main__":
     with open(svi_path, "rb") as f:
         results_map = pickle.load(f)
     f.close()
+    results_map = {key.replace("__loc", ""): val for key,val in results_map.items()}
 
     with open(mcmc_path, "rb") as f:
         results_mcmc = pickle.load(f)
+        if thin > 0:
+            results_mcmc = {key: val[:, ::thin, ...] for key, val in results_mcmc.items()}
     f.close()
-
-
-    mu_mcmc, tmax_mcmc, cmax_mcmc = make_mu_mcmc(results_mcmc["X"], results_mcmc["lengthscale_deriv"], results_mcmc["alpha"],
+    results_mcmc = {**results_map, **results_mcmc}
+    wTx, mu_mcmc, tmax_mcmc, cmax_mcmc = make_mu_mcmc(results_mcmc["X"], results_mcmc["lengthscale_deriv"], results_mcmc["alpha"],
                         results_mcmc["beta"], results_mcmc["W"], results_mcmc["lengthscale"], results_mcmc["c_max"],
                         results_mcmc["t_max_raw"], results_mcmc["sigma_t"], results_mcmc["sigma_c"], L_time, M_time, x_time + L_time, offset_dict)
 
@@ -253,57 +263,57 @@ if __name__ == "__main__":
     peak_val = cmax_mcmc
 
 
-    # pos_indices = data.drop_duplicates(subset=["id","position_group","name"]).reset_index()
-    # position_samples_list =  []
-    # for pos in positions:
-    #     player_indices = pos_indices[pos_indices["position_group"] == pos].index.values
-    #     player_samples = np.vstack(peaks[..., player_indices, :].mean(-2))
-    #     pos_samples_df = pd.DataFrame(player_samples, columns=metrics).melt(value_name="peak", var_name="metric")
-    #     pos_samples_df['position'] = pos
-    #     position_samples_list.append(pos_samples_df)
+    pos_indices = data.drop_duplicates(subset=["id","position_group","name"]).reset_index()
+    position_samples_list =  []
+    for pos in positions:
+        player_indices = pos_indices[pos_indices["position_group"] == pos].index.values
+        player_samples = np.vstack(peaks[..., player_indices, :].mean(-2))
+        pos_samples_df = pd.DataFrame(player_samples, columns=metrics).melt(value_name="peak", var_name="metric")
+        pos_samples_df['position'] = pos
+        position_samples_list.append(pos_samples_df)
 
 
-    # position_samples_df = pd.concat(position_samples_list)
+    position_samples_df = pd.concat(position_samples_list)
 
     
-    # labels_sorted = position_samples_df.groupby("metric")["peak"].mean().reset_index().sort_values(by = "peak")["metric"]
+    labels_sorted = position_samples_df.groupby("metric")["peak"].mean().reset_index().sort_values(by = "peak")["metric"]
 
-    # samples_ridgeplot = [
-    #     [
-    #         position_samples_df[(position_samples_df["metric"] == metric) & (position_samples_df["position"] == pos)]["peak"].to_numpy()
-    #     for pos in positions ]
-    #     for metric in labels_sorted
-    # ]
+    samples_ridgeplot = [
+        [
+            position_samples_df[(position_samples_df["metric"] == metric) & (position_samples_df["position"] == pos)]["peak"].to_numpy()
+        for pos in positions ]
+        for metric in labels_sorted
+    ]
 
 
-    # print("setup samples for plotting")
+    print("setup samples for plotting")
     
 
-    # fig = rp.ridgeplot(
-    #     samples=samples_ridgeplot,
-    #     labels=labels_sorted,
-    #     colormode="trace-index-row-wise",
-    #     spacing=.5,
-    #     colorscale = ["red", "green", "blue"],
-    #     norm = "probability",
+    fig = rp.ridgeplot(
+        samples=samples_ridgeplot,
+        labels=labels_sorted,
+        colormode="trace-index-row-wise",
+        spacing=.5,
+        colorscale = ["red", "green", "blue"],
+        norm = "probability",
         
-    #     )
+        )
 
-    # fig.update_layout(
-    # title="Distribution of Peak Performance",
-    # height=650,
-    # width=950,
-    # font_size=14,
-    # plot_bgcolor="rgb(245, 245, 245)",
-    # xaxis_gridcolor="white",
-    # yaxis_gridcolor="white",
-    # xaxis_gridwidth=2,
-    # yaxis_title="Metric",
-    # xaxis_title="Peak Age",
-    # showlegend=False,
-    #     )
+    fig.update_layout(
+    title="Distribution of Peak Performance",
+    height=650,
+    width=950,
+    font_size=14,
+    plot_bgcolor="rgb(245, 245, 245)",
+    xaxis_gridcolor="white",
+    yaxis_gridcolor="white",
+    xaxis_gridwidth=2,
+    yaxis_title="Metric",
+    xaxis_title="Peak Age",
+    showlegend=False,
+        )
 
-    # fig.write_image(f"model_output/model_plots/peaks/{model_name}.png", format = "png")
+    fig.write_image(f"model_output/model_plots/peaks/mcmc/{model_name}.png", format = "png")
 
 
 
@@ -318,10 +328,10 @@ if __name__ == "__main__":
                                         "Giannis Antetokounmpo", "Jrue Holiday"]
     
     id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
-    predict_indices = id_df[id_df["name"].isin(predict_players)].index.values
-    X = results_map["X__loc"][predict_indices]
-    W = results_map["W__loc"]
-    wTx = np.einsum("nr,mr -> nm", X, W * np.sqrt(results_map["lengthscale__loc"]))
+    predict_indices = [data.groupby("id")["name"].first().values.tolist().index(player) for player in predict_players]
+    X = results_map["X"][jnp.array(predict_indices)]
+    W = results_map["W"]
+    wTx = np.einsum("nr,mr -> nm", X, W * np.sqrt(results_map["lengthscale"]))
     psi_x = np.hstack([np.cos(wTx), np.sin(wTx)]) * (1/ rff_dim)
     K_X = np.einsum("nk,mk -> nm", psi_x, psi_x)
     Dinv = np.diag(1 / np.sqrt(np.diag(K_X))) 
@@ -436,19 +446,23 @@ if __name__ == "__main__":
     #     print(f"finished plotting curve analysis for {metric}")
 
 
-    for player in predict_players:
-        index_player = id_df[id_df["name"] == player].index.values[0]
+    for index_player, player in zip(predict_indices, predict_players):
+
         fig = plot_posterior_predictive_career_trajectory(index_player, metrics, metric_output , posterior_mean_samples=mu_mcmc[..., index_player, :], observations=Y,
                                                         exposures= exposures, 
-                                                        posterior_variance_samples=jnp.transpose(results_mcmc["sigma"], (2,0,1)),
-                                                        posterior_dispersion_samples=results_mcmc["sigma_beta"],
+                                                        posterior_variance_samples=jnp.transpose(results_mcmc["sigma"][None,None], (2,0,1)),
+                                                        posterior_dispersion_samples=results_mcmc["sigma_beta"][None,None],
                                                         exposure_names= exposure_list)
         fig.write_image(f"model_output/model_plots/player_plots/predictions/mcmc/{model_name}_{player}.png", format = "png")
 
+
+
+
+
     obs, pos = create_metric_trajectory_all(mu_mcmc, Y, exposures, 
                                             metric_output, metrics, exposure_list, 
-                                            jnp.transpose(results_mcmc["sigma"], (2,0,1)),
-                                            results_mcmc["sigma_beta"][..., None, None]) 
+                                            jnp.transpose(results_mcmc["sigma"][None, None], (2,0,1)),
+                                            results_mcmc["sigma_beta"][None, None]) 
 
     hdi = az.hdi(np.array(pos), hdi_prob = .95)
 
@@ -459,3 +473,10 @@ if __name__ == "__main__":
     coverage_df["metric"] = metrics
     fig = px.bar(coverage_df.sort_values(by = "coverage"), x='metric', y='coverage')
     fig.write_image(f"model_output/model_plots/coverage/{model_name}.png")
+
+
+    normalized_wTx = jnp.mod(wTx, jnp.pi * 2)
+    rhat_normalized = az.rhat(np.array(normalized_wTx))
+    rhat = az.rhat(np.array(wTx))
+    print(f"max rhat across dimensions: {jnp.max(rhat)}")
+    print(f"max rhat normalized across dimensions: {jnp.max(rhat_normalized)}")

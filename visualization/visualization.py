@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import plotly.express as px
 import numpy as np
 import arviz as az
-from model.inference_utils import create_metric_trajectory, create_metric_trajectory_map, create_metric_trajectory_prior
+from model.inference_utils import create_metric_trajectory, create_metric_trajectory_map, create_metric_trajectory_prior, create_metric_trajectory_mu
 
 def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str], metric_outputs: list[str], exposure_names: list[str],  posterior_mean_samples, observations, exposures, posterior_variance_samples, posterior_dispersion_samples):
     """
@@ -17,11 +17,13 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
                                                                 exposure_names=exposure_names,
                                                                 metric_outputs=metric_outputs, metrics = metrics, posterior_variance_samples=posterior_variance_samples, posterior_dispersion_samples=posterior_dispersion_samples)
 
- 
     obs = observation_dict["y"]
     posterior = posterior_dict["y"]
     x = list(range(18,39))
+    added_posterior_mean = False
+    added_observation = False
     for index, metric in enumerate(metrics):
+        
         row = int(np.floor(index / 4)) + 1 
         col = (index % 4) + 1
         metric_type = metric_outputs[index]
@@ -29,11 +31,13 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
         if metric_type == "poisson":
             metric += " per 36 min"
         fig.add_trace(go.Scatter(x = x, y = obs[..., index], mode = "lines", 
-                                 name = "Observed", line_color = "blue", showlegend=False), row = row, col=col)
-        fig.add_trace(go.Scatter(x = x, y = jnp.nanmean(posterior[..., index], axis = (0,1)), mode = "lines", name = "Posterior Mean", line_color = "red", showlegend=False), row = row, col = col)
-        hdi =  az.hdi(np.array(posterior[..., index]), hdi_prob = .95, skipna=True)
+                                 name = "Observed", line_color = "blue", showlegend=not added_observation), row = row, col=col)
+        added_observation = True
+        fig.add_trace(go.Scatter(x = x, y = jnp.mean(posterior[..., index], axis = (0,1)), mode = "lines", name = "Posterior Mean", line_color = "red", showlegend=not added_posterior_mean, line = dict(width = 1) ), row = row, col = col)
+        added_posterior_mean = True
+        hdi =  az.hdi(np.array(posterior[..., index]), hdi_prob = .95, skipna=False)
         fig.add_trace(go.Scatter(
-        name='Upper Bound',
+        name='Posterior Predictive 95% CI',
         x=x,
         y=hdi[:,1],
         mode='lines',
@@ -53,11 +57,23 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
             showlegend=False,
         ), row = row, col=col)
 
-    fig.update_layout({'width':650, 'height': 650,
-                            'showlegend':False, 'hovermode': 'closest',
-                            })
+    fig.add_trace(go.Scatter(
+            name='Posterior Predictive 95% CI',
+            x=[None],  # or just `x=[x[0]]`, `y=[hdi[0, 1]]`
+            y=[None],
+            mode='lines',
+            line=dict(color='rgba(68, 68, 68, 1)', width=2),
+            showlegend=True,
+            visible='legendonly'  # <-- key line
+        ), row=1, col=1)
+    fig.update_layout({'width':700, 'height': 700,
+                            'showlegend':True, 'hovermode': 'closest',
+                    'title': {'text': "Posterior Predictions across Metrics",
+                        'x': 0.5,  # Center the title
+                        'xanchor': 'center'}})
     
     return fig
+
 
 
 def plot_prior_mean_trajectory(prior_mean_samples, thin = .1):
