@@ -421,4 +421,10 @@ if __name__ == "__main__":
                 opacity=0.75,
                 title="Prior Correlation Plot of Function Metrics"
             )
+            # Loop over subplot axis numbers (starts from 1)
+            for i in range(1, len(new_cols) * len(new_cols) + 1):
+                fig.update_layout({
+                    f"xaxis{i}": dict(showticklabels=False, ticks="", showgrid=False, zeroline=False),
+                    f"yaxis{i}": dict(showticklabels=False, ticks="", showgrid=False, zeroline=False),
+                })
             fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/{model_name}_peak_age.png", format = "png")

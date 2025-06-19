@@ -565,10 +565,10 @@ class ConvexMaxBoundaryTVRFLVM(ConvexTVRFLVM):
         super().initialize_priors(*args, **kwargs)
         self.prior["lengthscale"] = InverseGamma(2.0, 1.0)
         self.prior["sigma_beta"] = InverseGamma(2.0, 1.0)
-        self.prior["sigma_c"] = InverseGamma(2.0, .3)
+        self.prior["sigma_c"] = InverseGamma(2.0, .003)
         self.prior["sigma_boundary_r"] = InverseGamma(2.0, 1.0)
         self.prior["sigma_boundary_l"] = InverseGamma(2.0, 1.0)
-        self.prior["sigma_t"] = InverseGamma(2.0, .3)
+        self.prior["sigma_t"] = InverseGamma(2.0, .003)
         self.prior["alpha"] = InverseGamma(100.0, .0003)
         self.prior["t_max_raw"] = Normal()
         self.prior["c_max"] = Normal()
@@ -589,14 +589,7 @@ class ConvexMaxBoundaryTVRFLVM(ConvexTVRFLVM):
         t_0 = hsgp_params["t_0"]
         t_r = hsgp_params["t_r"]
         W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(self.m,self.r))
-        if prior:
-            G = (make_convex_phi(t_r, L_time, M_time) - make_convex_phi(t_0, L_time, M_time))[None, None] + (t_0 - t_r) * phi_prime_t_max
-            init_weights =  Normal(0, 1).sample(jax.random.PRNGKey(0), sample_shape=((self.m * 2, M_time, num_metrics) ))
-            weights = self.solve_for_weights(init_weights, 1e-3, psi_x, G, boundary_diff, spd)
-            self.prior["beta"] = weights
-        else:
-            weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.m * 2, M_time, num_metrics))
-        weights *= spd
+        
 
         sigma_c_max = self.prior["sigma_c"] if not isinstance(self.prior["sigma_c"], Distribution) else sample("sigma_c", self.prior["sigma_c"], sample_shape=(1, num_metrics))
         sigma_t_max = self.prior["sigma_t"] if not isinstance(self.prior["sigma_t"], Distribution) else sample("sigma_t", self.prior["sigma_t"], sample_shape=(1, num_metrics))
@@ -612,8 +605,7 @@ class ConvexMaxBoundaryTVRFLVM(ConvexTVRFLVM):
             expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))
         sigma_beta = self.prior["sigma_beta"] if not isinstance(self.prior["sigma_beta"], Distribution) else sample("sigma_beta", self.prior["sigma_beta"])
         X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
-        if prior:
-            c_max = numpyro.deterministic("c_max_", c_max)
+        
 
         wTx = jnp.einsum("nr,mr -> nm", X, W  * jnp.sqrt(lengthscale))
         psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(self.m))   
@@ -621,7 +613,8 @@ class ConvexMaxBoundaryTVRFLVM(ConvexTVRFLVM):
 
         t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw) * sigma_t_max) * 2  + offsets["t_max"]  if not prior else numpyro.deterministic("t_max", jnp.tanh(make_psi_gamma(psi_x, t_max_raw) * sigma_t_max) * 2  + offsets["t_max"])
         c_max = make_psi_gamma(psi_x, c_max_raw) * sigma_c_max + offsets["c_max"]
-        
+        if prior:
+            c_max = numpyro.deterministic("c_max_", c_max)
 
         boundary_r = c_max - jax.nn.softplus(make_psi_gamma(psi_x, boundary_r_raw ) * sigma_boundary_r + offsets["boundary_r"])
         boundary_l = c_max - jax.nn.softplus(make_psi_gamma(psi_x,boundary_l_raw) * sigma_boundary_l + offsets["boundary_l"])
@@ -636,7 +629,14 @@ class ConvexMaxBoundaryTVRFLVM(ConvexTVRFLVM):
         phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
         phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
 
-        
+        if prior:
+            G = (make_convex_phi(t_r, L_time, M_time) - make_convex_phi(t_0, L_time, M_time))[None, None] + (t_0 - t_r) * phi_prime_t_max
+            init_weights =  Normal(0, 1).sample(jax.random.PRNGKey(0), sample_shape=((self.m * 2, M_time, num_metrics) ))
+            weights = self.solve_for_weights(init_weights, 1e-3, psi_x, G, boundary_diff, spd)
+            self.prior["beta"] = weights
+        else:
+            weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.m * 2, M_time, num_metrics))
+        weights *= spd
 
         intercept = jnp.transpose(c_max)[..., None]
         gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
