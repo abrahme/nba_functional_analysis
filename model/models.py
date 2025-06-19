@@ -569,7 +569,7 @@ class ConvexMaxBoundaryTVRFLVM(ConvexTVRFLVM):
         self.prior["sigma_boundary_r"] = InverseGamma(2.0, 1.0)
         self.prior["sigma_boundary_l"] = InverseGamma(2.0, 1.0)
         self.prior["sigma_t"] = InverseGamma(2.0, .003)
-        self.prior["alpha"] = InverseGamma(100.0, .0003)
+        self.prior["alpha"] = InverseGamma(100.0, 3)
         self.prior["t_max_raw"] = Normal()
         self.prior["c_max"] = Normal()
         self.prior["boundary_l"] = Normal()

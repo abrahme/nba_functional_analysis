@@ -294,6 +294,7 @@ if __name__ == "__main__":
         ),
         mode='markers',
         marker=dict(color = sorted_colors, size=6),
+        showlegend=False,
         name='Posterior Mean'
         ))
     
@@ -309,8 +310,8 @@ if __name__ == "__main__":
         ))
 
     fig.update_layout(
-    title='95% CI of Max Age by Metric',
-    yaxis_title='Posterior Mean',
+    title='95% CI of Peak Age by Metric',
+    yaxis_title='Age of Peak',
     xaxis_title='Metric',
     height=25 * len(metrics),  # autoscale height for readability
     template='simple_white'

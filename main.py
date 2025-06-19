@@ -394,8 +394,9 @@ if __name__ == "__main__":
             fig = plot_prior_predictive_career_trajectory(metrics, metric_output, exposure_list, mu[:, :, jnp.array(0), :].squeeze(), prior_variance_samples=jnp.transpose(posterior_variance_samples), prior_dispersion_samples = posterior_dispersion_samples)
             fig.update_layout(title = "Prior Predictive Curves")
             fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/{model_name}.png", format = "png")
-
-            fig = plot_prior_mean_trajectory(mu[:, :, jnp.array(0), :])
+            
+            mu_filtered = mu[((cmax - boundary_r)[:, 0, :] >=2) & ((cmax - boundary_l)[:, 0, :] >=2), 0, :]
+            fig = plot_prior_mean_trajectory(np.array(mu_filtered))
             fig.update_layout(title = "Prior Mean Curves")
             fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/{model_name}_mean_curve.png", format = "png")
 

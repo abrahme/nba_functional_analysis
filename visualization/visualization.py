@@ -55,15 +55,6 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
             showlegend=False,
         ), row = row, col=col)
 
-    # fig.add_trace(go.Scatter(
-    #         name='Posterior Predictive 95% CI',
-    #         x=[None],  # or just `x=[x[0]]`, `y=[hdi[0, 1]]`
-    #         y=[None],
-    #         mode='lines',
-    #         line=dict(color='rgba(68, 68, 68, 1)', width=2),
-    #         showlegend=False,
-    #         visible='legendonly'  # <-- key line
-    #     ), row=1, col=1)
     fig.update_layout({'width':700, 'height': 700,
                             'showlegend':True, 'hovermode': 'closest',
                             'legend': {
@@ -76,16 +67,16 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
 
 def plot_prior_mean_trajectory(prior_mean_samples, thin = .1):
     scale = 1.5
+    prior_mean_samples -= prior_mean_samples[..., 0][..., None]
     num_samples = prior_mean_samples.shape[0]
-    num_metrics = prior_mean_samples.shape[1]
-    thin_val = int(thin * num_samples)
-    indices = np.random.choice(num_samples, size=thin_val, replace=False)
+    num_samples_thin = int(thin * num_samples)
+    all_indices = np.arange(num_samples)
+    sampled_indices = np.random.choice(all_indices, size=num_samples_thin, replace=False)
     fig = make_subplots(rows = 1, cols=1)
     x = list(range(18,39))
-    for metric_index in range(num_metrics):
-        for sample_index in indices:
-            fig.add_trace(go.Scatter(x = x, y = prior_mean_samples[sample_index, metric_index], mode = "lines", line_color = "grey", opacity=.3, showlegend=False),
-                                row = 1, col = 1)
+    for sample_index in sampled_indices:
+        fig.add_trace(go.Scatter(x = x, y = prior_mean_samples[sample_index], mode = "lines", line_color = "grey", opacity=.3, showlegend=False),
+                            row = 1, col = 1)
     fig.update_layout({'width':650, 'height': 650,
                             'showlegend':False, 'hovermode': 'closest',
                             'legend': {
