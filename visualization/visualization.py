@@ -22,6 +22,7 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
     x = list(range(18,39))
     added_posterior_mean = False
     added_observation = False
+    scale = 1.5
     for index, metric in enumerate(metrics):
         
         row = int(np.floor(index / 4)) + 1 
@@ -68,26 +69,32 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
         ), row=1, col=1)
     fig.update_layout({'width':700, 'height': 700,
                             'showlegend':True, 'hovermode': 'closest',
-                    'title': {'text': "Posterior Predictions across Metrics",
-                        'x': 0.5,  # Center the title
-                        'xanchor': 'center'}})
+                            'legend': {
+        'font': dict(size=round(12 * scale))  # usually ~12
+    }})
     
     return fig
 
 
 
 def plot_prior_mean_trajectory(prior_mean_samples, thin = .1):
+    scale = 1.5
     num_samples = prior_mean_samples.shape[0]
+    num_metrics = prior_mean_samples.shape[1]
     thin_val = int(thin * num_samples)
     indices = np.random.choice(num_samples, size=thin_val, replace=False)
     fig = make_subplots(rows = 1, cols=1)
     x = list(range(18,39))
-    for sample_index in indices:
-        fig.add_trace(go.Scatter(x = x, y = prior_mean_samples[sample_index, 0], mode = "lines", line_color = "grey", opacity=.2, showlegend=False),
-                            row = 1, col = 1)
-        fig.update_layout({'width':650, 'height': 650,
-                                'showlegend':False, 'hovermode': 'closest',
-                                })
+    for metric_index in range(num_metrics):
+        for sample_index in indices:
+            fig.add_trace(go.Scatter(x = x, y = prior_mean_samples[sample_index, metric_index], mode = "lines", line_color = "grey", opacity=.3, showlegend=False),
+                                row = 1, col = 1)
+    fig.update_layout({'width':650, 'height': 650,
+                            'showlegend':False, 'hovermode': 'closest',
+                            'legend': {
+        'font': dict(size=round(12 * scale))  # usually ~12
+    }
+                            })
     
     return fig
 

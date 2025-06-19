@@ -263,55 +263,60 @@ if __name__ == "__main__":
     peak_val = cmax_mcmc
 
 
-    pos_indices = data.drop_duplicates(subset=["id","position_group","name"]).reset_index()
-    position_samples_list =  []
-    for pos in positions:
-        player_indices = pos_indices[pos_indices["position_group"] == pos].index.values
-        player_samples = np.vstack(peaks[..., player_indices, :].mean(-2))
-        pos_samples_df = pd.DataFrame(player_samples, columns=metrics).melt(value_name="peak", var_name="metric")
-        pos_samples_df['position'] = pos
-        position_samples_list.append(pos_samples_df)
-
-
-    position_samples_df = pd.concat(position_samples_list)
-
     
-    labels_sorted = position_samples_df.groupby("metric")["peak"].mean().reset_index().sort_values(by = "peak")["metric"]
-
-    samples_ridgeplot = [
-        [
-            position_samples_df[(position_samples_df["metric"] == metric) & (position_samples_df["position"] == pos)]["peak"].to_numpy()
-        for pos in positions ]
-        for metric in labels_sorted
-    ]
-
 
     print("setup samples for plotting")
-    
+    flat_posterior = np.array(peaks.mean(-2))  # shape: (samples, metrics)
 
-    fig = rp.ridgeplot(
-        samples=samples_ridgeplot,
-        labels=labels_sorted,
-        colormode="trace-index-row-wise",
-        spacing=.5,
-        colorscale = ["red", "green", "blue"],
-        norm = "probability",
-        
-        )
+    # Posterior mean and 95% CI
+    means = flat_posterior.mean(axis=(0,1))
+    hdi = az.hdi(flat_posterior, hdi_prob=0.95)  # shape: (metrics, 2)
+
+    # Sort by mean
+    sorted_idx = np.argsort(means)
+    sorted_means = means[sorted_idx]
+    sorted_hdi = hdi[sorted_idx]
+    sorted_names = [metrics[i] for i in sorted_idx]
+    group_color = ["purple", "purple", "purple", "purple", "red", "red", "purple", "purple", "red", "blue", "red","red", "blue", "blue","blue","blue",]
+    sorted_colors = [group_color[i] for i in sorted_idx]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=sorted_names,
+        y=sorted_means,
+        error_y=dict(
+            type='data',
+            symmetric=False,
+            array=sorted_hdi[:, 1] - sorted_means,
+            arrayminus=sorted_means - sorted_hdi[:, 0],
+            thickness=1.5,
+            
+            width=0
+        ),
+        mode='markers',
+        marker=dict(color = sorted_colors, size=6),
+        name='Posterior Mean'
+        ))
+    
+    unique_colors = ["red", "blue", "purple"]
+    group_names = ["Athleticism", "Skill", "Both"]
+    for color, color_name in zip(unique_colors, group_names):
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None],
+            mode='markers',
+            marker=dict(color=color, size=8),
+            name=f'Group: {color_name}',  # replace with actual group name if available
+            showlegend=True
+        ))
 
     fig.update_layout(
-    title="Distribution of Peak Performance",
-    height=650,
-    width=950,
-    font_size=14,
-    plot_bgcolor="rgb(245, 245, 245)",
-    xaxis_gridcolor="white",
-    yaxis_gridcolor="white",
-    xaxis_gridwidth=2,
-    yaxis_title="Metric",
-    xaxis_title="Peak Age",
-    showlegend=False,
-        )
+    title='95% CI of Max Age by Metric',
+    yaxis_title='Posterior Mean',
+    xaxis_title='Metric',
+    height=25 * len(metrics),  # autoscale height for readability
+    template='simple_white'
+    )
+
+
 
     fig.write_image(f"model_output/model_plots/peaks/mcmc/{model_name}.png", format = "png")
 
@@ -453,6 +458,8 @@ if __name__ == "__main__":
                                                         posterior_variance_samples=jnp.transpose(results_mcmc["sigma"][None,None], (2,0,1)),
                                                         posterior_dispersion_samples=results_mcmc["sigma_beta"][None,None],
                                                         exposure_names= exposure_list)
+        fig.update_layout(
+            title=dict(text=player))
         fig.write_image(f"model_output/model_plots/player_plots/predictions/mcmc/{model_name}_{player}.png", format = "png")
 
 
