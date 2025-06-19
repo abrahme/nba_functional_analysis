@@ -632,7 +632,7 @@ class ConvexMaxBoundaryTVRFLVM(ConvexTVRFLVM):
         if prior:
             G = (make_convex_phi(t_r, L_time, M_time) - make_convex_phi(t_0, L_time, M_time))[None, None] + (t_0 - t_r) * phi_prime_t_max
             init_weights =  Normal(0, 1).sample(jax.random.PRNGKey(0), sample_shape=((self.m * 2, M_time, num_metrics) ))
-            weights = self.solve_for_weights(init_weights, 1e-3, psi_x, G, boundary_diff, spd)
+            weights = self.solve_for_weights(init_weights, 1e-1, psi_x, G, boundary_diff, spd)
             self.prior["beta"] = weights
         else:
             weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.m * 2, M_time, num_metrics))
