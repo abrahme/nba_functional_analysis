@@ -48,7 +48,10 @@ RUN pip install \
         scikit-learn \
         kaleido \
         geomstats \
-        ridgeplot 
+        ridgeplot \
+        beautifulsoup4 \
+        lxml \
+        html5lib
 
 # RUN pip install --upgrade "jax[cuda12]"
 

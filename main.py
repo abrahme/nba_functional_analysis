@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 import jax
 import jax.numpy as jnp
-import jax.scipy as jsci
 import argparse
 import pickle
 import numpyro
@@ -12,12 +11,12 @@ import plotly.graph_objects as go
 from sklearn.manifold import TSNE
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import squareform, pdist
-from numpyro.distributions import MatrixNormal
 from numpyro.diagnostics import print_summary
 from model.hsgp import  diag_spectral_density, make_convex_f, make_psi_gamma,  vmap_make_convex_phi, vmap_make_convex_phi_prime
 jax.config.update("jax_enable_x64", True)
-from data.data_utils import create_fda_data, create_cp_data, average_peak_differences
-from model.models import RFLVM, TVRFLVM, ConvexTVRFLVM, ConvexMaxTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, ConvexMaxBoundaryTVRFLVM, ConvexMaxBoundaryKronTVRFLVM
+from model.inference_utils import get_latent_sites
+from data.data_utils import create_fda_data, average_peak_differences
+from model.models import RFLVM, TVRFLVM, ConvexTVRFLVM, ConvexMaxTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsConvexMaxBoundaryTVRFLVM, ConvexMaxBoundaryTVRFLVM, ConvexMaxBoundaryKronTVRFLVM
 from visualization.visualization import plot_posterior_predictive_career_trajectory_map, plot_prior_predictive_career_trajectory, plot_prior_mean_trajectory
 
 
@@ -82,6 +81,9 @@ if __name__ == "__main__":
     elif model_name == "gibbs_nba_tvrflvm":
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
         model = GibbsTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+    elif model_name == "gibbs_nba_convex_tvrflvm_max_boundary":
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
+        model = GibbsConvexMaxBoundaryTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
     elif "rflvm" in model_name:
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
         model = RFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)))
@@ -198,16 +200,22 @@ if __name__ == "__main__":
                 hsgp_params["shifted_x_time"] = x_time + L_time
                 hsgp_params["t_0"] = jnp.min(x_time)
                 hsgp_params["t_r"] = jnp.max(x_time)
+        model_args = {"data_set": data_dict, "offsets": offsets, "inference_method": inference_method}
         if "gibbs" in model_name:
             if "convex" in model_name:
-                samples = model.run_inference(num_chains=num_chains, num_samples=num_samples, num_warmup=num_warmup, model_args={"data_set": data_dict, "hsgp_params": hsgp_params}, gibbs_sites=[["X", "lengthscale", "alpha"], ["W", "beta_time","beta","sigma", "slope", "intercept"]])
-            elif "tvrflvm" in model_name:
-                samples = model.run_inference(num_chains=num_chains, num_samples=num_samples, num_warmup=num_warmup, model_args={"data_set": data_dict}, gibbs_sites=[["X", "lengthscale"], ["W","beta","sigma"]])  
-            else:
-                samples = model.run_inference(num_chains=num_chains, num_samples=num_samples, num_warmup=num_warmup, model_args={"data_set": data_dict}, gibbs_sites=[["X"], ["W","beta","sigma"]])  
-
+                model_args.update({"hsgp_params": hsgp_params})
+                if "max" in model_name:
+                    model_args["offsets"] = {"t_max": offset_peak, "c_max": offset_max, "boundary_r": offset_boundary_r, "boundary_l": offset_boundary_l}
+            gibbs_site_1 = []
+            gibbs_site_2 = []
+            for param_name in get_latent_sites(model.model_fn, model_args):
+                response = int(input(f"Which gibbs site for  {param_name} ?" + " [1/2]: "))
+                if response == 1:
+                    gibbs_site_1.append(param_name)
+                else:
+                    gibbs_site_2.append(param_name)
+            samples = model.run_inference(num_chains=num_chains, num_samples=num_samples, vectorized=vectorized, num_warmup=num_warmup, model_args=model_args, gibbs_sites=[gibbs_site_1, gibbs_site_2])
         else:
-            model_args = {"data_set": data_dict, "offsets": offsets, "inference_method": inference_method}
             if "convex" in model_name:
                 model_args.update({ "hsgp_params": hsgp_params})
                 if "max" in model_name:

@@ -565,11 +565,11 @@ class ConvexMaxBoundaryTVRFLVM(ConvexTVRFLVM):
         super().initialize_priors(*args, **kwargs)
         self.prior["lengthscale"] = InverseGamma(2.0, 1.0)
         self.prior["sigma_beta"] = InverseGamma(2.0, 1.0)
-        self.prior["sigma_c"] = InverseGamma(2.0, .003)
-        self.prior["sigma_boundary_r"] = InverseGamma(2.0, 1.0)
-        self.prior["sigma_boundary_l"] = InverseGamma(2.0, 1.0)
-        self.prior["sigma_t"] = InverseGamma(2.0, .003)
-        self.prior["alpha"] = InverseGamma(100.0, 3)
+        self.prior["sigma_c"] = InverseGamma(2.0, .3)
+        self.prior["sigma_boundary_r"] = InverseGamma(2.0, 3.0)
+        self.prior["sigma_boundary_l"] = InverseGamma(2.0, 3.0)
+        self.prior["sigma_t"] = InverseGamma(2.0, .3)
+        self.prior["alpha"] = InverseGamma(100.0, .0003)
         self.prior["t_max_raw"] = Normal()
         self.prior["c_max"] = Normal()
         self.prior["boundary_l"] = Normal()
@@ -976,3 +976,43 @@ class GibbsConvexTVRFLVM(ConvexTVRFLVM):
     def predict(self, posterior_samples: dict, model_args, num_samples=1000):
         return super().predict(posterior_samples, model_args, num_samples)
     
+class GibbsConvexMaxBoundaryTVRFLVM(ConvexMaxBoundaryTVRFLVM):
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape, basis)
+    
+    def initialize_priors(self, *args, **kwargs) -> None:
+        return super().initialize_priors(*args, **kwargs)
+    def model_fn(self, data_set, hsgp_params, offsets={}, inference_method: str = "prior") -> None:
+        return super().model_fn(data_set, hsgp_params, offsets, inference_method)
+    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values: dict = {}, sample_shape=(4, 2000)):
+        raise NotImplementedError
+    def run_map_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values: dict = {}):
+        raise NotImplementedError
+    def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args, initial_values={}, gibbs_sites: list = []):
+        key = jax.random.PRNGKey(0)
+        inner_kernels = [NUTS(self.model_fn, init_strategy=init_to_value(values = {k: initial_values[k] for k in gibbs_sites[i] if k in initial_values})) for i in range(len(gibbs_sites))]
+        outer_kernel = MultiHMCGibbs(inner_kernels, gibbs_sites_list=gibbs_sites)
+        if vectorized:
+            n_parallel = jax.local_device_count()
+            n_vectorized = num_chains // n_parallel
+            def do_mcmc(rng_key):
+                mcmc = MCMC(
+                outer_kernel,
+                num_warmup=num_warmup,
+                num_samples=num_samples,
+                num_chains=n_vectorized,
+                progress_bar=False,
+                chain_method="vectorized")
+                mcmc.run(rng_key, **model_args)
+                return {**mcmc.get_samples()}
+            rng_keys = jax.random.split(key, n_parallel)
+            traces = jax.pmap(do_mcmc)(rng_keys)
+            return {k: jnp.concatenate(v) for k, v in traces.items()}
+        else:
+            mcmc = MCMC(outer_kernel,
+                        num_warmup=num_warmup,
+                        num_samples=num_samples,
+                        num_chains = num_chains,
+                        chain_method="parallel")
+            mcmc.run(key, **model_args)
+            return mcmc.get_samples(group_by_chain=True), None

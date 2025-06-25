@@ -15,8 +15,7 @@ import jax.numpy as jnp
 import jax.scipy.special as jsci
 from model.hsgp import  diag_spectral_density, make_psi_gamma, make_convex_phi, make_convex_phi_prime, vmap_make_convex_phi, vmap_make_convex_phi_prime
 from plotly.subplots import make_subplots
-from sklearn.manifold import TSNE
-from scipy.stats import gaussian_kde
+from sklearn.decomposition import PCA
 from scipy.spatial.distance import squareform
 from scipy.cluster.hierarchy import linkage, leaves_list
 from visualization.visualization import plot_posterior_predictive_career_trajectory
@@ -155,14 +154,28 @@ if __name__ == "__main__":
     data["games_exposure"] = np.maximum(82, data["games"]) ### 82 or whatever
     data["pct_minutes"] = (data["minutes"] / data["games_exposure"]) / 48
     data["retirement"] = 1
-    metric_output = ["binomial", "beta"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
-    metrics = ["games", "pct_minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
-    exposure_list = (["games_exposure", "games_exposure"]) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
+
+ 
+    data["total_minutes"] = data["median_minutes_per_game"] * data["games"] 
+
+
+    validation_data = pd.read_csv("data/validation_player_data.csv").query(" age <= 38 ")
+    validation_data["log_min"] = np.log(validation_data["minutes"])
+    validation_data["simple_exposure"] = 1
+    validation_data["games_exposure"] = np.maximum(82, validation_data["games"]) ### 82 or whatever
+    validation_data["pct_minutes"] = (validation_data["minutes"] / validation_data["games_exposure"]) / 48
+    validation_data["retirement"] = 1
+    # validation_data["total_minutes"] = validation_data["median_minutes_per_game"] * validation_data["games"] 
+    validation_data["season"] = validation_data["year"].apply(lambda x: str(x - 1) + "-" + str(x)[-2:])
+    validation_data["age"] = pd.Categorical(validation_data["age"])
+
+    id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
+    validation_data = pd.merge(id_df[["position_group", "id", "name"]], validation_data, on = ["name", "position_group"])
+
     agg_dict = {"obpm":"mean", "dbpm":"mean", "bpm":"mean", 
             "position_group": "max",
         "minutes":"sum", "dreb": "sum", "fta":"sum", "ftm":"sum", "oreb":"sum",
         "ast":"sum", "tov":"sum", "fg2m":"sum", "fg3m":"sum", "fg3a":"sum", "fg2a":"sum", "blk":"sum", "stl":"sum"}
-    data["total_minutes"] = data["median_minutes_per_game"] * data["games"] 
     agged_data = data.groupby("id").agg(agg_dict).reset_index()
     agged_data["ft_pct"] = agged_data["ftm"] / agged_data["fta"]
     agged_data["fg2_pct"] = agged_data["fg2m"] / agged_data["fg2a"]
@@ -178,6 +191,10 @@ if __name__ == "__main__":
     agged_data["fg3_rate"] = 36.0 * agged_data["fg3a"] / agged_data["minutes"]
     agged_data.fillna(0, inplace=True)
 
+
+    metric_output = ["binomial", "beta"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+    metrics = ["games", "pct_minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
+    exposure_list = (["games_exposure", "games_exposure"]) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
     print("setup data")
     if players:
         player_indices = [names.index(item) for item in players]
@@ -188,6 +205,7 @@ if __name__ == "__main__":
         player_indices = []
     positions = ["G", "F", "C"]
     covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
+    _, validation_data_set, _ = create_fda_data(validation_data, basis_dims, metric_output, metrics, exposure_list, player_indices, validation_data=True)
 
     hsgp_params = {}
     x_time = basis - basis.mean()
@@ -202,6 +220,13 @@ if __name__ == "__main__":
     masks = jnp.stack([data_entity["mask"] for data_entity in data_set])
     exposures = jnp.stack([data_entity["exposure_data"] for data_entity in data_set])
     Y = jnp.stack([data_entity["output_data"] for data_entity in data_set])
+
+    masks_val = jnp.stack([data_entity["mask"] for data_entity in validation_data_set])
+    exposures_val = jnp.stack([data_entity["exposure_data"] for data_entity in validation_data_set])
+    Y_val = jnp.stack([data_entity["output_data"] for data_entity in validation_data_set])
+
+
+
     offset_list = []
     offset_max_list = []
     offset_peak_list = []
@@ -333,7 +358,6 @@ if __name__ == "__main__":
                                         "Carmelo Anthony", "Dwyane Wade", "Derrick Rose", "Chris Bosh", "Karl-Anthony Towns", "Kristaps Porzingis", 
                                         "Giannis Antetokounmpo", "Jrue Holiday"]
     
-    id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
     predict_indices = [data.groupby("id")["name"].first().values.tolist().index(player) for player in predict_players]
     X = results_map["X"][jnp.array(predict_indices)]
     W = results_map["W"]
@@ -384,11 +408,18 @@ if __name__ == "__main__":
 
 
 
-    # tsne_latent_space = TSNE(n_components=2, )
+    pca_latent_space = PCA(n_components=2)
 
-    # X_tsne_df = pd.DataFrame(tsne_latent_space.fit_transform(X), columns = ["Dim. 1", "Dim. 2"])
+    X_pca_df = pd.DataFrame(pca_latent_space.fit_transform(results_map["X"]), columns = ["Dim. 1", "Dim. 2"])
     
-    # X_tsne_df = pd.concat([X_tsne_df, id_df], axis = 1)
+    X_pca_df = pd.concat([X_pca_df, id_df], axis = 1)
+    X_pca_df["name"] = X_pca_df["name"].apply(lambda x: x if x in predict_players else "")
+    X_pca_df["minutes"] /= np.max(X_pca_df["minutes"])
+    X_pca_df.rename(mapper = {"position_group": "Position"}, inplace=True, axis=1)
+    fig = px.scatter(X_pca_df, x = "Dim. 1", y = "Dim. 2", color = "Position", text="name", size = "minutes",
+                    opacity = .1, title="PCA Visualization of Latent Player Embedding", )
+    fig.update_traces(textfont = dict(size = 7))
+    fig.write_image(f"model_output/model_plots/latent_space/map/{model_name}_pca.png", format = "png")
     # clusters = GaussianMixture(n_components=3).fit_predict(X)
     # X_tsne_df["cluster"] = clusters
     # X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in player_labels else "")
@@ -479,9 +510,25 @@ if __name__ == "__main__":
     avg_coverages = ((obs <= hdi_high) & (obs >= hdi_low)).sum((0,1)) / (~np.isnan(obs)).sum((0, 1))
     coverage_df = pd.DataFrame(avg_coverages, columns=["coverage"])
     coverage_df["metric"] = metrics
-    fig = px.bar(coverage_df.sort_values(by = "coverage"), x='metric', y='coverage')
+    fig = px.bar(coverage_df.sort_values(by = "coverage"), x='metric', y='coverage', title = "In Sample Coverage")
     fig.write_image(f"model_output/model_plots/coverage/{model_name}.png")
 
+    val_indices = [data.groupby("id")["name"].first().values.tolist().index(player) for player in validation_data.groupby("id")["name"].first().values.tolist()]
+
+    obs_val, pos_val = create_metric_trajectory_all(mu_mcmc[..., val_indices, :], Y_val, exposures_val, 
+                                            metric_output, metrics, exposure_list, 
+                                            jnp.transpose(results_mcmc["sigma"][None, None], (2,0,1)),
+                                            results_mcmc["sigma_beta"][None, None]) 
+
+    hdi_val = az.hdi(np.array(pos_val), hdi_prob = .95)
+
+    hdi_low = hdi_val[..., 0]
+    hdi_high = hdi_val[..., 1]
+    avg_coverages = ((obs_val <= hdi_high) & (obs_val >= hdi_low)).sum((0,1)) / (~np.isnan(obs_val)).sum((0, 1))
+    coverage_df = pd.DataFrame(avg_coverages, columns=["coverage"])
+    coverage_df["metric"] = metrics
+    fig = px.bar(coverage_df.sort_values(by = "coverage"), x='metric', y='coverage', title="Out of Sample Coverage")
+    fig.write_image(f"model_output/model_plots/coverage/{model_name}_validation.png")
 
     normalized_wTx = jnp.mod(wTx, jnp.pi * 2)
     rhat_normalized = az.rhat(np.array(normalized_wTx))

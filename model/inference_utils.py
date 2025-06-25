@@ -4,8 +4,21 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 import jax.scipy as jsc
+from numpyro import handlers
 from numpyro.distributions import Normal, Poisson, BinomialLogits, BetaProportion
 # jax.config.update('jax_platform_name', 'cuda')
+
+
+
+def get_latent_sites(model, model_args):
+    seeded_model = handlers.seed(model, rng_seed=0)
+    trace = handlers.trace(seeded_model).get_trace(**model_args)
+    latent_sites = [
+        name for name, site in trace.items()
+        if site['type'] == 'sample' and not site['is_observed']
+    ]
+    return latent_sites
+
 
 def varimax(Phi, gamma = 1, q = 20):
     p,k = Phi.shape
