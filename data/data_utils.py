@@ -54,7 +54,7 @@ def process_data(df, output_metric, exposure, model, input_metrics, player_indic
     elif model == "binomial":
         metric_array = metric_df.to_numpy()
         if exposure == "simple_exposure":
-            season_array = df[["id", "age", "season"]].pivot(columns="age",values="season",index="id").to_numpy()
+            season_array = df[["id", "age", "season"]].pivot(columns="age",values="season",index="id").reindex(columns = range(18,39)).to_numpy()
             retirement_array = np.where((season_array == "2020-21").sum(axis = 1) == 0)[0] if not validation_data else np.where((season_array == "2024-25").sum(axis = 1) == 0)[0]
             entrance_array = np.where((season_array == "1996-97").sum(axis = 1) == 0)[0] 
             max_season_array = (21 - np.argmax(np.flip(~np.isnan(metric_array), axis = 1), axis = 1))

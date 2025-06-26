@@ -171,6 +171,7 @@ if __name__ == "__main__":
 
     id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
     validation_data = pd.merge(id_df[["position_group", "id", "name"]], validation_data, on = ["name", "position_group"])
+    season_mask = season_array = validation_data[["id", "age", "season"]].pivot(columns="age",values="season",index="id").reindex(columns = range(18,39)).to_numpy()
 
     agg_dict = {"obpm":"mean", "dbpm":"mean", "bpm":"mean", 
             "position_group": "max",
@@ -530,6 +531,39 @@ if __name__ == "__main__":
     fig = px.bar(coverage_df.sort_values(by = "coverage"), x='metric', y='coverage', title="Out of Sample Coverage")
     fig.write_image(f"model_output/model_plots/coverage/{model_name}_validation.png")
 
+    player_avg_coverages = ((obs_val <= hdi_high) & (obs_val >= hdi_low)).sum((1)) / (~np.isnan(obs_val)).sum((1))
+    player_coverage_df = pd.DataFrame(player_avg_coverages, columns=metrics)
+    player_coverage_df["num_seasons"] = data.groupby("id").size().reset_index(name='count').merge(validation_data.groupby("id")["name"].first().reset_index())["count"]
+    player_coverage_df = player_coverage_df.reset_index().melt(id_vars = ["index", "num_seasons"],  
+                                                     var_name="metric",
+                                                     value_name="coverage")
+    player_coverage_df = player_coverage_df.groupby(["num_seasons", "metric"])["coverage"].mean().reset_index()
+    fig = px.scatter(
+        player_coverage_df,
+        x="num_seasons",
+        y="coverage",
+        facet_col="metric",
+        facet_col_wrap=4,
+        title="Out of Sample Coverage vs Minutes Played (Faceted by Metric)",
+        opacity=0.7  # optional, makes overlapping points easier to see
+        )
+    fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+    fig.write_image(f"model_output/model_plots/coverage/{model_name}_validation_minutes.png")
+
+    season_coverage_dict = {}
+    for season in set(validation_data["season"]):
+        season_mask_val = (season_mask == season)
+        avg_coverages = ((obs_val[season_mask_val, :] <= hdi_high[season_mask_val, :]) & (obs_val[season_mask_val, :] >= hdi_low[season_mask_val, :])).mean((0)) 
+        season_coverage_dict[season] = avg_coverages
+    season_coverage_df = pd.DataFrame.from_dict(season_coverage_dict, orient = "index", columns = metrics)
+    season_coverage_df.index.name = "season"
+    season_coverage_df = season_coverage_df.reset_index().melt(id_vars = ["season"],  
+                                                     var_name="metric",
+                                                     value_name="coverage")
+    fig = px.bar(season_coverage_df.sort_values(by = "season"), x='season', y='coverage', title="Out of Sample Coverage", facet_col="metric", facet_col_wrap = 4)
+    fig.write_image(f"model_output/model_plots/coverage/{model_name}_validation_yearly.png")
+
+    
     normalized_wTx = jnp.mod(wTx, jnp.pi * 2)
     rhat_normalized = az.rhat(np.array(normalized_wTx))
     rhat = az.rhat(np.array(wTx))
