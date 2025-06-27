@@ -16,7 +16,7 @@ from model.hsgp import  diag_spectral_density, make_convex_f, make_psi_gamma,  v
 jax.config.update("jax_enable_x64", True)
 from model.inference_utils import get_latent_sites
 from data.data_utils import create_fda_data, average_peak_differences
-from model.models import RFLVM, TVRFLVM, ConvexTVRFLVM, ConvexMaxTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsConvexMaxBoundaryTVRFLVM, ConvexMaxBoundaryTVRFLVM, ConvexMaxBoundaryKronTVRFLVM
+from model.models import RFLVM, TVRFLVM, ConvexTVRFLVM, ConvexMaxTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsConvexMaxBoundaryTVRFLVM, ConvexMaxBoundaryTVRFLVM, ConvexMaxBoundaryKronTVRFLVM, ConvexMaxBoundaryARTVRFLVM
 from visualization.visualization import plot_posterior_predictive_career_trajectory_map, plot_prior_predictive_career_trajectory, plot_prior_mean_trajectory
 
 
@@ -38,7 +38,7 @@ if __name__ == "__main__":
     parser.add_argument("--init_path", help = "where to initialize inference from", required=False, default="")
     parser.add_argument("--player_names", help = "which players to run the model for", required=False, default = [], type = lambda x: x.split(","))
     parser.add_argument("--position_group", help = "which position group to run the model for", required = True, choices=["G", "F", "C", "all"])
-    numpyro.set_platform("cpu")
+    numpyro.set_platform("gpu")
     args = vars(parser.parse_args())
     inference_method = args["inference_method"]
     map_inference = (inference_method == "map")
@@ -95,6 +95,8 @@ if __name__ == "__main__":
                     model = ConvexMaxBoundaryTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
                     if "kron" in model_name:
                         model = ConvexMaxBoundaryKronTVRFLVM(latent_rank_1=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis, num_metrics=len(metrics), latent_rank_2=basis_dims_2)
+                    elif "AR" in model_name:
+                        model = ConvexMaxBoundaryARTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
         elif "tvrflvm" in model_name:
             model = TVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
    
@@ -232,9 +234,7 @@ if __name__ == "__main__":
                 samples = model.run_svi_inference(num_steps=300, guide_kwargs={}, model_args=model_args, initial_values=initial_params, 
                                                          sample_shape = (num_chains, num_samples))
     if mcmc_inference:
-        # print_summary(samples)
-        for site in samples:
-            print(f"site: {site}, error : {jnp.linalg.norm(samples[site].mean((0,1)) - initial_params[site])}")
+        print_summary(samples)
 
     if not prior_predictive:
         with open(output_path, "wb") as f:

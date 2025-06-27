@@ -670,6 +670,7 @@ class ConvexMaxBoundaryTVRFLVM(ConvexTVRFLVM):
 
     def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args, initial_values={}):
         return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args, initial_values)
+    
         
     
     def run_map_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
@@ -723,6 +724,182 @@ class ConvexMaxBoundaryTVRFLVM(ConvexTVRFLVM):
         A_opt = result.params
         return A_opt
 
+class ConvexMaxBoundaryARTVRFLVM(ConvexMaxBoundaryTVRFLVM):
+    """
+        model for time varying functional enforcing convexity in the shape parameters. specifies a max, 
+        and boundary conditions
+    """
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape, basis)
+    def initialize_priors(self, *args, **kwargs) -> None:
+        super().initialize_priors(*args, **kwargs)
+        self.prior["rho_ar"] = Uniform(low=-1, high = 1)
+        self.prior["sigma_ar"] = InverseGamma(2.0, 3.0)
+        self.prior["beta_ar"] = Normal()
+    
+    def make_kernel(self, sigma, rho, time_delta):
+        return (1 / (1 - jnp.square(rho[..., None]))) * (rho[..., None] ** jnp.abs(time_delta[None])) * sigma[..., None] 
+        
+    def model_fn(self, data_set, hsgp_params, offsets = {}, inference_method:str = "prior") -> None:
+        prior = (inference_method == "prior")
+        num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
+        num_metrics = sum(len(data_set[family]["indices"]) for family in data_set)
+        phi_time  = hsgp_params["phi_x_time"]
+        L_time = hsgp_params["L_time"]
+        M_time = hsgp_params["M_time"]
+        shifted_x_time = hsgp_params["shifted_x_time"]
+        lengthscale = self.prior["lengthscale"] if not isinstance(self.prior["lengthscale"], Distribution) else sample("lengthscale", self.prior["lengthscale"])
+        alpha_time = self.prior["alpha"] if not isinstance(self.prior["alpha"], Distribution) else sample("alpha", self.prior["alpha"], sample_shape=(num_metrics, ))
+        ls_deriv = self.prior["lengthscale_deriv"] if not isinstance(self.prior["lengthscale_deriv"], Distribution) else sample("lengthscale_deriv", self.prior["lengthscale_deriv"], sample_shape=(num_metrics,))
+        spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
+        t_0 = hsgp_params["t_0"]
+        t_r = hsgp_params["t_r"]
+        W = self.prior["W"] if not isinstance(self.prior["W"], Distribution) else sample("W", self.prior["W"], sample_shape=(self.m,self.r))
+        
+
+        sigma_c_max = self.prior["sigma_c"] if not isinstance(self.prior["sigma_c"], Distribution) else sample("sigma_c", self.prior["sigma_c"], sample_shape=(1, num_metrics))
+        sigma_t_max = self.prior["sigma_t"] if not isinstance(self.prior["sigma_t"], Distribution) else sample("sigma_t", self.prior["sigma_t"], sample_shape=(1, num_metrics))
+        t_max_raw = self.prior["t_max_raw"] if not isinstance(self.prior["t_max_raw"], Distribution) else sample("t_max_raw", self.prior["t_max_raw"], sample_shape=(2 * self.m, num_metrics))
+        c_max_raw = self.prior["c_max"] if not isinstance(self.prior["c_max"], Distribution) else sample("c_max", self.prior["c_max"] , sample_shape=(2 * self.m, num_metrics))
+        
+        sigma_boundary_r = self.prior["sigma_boundary_r"] if not isinstance(self.prior["sigma_boundary_r"], Distribution) else sample("sigma_boundary_r", self.prior["sigma_boundary_r"], sample_shape=(1, num_metrics))
+        sigma_boundary_l = self.prior["sigma_boundary_l"] if not isinstance(self.prior["sigma_boundary_l"], Distribution) else sample("sigma_boundary_l", self.prior["sigma_boundary_l"], sample_shape=(1, num_metrics))
+        boundary_r_raw = self.prior["boundary_r"] if not isinstance(self.prior["boundary_r"], Distribution) else sample("boundary_r", self.prior["boundary_r"] , sample_shape=(2 * self.m, num_metrics))
+        boundary_l_raw = self.prior["boundary_l"] if not isinstance(self.prior["boundary_l"], Distribution) else sample("boundary_l", self.prior["boundary_l"] , sample_shape=(2 * self.m, num_metrics))
+        if num_gaussians > 0:
+            sigmas = self.prior["sigma"] if not isinstance(self.prior["sigma"], Distribution) else sample("sigma", self.prior["sigma"], sample_shape=(num_gaussians,))
+            expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))
+        sigma_beta = self.prior["sigma_beta"] if not isinstance(self.prior["sigma_beta"], Distribution) else sample("sigma_beta", self.prior["sigma_beta"])
+        X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
+        
+
+        wTx = jnp.einsum("nr,mr -> nm", X, W  * jnp.sqrt(lengthscale))
+        psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(self.m))   
+        
+
+        t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw) * sigma_t_max) * 2  + offsets["t_max"]  if not prior else numpyro.deterministic("t_max", jnp.tanh(make_psi_gamma(psi_x, t_max_raw) * sigma_t_max) * 2  + offsets["t_max"])
+        c_max = make_psi_gamma(psi_x, c_max_raw) * sigma_c_max + offsets["c_max"]
+        if prior:
+            c_max = numpyro.deterministic("c_max_", c_max)
+
+        boundary_r = c_max - jax.nn.softplus(make_psi_gamma(psi_x, boundary_r_raw ) * sigma_boundary_r + offsets["boundary_r"])
+        boundary_l = c_max - jax.nn.softplus(make_psi_gamma(psi_x,boundary_l_raw) * sigma_boundary_l + offsets["boundary_l"])
+        
+        if prior:
+            boundary_l = numpyro.deterministic("boundary_l_", boundary_l)
+            boundary_r = numpyro.deterministic("boundary_r_", boundary_r)
+
+        boundary_diff = boundary_l - boundary_r
+        
+
+        phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
+        phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
+
+        if prior:
+            G = (make_convex_phi(t_r, L_time, M_time) - make_convex_phi(t_0, L_time, M_time))[None, None] + (t_0 - t_r) * phi_prime_t_max
+            init_weights =  Normal(0, 1).sample(jax.random.PRNGKey(0), sample_shape=((self.m * 2, M_time, num_metrics) ))
+            weights = self.solve_for_weights(init_weights, 1e-1, psi_x, G, boundary_diff, spd)
+            self.prior["beta"] = weights
+        else:
+            weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.m * 2, M_time, num_metrics))
+        weights *= spd
+
+        time_delta = self.basis[None] - self.basis[..., None]
+        sigma_ar = self.prior["sigma_ar"] if not isinstance(self.prior["sigma_ar"], Distribution) else sample("sigma_ar", self.prior["sigma_ar"], sample_shape=(num_metrics,1))
+        rho_ar = self.prior["rho_ar"] if not isinstance(self.prior["rho_ar"], Distribution) else sample("rho_ar", self.prior["rho_ar"], sample_shape=(num_metrics,1))
+        kernel = self.make_kernel(sigma_ar, rho_ar, time_delta)
+        L = jnp.linalg.cholesky(kernel)  # (K, T, T)
+
+        # Standard normals: shape (K, N, T)
+        z = self.prior["beta_ar"] if not isinstance(self.prior["beta_ar"], Distribution) else sample("beta_ar", self.prior["beta_ar"], sample_shape=(num_metrics, self.n, self.j))
+
+        # Apply Cholesky: result (K, N, T)
+        AR = jnp.einsum('ktd,knd->knt', L, z)
+
+        intercept = jnp.transpose(c_max)[..., None]
+        gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
+        mu = intercept + gamma_phi_gamma_x  if not prior else numpyro.deterministic("mu", intercept + gamma_phi_gamma_x) 
+        
+        for family in data_set:
+            k_indices = data_set[family]["indices"]
+            linear_predictor = mu[k_indices] + AR[k_indices]
+            exposure = data_set[family]["exposure"]
+            obs = data_set[family]["Y"]
+            mask = data_set[family]["mask"]
+            if family == "gaussian":
+                rate = linear_predictor
+                dist = Normal(rate, expanded_sigmas / jnp.where(mask, exposure, 1.0)).mask(mask)
+            elif family == "poisson":
+                rate = jnp.exp(linear_predictor + jnp.where(mask, exposure, 0))
+                dist = Poisson(rate).mask(mask)
+            elif family == "binomial":
+                rate = linear_predictor
+                dist = BinomialLogits(logits = rate, total_count=jnp.where(mask, exposure.astype(int), 0)).mask(mask)
+            elif family == "beta":
+                rate = jsci.special.expit(linear_predictor)
+                dist = BetaProportion(rate, jnp.where(mask, exposure, 1.0) * sigma_beta).mask(mask)
+
+              
+            y = sample(f"likelihood_{family}", dist, obs) if not prior else sample(f"likelihood_{family}", dist, obs=None)
+
+
+
+
+    def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args, initial_values={}):
+        return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args, initial_values)
+    
+        
+    
+    def run_map_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}):
+        guide = AutoDelta(self.model_fn, prefix="", **guide_kwargs)
+        print("Setup guide")
+        svi = SVI(self.model_fn, guide, optim=adam(.0003), loss=Trace_ELBO(num_particles=1)
+                  )
+        print("Setup MAP")
+        result = svi.run(jax.random.PRNGKey(0),
+                        num_steps = num_steps,progress_bar = True, init_params = initial_values, stable_update=True, **model_args)
+        return result.params
+
+    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values: dict = {}, sample_shape=(4, 2000)):
+        guide = AutoLowRankMultivariateNormal(self.model_fn, prefix="", **guide_kwargs, init_loc_fn=init_to_value(values=initial_values),
+                                   rank=50)
+        guide = AutoLaplaceApproximation(self.model_fn, prefix="", **guide_kwargs,init_loc_fn=init_to_value(values=initial_values))
+        print("Setup guide")
+        svi = SVI(self.model_fn, guide, optim=adam(.0003), loss=Trace_ELBO(num_particles=1), 
+                  )
+        print("Setup SVI")
+        result = svi.run(jax.random.PRNGKey(0), num_steps = num_steps,progress_bar = True,  **model_args)
+        params = result.params
+        posterior_samples = guide.sample_posterior(jax.random.PRNGKey(1), params = params, sample_shape=sample_shape)
+        return posterior_samples
+
+
+    def predict(self, posterior_samples: dict, model_args, num_samples=1000):
+        return super().predict(posterior_samples, model_args, num_samples)
+    
+    @staticmethod
+    def solve_for_weights(A, rho, phi, X, b, spd):
+        def loss_fn(A, rho, phi, X, b, s):
+            A = A * s
+            def residual(n, k):
+                phi_nk = phi[n][None]  # shape (M,)
+                A_k = A[..., k]          # (D, M)
+                X_nk = X[n, k]      # (D, D)
+                v = jnp.dot(phi_nk, A_k)    # (D,)
+
+                return jnp.einsum("jd, dd, kd - > jk", v, X_nk, v) - b[n, k]
+
+            # Vectorize residual over n and k
+            r = jax.vmap(lambda n: jax.vmap(lambda k: residual(n, k))(jnp.arange(b.shape[-1])))(jnp.arange(b.shape[0]))
+            penalty = jnp.sum(jnp.square(r))
+            reg = jnp.sum(jnp.square(A))
+            return reg + rho * penalty
+
+        solver = LBFGS(fun=loss_fn, maxiter=500, implicit_diff=True, verbose=False)
+
+        result = solver.run(A, rho, phi, X, b, spd)
+        A_opt = result.params
+        return A_opt
 
 
 class ConvexMaxBoundaryKronTVRFLVM(ConvexMaxBoundaryTVRFLVM):
