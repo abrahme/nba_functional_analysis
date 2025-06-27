@@ -50,7 +50,7 @@ def process_data(df, output_metric, exposure, model, input_metrics, player_indic
         if normalize:
             metric_array_obs = metric_array
             metric_array = (metric_array_obs - np.nanmean(metric_array_obs))/np.nanstd(metric_array_obs)
-        adj_exp_array = jnp.log(exposure_array) if not normalize else jnp.sqrt(exposure_array)
+        adj_exp_array = jnp.sqrt(exposure_array + 1) if not normalize else jnp.sqrt(exposure_array)
     elif model == "binomial":
         metric_array = metric_df.to_numpy()
         if exposure == "simple_exposure":

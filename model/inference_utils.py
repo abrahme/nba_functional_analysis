@@ -87,7 +87,8 @@ def create_metric_trajectory_all(posterior_mean_samples, observations, exposures
     
     #### then sample minutes 
     post_min = posterior_mean_samples[..., minutes_index, :, :]
-    posterior_predictions_min = BetaProportion(jsc.special.expit(post_min), posterior_dispersion_samples * jnp.log(posterior_predictions_games_exposure)).sample(key = key) * (48 * posterior_predictions_games)
+    posterior_predictions_min = BetaProportion(jsc.special.expit(post_min), posterior_dispersion_samples * jnp.sqrt(posterior_predictions_games_exposure + 1)).sample(key = key) * (48 * posterior_predictions_games)
+    posterior_predictions_min = posterior_predictions_min.at[posterior_predictions_games == 0].set(0)
     obs_min = observations[minutes_index]
     posterior_predictions_min_exposure = jnp.where(~jnp.isnan(obs_min)[None, None, ...], obs_min[None,None,...] * 48 * exposure_games, posterior_predictions_min)
     posteriors = {"games": posterior_predictions_games, "minutes":posterior_predictions_min}
@@ -139,10 +140,12 @@ def create_metric_trajectory(posterior_mean_samples, player_index, observations,
     posterior_predictions_games = BinomialLogits(logits=post_games, total_count = jnp.astype(exposure_games, jnp.int64)[None,None,...]).sample(key = key) 
     obs_games = observations[games_index,player_index, :]
     posterior_predictions_games_exposure = jnp.where(~jnp.isnan(obs_games)[None, None, ...], obs_games[None,None,...], jnp.squeeze(posterior_predictions_games))
-
+    
     #### then sample minutes 
     post_min = posterior_mean_samples[..., minutes_index, :]
-    posterior_predictions_min = BetaProportion(jsc.special.expit(post_min), posterior_dispersion_samples[..., None] * jnp.log(posterior_predictions_games_exposure) ).sample(key = key) * (48 * posterior_predictions_games)
+    
+    posterior_predictions_min = BetaProportion(jsc.special.expit(post_min), posterior_dispersion_samples[..., None] * jnp.sqrt(posterior_predictions_games_exposure + 1) ).sample(key = key) * (48 * posterior_predictions_games)
+    posterior_predictions_min = posterior_predictions_min.at[posterior_predictions_games_exposure == 0].set(0)
     obs_min = observations[minutes_index, player_index, :]
     posterior_predictions_min_exposure = jnp.where(~jnp.isnan(obs_min)[None, None], obs_min[None,None] * 48 * exposure_games, posterior_predictions_min)
     posteriors = {"games": posterior_predictions_games / exposure_games, "minutes":posterior_predictions_min}
