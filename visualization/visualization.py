@@ -7,7 +7,7 @@ import numpy as np
 import arviz as az
 from model.inference_utils import create_metric_trajectory, create_metric_trajectory_map, create_metric_trajectory_prior, create_metric_trajectory_mu
 
-def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str], metric_outputs: list[str], exposure_names: list[str],  posterior_mean_samples, observations, exposures, posterior_variance_samples, posterior_dispersion_samples):
+def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str], metric_outputs: list[str], exposure_names: list[str],  posterior_mean_samples, observations, exposures, posterior_variance_samples, posterior_dispersion_samples, posterior_kappa_samples):
     """
     plots the posterior predictive career trajectory 
     """
@@ -15,7 +15,7 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
     
     observation_dict, posterior_dict = create_metric_trajectory(posterior_mean_samples, player_index,  observations, exposures, 
                                                                 exposure_names=exposure_names,
-                                                                metric_outputs=metric_outputs, metrics = metrics, posterior_variance_samples=posterior_variance_samples, posterior_dispersion_samples=posterior_dispersion_samples)
+                                                                metric_outputs=metric_outputs, metrics = metrics, posterior_variance_samples=posterior_variance_samples, posterior_dispersion_samples=posterior_dispersion_samples, posterior_kappa_samples=posterior_kappa_samples)
 
     obs = observation_dict["y"]
     posterior = posterior_dict["y"]
@@ -87,13 +87,13 @@ def plot_prior_mean_trajectory(prior_mean_samples, thin = .1):
     
     return fig
 
-def plot_prior_predictive_career_trajectory(metrics: list[str], metric_outputs: list[str], exposure_names: list[str],  prior_mean_samples, prior_variance_samples, prior_dispersion_samples, thin = .1):
+def plot_prior_predictive_career_trajectory(metrics: list[str], metric_outputs: list[str], exposure_names: list[str],  prior_mean_samples, prior_variance_samples, prior_dispersion_samples, prior_kappa_samples, thin = .1):
     """
     plots the prior predictive career trajectory 
     """
     fig = make_subplots(rows = 4, cols=4,  subplot_titles=metrics)
     
-    prior_dict = create_metric_trajectory_prior(prior_mean_samples, metric_outputs, metrics, exposure_names, prior_variance_samples, prior_dispersion_samples)
+    prior_dict = create_metric_trajectory_prior(prior_mean_samples, metric_outputs, metrics, exposure_names, prior_variance_samples, prior_dispersion_samples, prior_kappa_samples)
 
     
  

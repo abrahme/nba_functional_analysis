@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 import jax.scipy as jsc
 from numpyro import handlers
-from numpyro.distributions import Normal, Poisson, BinomialLogits, BetaProportion
+from numpyro.distributions import Normal, Poisson, BinomialLogits, BetaProportion, BetaBinomial
 # jax.config.update('jax_platform_name', 'cuda')
 
 
@@ -72,7 +72,7 @@ def match_align(Phi):
 
     return Phi_star
 
-def create_metric_trajectory_all(posterior_mean_samples, observations, exposures, metric_outputs: list[str], metrics: list[str], exposure_names: list[str], posterior_variance_samples = None, posterior_dispersion_samples = None):
+def create_metric_trajectory_all(posterior_mean_samples, observations, exposures, metric_outputs: list[str], metrics: list[str], exposure_names: list[str], posterior_variance_samples = None, posterior_dispersion_samples = None, posterior_kappa_samples=None):
     key = jax.random.key(0)
     gaussian_index = 0
     obs_exposure_map = {m: e for m, e in zip(metrics, exposure_names)}
@@ -81,7 +81,9 @@ def create_metric_trajectory_all(posterior_mean_samples, observations, exposures
     ### first sample games
     post_games = posterior_mean_samples[..., games_index, :, :]
     exposure_games = jnp.astype(exposures[games_index], jnp.int64)
-    posterior_predictions_games = BinomialLogits(logits=post_games,total_count=exposure_games[None, None, ...]).sample(key = key) 
+    posterior_predictions_games = BetaBinomial(concentration0= (1-jsc.special.expit(post_games)) * posterior_kappa_samples, 
+                                               concentration1=jsc.special.expit(post_games) * posterior_kappa_samples,
+                                               total_count=exposure_games[None, None, ...]).sample(key = key) 
     obs_games = observations[games_index]
     posterior_predictions_games_exposure = jnp.where(~jnp.isnan(obs_games)[None, None, ...], obs_games[None,None,...], jnp.squeeze(posterior_predictions_games))
     
@@ -127,7 +129,7 @@ def create_metric_trajectory_all(posterior_mean_samples, observations, exposures
         
     return jnp.stack([p for _, p in obs_normalized.items()], axis = -1), jnp.stack([p for _, p in posteriors.items()], axis = -1)
 
-def create_metric_trajectory(posterior_mean_samples, player_index, observations, exposures, metric_outputs: list[str], metrics: list[str], exposure_names: list[str], posterior_variance_samples = None, posterior_dispersion_samples = None):
+def create_metric_trajectory(posterior_mean_samples, player_index, observations, exposures, metric_outputs: list[str], metrics: list[str], exposure_names: list[str], posterior_variance_samples = None, posterior_dispersion_samples = None, posterior_kappa_samples=None):
     key = jax.random.key(0)
     gaussian_index = 0
     obs_exposure_map = {m: e for m, e in zip(metrics, exposure_names)}
@@ -137,7 +139,10 @@ def create_metric_trajectory(posterior_mean_samples, player_index, observations,
     post_games = posterior_mean_samples[..., games_index, :]   
     exposure_games = exposures[games_index, player_index, :]
     exposure_games = exposure_games.at[jnp.isnan(exposure_games)].set(82)
-    posterior_predictions_games = BinomialLogits(logits=post_games, total_count = jnp.astype(exposure_games, jnp.int64)[None,None,...]).sample(key = key) 
+    exposure_games = jnp.astype(exposure_games, jnp.int64)
+    posterior_predictions_games = BetaBinomial(concentration0= (1-jsc.special.expit(post_games)) * posterior_kappa_samples, 
+                                               concentration1=jsc.special.expit(post_games) * posterior_kappa_samples,
+                                               total_count=exposure_games[None, None, ...]).sample(key = key) 
     obs_games = observations[games_index,player_index, :]
     posterior_predictions_games_exposure = jnp.where(~jnp.isnan(obs_games)[None, None, ...], obs_games[None,None,...], jnp.squeeze(posterior_predictions_games))
     
@@ -287,14 +292,16 @@ def create_metric_trajectory_map(posterior_mean_map: jnp.ndarray, player_index, 
 
     return obs_data, posterior_predictive
 
-def create_metric_trajectory_prior(prior_mean_samples,  metric_outputs: list[str], metrics: list[str], exposure_names: list[str], prior_variance_samples = None, prior_dispersion_samples = None):
+def create_metric_trajectory_prior(prior_mean_samples,  metric_outputs: list[str], metrics: list[str], exposure_names: list[str], prior_variance_samples = None, prior_dispersion_samples = None, posterior_kappa_samples = None):
     key = jax.random.key(1)
     gaussian_index = 0
     minutes_index = metrics.index("pct_minutes")
     games_index = metrics.index("games")  ### 1 -> playing, 0 --> retired
     ### first sample games
     post_games = prior_mean_samples[..., games_index, :]   
-    prior_predictions_games = BinomialLogits(logits=post_games, total_count = 82).sample(key = key) 
+    prior_predictions_games = BetaBinomial(concentration0= (1-jsc.special.expit(post_games)) * posterior_kappa_samples, 
+                                               concentration1=jsc.special.expit(post_games) * posterior_kappa_samples,
+                                               total_count=82).sample(key = key) 
     #### then sample minutes 
     post_min = prior_mean_samples[..., minutes_index, :]
     prior_predictions_min = BetaProportion(jsc.special.expit(post_min), prior_dispersion_samples[..., None] * jnp.log(3000) ).sample(key = key) * (48 * prior_predictions_games)

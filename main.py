@@ -9,6 +9,7 @@ import plotly.express as px
 import plotly.figure_factory as ff
 import plotly.graph_objects as go
 from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import squareform, pdist
 from numpyro.diagnostics import print_summary
@@ -63,7 +64,7 @@ if __name__ == "__main__":
     data["games_exposure"] = np.maximum(82, data["games"]) ### 82 or whatever
     data["pct_minutes"] = (data["minutes"] / data["games_exposure"]) / 48
     data["retirement"] = 1
-    metric_output = ["binomial", "beta"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+    metric_output = ["beta-binomial", "beta"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
     metrics = ["games", "pct_minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
     exposure_list = (["games_exposure", "games_exposure"]) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
 
@@ -159,7 +160,7 @@ if __name__ == "__main__":
                     peak = jnp.nanmean(jnp.nanargmax(Y[index] / jnp.exp(exposures[index]), -1))
                     offset_list.append(jnp.log(p))
                     offset_max_list.append(jnp.log(p_max))                 
-                elif family == "binomial":
+                elif family in ["beta-binomial", "binomial"]:
                     p = jnp.nansum(Y[index]) / jnp.nansum(exposures[index])
                     p_max = jnp.nanmean(jnp.nanmax(Y[index] / exposures[index], -1))
                     offset_list.append(jnp.log(p/ (1-p)))
@@ -228,7 +229,7 @@ if __name__ == "__main__":
                 print("sampling from prior")
                 samples = model.predict({}, model_args, num_samples = num_samples)
             elif mcmc_inference:
-                samples, extra_fields = model.run_inference(num_chains=num_chains, num_samples=num_samples, num_warmup=num_warmup, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
+                samples = model.run_inference(num_chains=num_chains, num_samples=num_samples, num_warmup=num_warmup, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
 
             elif svi_inference:
                 samples = model.run_svi_inference(num_steps=300, guide_kwargs={}, model_args=model_args, initial_values=initial_params, 
@@ -240,7 +241,7 @@ if __name__ == "__main__":
         with open(output_path, "wb") as f:
             pickle.dump(samples, f)
         f.close()
-
+        print("saved samples")
 
     if map_inference:
         print(samples["sigma__loc"])
@@ -254,6 +255,7 @@ if __name__ == "__main__":
         print(1 / lengthscale)
         W = samples["W__loc"]
         X = samples["X__loc"]
+        X_center = X - jnp.mean(X, keepdims = True, axis = 0)
         # X -= jnp.mean(X, keepdims = True, axis = 0)
         # X /= jnp.std(X, keepdims = True, axis = 0)
 
@@ -267,10 +269,10 @@ if __name__ == "__main__":
             sigma_t_max = samples["sigma_t__loc"] 
             t_max_raw = samples["t_max_raw__loc"] 
             if "kron" in model_name:
-                t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw) * sigma_t_max) * 5
-                c_max = make_psi_gamma(psi_x, samples["c_max__loc"]) * sigma_c_max 
+                t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw) * sigma_t_max) * 5 + model_args["offsets"]["t_max"]  
+                c_max = make_psi_gamma(psi_x, samples["c_max__loc"]) * sigma_c_max + model_args["offsets"]["c_max"]
             else:
-                t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw) * sigma_t_max) * 2  + model_args["offsets"]["t_max"]  
+                t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw) * sigma_t_max) * 5  + model_args["offsets"]["t_max"]  
                 c_max = make_psi_gamma(psi_x, samples["c_max__loc"]) * sigma_c_max + model_args["offsets"]["c_max"]
 
             phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
@@ -279,11 +281,7 @@ if __name__ == "__main__":
             weights /= .0001
             gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
             mu = intercept + gamma_phi_gamma_x
-            if "kron" in model_name:
-                metric_scale = samples["metric_scale__loc"]
-                metric_factor_raw = samples["metric_factor__loc"]
-                metric_factor = metric_scale * metric_factor_raw
-                mu = jnp.einsum("dk, knt -> dnt", metric_factor, mu)
+
         else:
             intercept_sigma = 1
             intercept = make_psi_gamma(psi_x, samples["intercept__loc"])   
@@ -315,7 +313,7 @@ if __name__ == "__main__":
                                         "Carmelo Anthony", "Dwyane Wade", "Derrick Rose", "Chris Bosh", "Karl-Anthony Towns", "Kristaps Porzingis", 
                                         "Giannis Antetokounmpo", "Jrue Holiday"]
         tsne = TSNE(n_components=2)
-        X_tsne_df = pd.DataFrame(tsne.fit_transform(X), columns = ["Dim. 1", "Dim. 2"])
+        X_tsne_df = pd.DataFrame(tsne.fit_transform(X_center), columns = ["Dim. 1", "Dim. 2"])
         id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
         X_tsne_df = pd.concat([X_tsne_df, id_df], axis = 1)
         X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in predict_players else "")
@@ -326,66 +324,76 @@ if __name__ == "__main__":
         fig.update_traces(textfont = dict(size = 7))
         fig.write_image(f"model_output/model_plots/latent_space/{file_pre}/{model_name}.png", format = "png")
 
+
+
+        pca_latent_space = PCA(n_components=2)
+
+        X_pca_df = pd.DataFrame(pca_latent_space.fit_transform(X_center), columns = ["Dim. 1", "Dim. 2"])
+        
+        X_pca_df = pd.concat([X_pca_df, id_df], axis = 1)
+        X_pca_df["name"] = X_pca_df["name"].apply(lambda x: x if x in predict_players else "")
+        X_pca_df["minutes"] /= np.max(X_pca_df["minutes"])
+        X_pca_df.rename(mapper = {"position_group": "Position"}, inplace=True, axis=1)
+        fig = px.scatter(X_pca_df, x = "Dim. 1", y = "Dim. 2", color = "Position", text="name", size = "minutes",
+                        opacity = .1, title="PCA Visualization of Latent Player Embedding", )
+        fig.update_traces(textfont = dict(size = 7))
+        fig.write_image(f"model_output/model_plots/latent_space/map/{model_name}_pca.png", format = "png")
+
         if "kron" in model_name:
-            fig = px.imshow(metric_factor * metric_scale, zmin=0, labels = dict(x = "Dimension",
-                                                     y = "Metric"),
-                                                     x = [f"Dimension {i+1}" for i in range(basis_dims_2)],
-                                                     y = metrics,
 
-                                                     )
-            fig.write_image(f"model_output/model_plots/loading/{inference_method}/{model_name}.png", format = "png")
+            LKJ = samples["LKJ__loc"]
+            cov_mat_dict = {"cov_t_max": LKJ[0], "cov_c_max":LKJ[1], "cov_boundary_l":LKJ[2], "cov_boundary_r": LKJ[3]}
+            for cov_type in cov_mat_dict:
+                D = cov_mat_dict[cov_type]
+                    # ---- Hierarchical clustering ----
+                linkage_mat = linkage(D, method="ward")
+                order = leaves_list(linkage_mat)
 
-            
-            D = jnp.linalg.norm((metric_factor * metric_scale)[:, None, :] - (metric_factor * metric_scale)[None], axis = -1)
-                # ---- Hierarchical clustering ----
-            linkage_mat = linkage(squareform(D, checks=False), method="ward")
-            order = leaves_list(linkage_mat)
+                # ---- Reorder correlation matrix ----
+                C_reordered = D[np.ix_(order, order)]
+                labels_ordered = [metrics[i] for i in order]
 
-            # ---- Reorder correlation matrix ----
-            C_reordered = D[np.ix_(order, order)]
-            labels_ordered = [metrics[i] for i in order]
+                # ---- Create dendrograms ----
+                dendro_rows = ff.create_dendrogram(D, orientation='left', linkagefun=lambda _: linkage_mat, labels=labels_ordered)
+                dendro_cols = ff.create_dendrogram(D, orientation='top', linkagefun=lambda _: linkage_mat, labels=labels_ordered)
 
-            # ---- Create dendrograms ----
-            dendro_rows = ff.create_dendrogram(D, orientation='left', linkagefun=lambda _: linkage_mat, labels=labels_ordered)
-            dendro_cols = ff.create_dendrogram(D, orientation='top', linkagefun=lambda _: linkage_mat, labels=labels_ordered)
+                # ---- Create heatmap ----
+                heatmap = go.Heatmap(
+                    z=C_reordered,
+                    x=labels_ordered,
+                    y=labels_ordered,
+                    colorscale='RdBu',
+                    zmin=0,
+                    zmax=1,
+                    xaxis='x2',
+                    yaxis='y2',
+                    reversescale=False
+                )
 
-            # ---- Create heatmap ----
-            heatmap = go.Heatmap(
-                z=C_reordered,
-                x=labels_ordered,
-                y=labels_ordered,
-                colorscale='RdBu',
-                zmin=0,
-                zmax=1,
-                xaxis='x2',
-                yaxis='y2',
-                reversescale=False
-            )
+                # ---- Combine into single figure ----
+                fig = go.Figure()
 
-            # ---- Combine into single figure ----
-            fig = go.Figure()
+                for trace in dendro_cols['data']:
+                    fig.add_trace(trace)
+                for trace in dendro_rows['data']:
+                    fig.add_trace(trace)
+                fig.add_trace(heatmap)
 
-            for trace in dendro_cols['data']:
-                fig.add_trace(trace)
-            for trace in dendro_rows['data']:
-                fig.add_trace(trace)
-            fig.add_trace(heatmap)
+                fig.update_layout(
+                    width=900,
+                    height=900,
+                    showlegend=False,
+                    hovermode='closest',
+                    xaxis=dict(domain=[0.15, 1.0], zeroline=False, showticklabels=False, ticks=''),
+                    yaxis=dict(domain=[0.15, 1.0], zeroline=False, showticklabels=False, ticks=''),
+                    xaxis2=dict(domain=[0.15, 1.0], anchor='y2'),
+                    yaxis2=dict(domain=[0.15, 1.0], anchor='x2'),
+                    margin=dict(t=50, l=50)
+                )
 
-            fig.update_layout(
-                width=900,
-                height=900,
-                showlegend=False,
-                hovermode='closest',
-                xaxis=dict(domain=[0.15, 1.0], zeroline=False, showticklabels=False, ticks=''),
-                yaxis=dict(domain=[0.15, 1.0], zeroline=False, showticklabels=False, ticks=''),
-                xaxis2=dict(domain=[0.15, 1.0], anchor='y2'),
-                yaxis2=dict(domain=[0.15, 1.0], anchor='x2'),
-                margin=dict(t=50, l=50)
-            )
+                # Plot!
 
-            # Plot!
-
-            fig.write_image(f"model_output/model_plots/loading_correlation/{file_pre}/{model_name}.png", format = "png")
+                fig.write_image(f"model_output/model_plots/loading_correlation/{file_pre}/{model_name}_{cov_type}.png", format = "png")
 
 
 

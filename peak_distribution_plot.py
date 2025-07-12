@@ -93,7 +93,7 @@ def make_mu_mcmc(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigm
     weights *= spd
     wTx = jnp.einsum("...nr, mr -> ...nm", X, W * jnp.sqrt(ls))  
     psi_x = jnp.concatenate([np.cos(wTx), np.sin(wTx)],-1) * (1/ jnp.sqrt(W.shape[0]))
-    t_max = jnp.tanh(jnp.einsum("...nm, mk -> ...nk", psi_x, t_max_raw, optimize = True) * sigma_t_max) * 2  + offset_dict["t_max"]  
+    t_max = jnp.tanh(jnp.einsum("...nm, mk -> ...nk", psi_x, t_max_raw, optimize = True) * sigma_t_max) * 5  + offset_dict["t_max"]  
     c_max = (jnp.einsum("...nm, mk -> ...nk", psi_x, c_max, optimize = True)) * sigma_c_max + offset_dict["c_max"]
     phi_prime_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))))(t_max)
     phi_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))))(t_max)
@@ -103,6 +103,28 @@ def make_mu_mcmc(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigm
     gamma_phi_gamma_x = jnp.einsum("...nm, mdk, ...nktdz, jzk, ...nj -> ...knt", psi_x, weights, phi_t_max[:,:,:,:,None,...] - phi_time[None, None, None, None] +  phi_prime_t_max[:, :,:,:, None, ...] * (((shifted_x_time - L_time)[None, None, None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
     mu = gamma_phi_gamma_x + intercept
     return wTx, mu, t_max, c_max
+
+def make_mu_mcmc_AR(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, shifted_x_time, offset_dict, beta_ar, sigma_ar, rho_ar):
+    # spd = jax.vmap(jax.vmap(lambda a, l: jnp.sqrt(diag_spectral_density(1, a, l, L_time, M_time))))(alpha_time, ls_deriv)
+    spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
+    # weights = weights * spd[..., None, :, :]
+    weights *= spd
+    wTx = jnp.einsum("...nr, mr -> ...nm", X, W * jnp.sqrt(ls))  
+    psi_x = jnp.concatenate([np.cos(wTx), np.sin(wTx)],-1) * (1/ jnp.sqrt(W.shape[0]))
+    t_max = jnp.tanh(jnp.einsum("...nm, mk -> ...nk", psi_x, t_max_raw, optimize = True) * sigma_t_max) * 5  + offset_dict["t_max"]  
+    c_max = (jnp.einsum("...nm, mk -> ...nk", psi_x, c_max, optimize = True)) * sigma_c_max + offset_dict["c_max"]
+    # intercept = jnp.transpose(c_max)[..., None]
+    phi_prime_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))))(t_max)
+    phi_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))))(t_max)
+    intercept = jnp.swapaxes(c_max, -2, -1)[..., None]
+    time_delta = (shifted_x_time[None] - shifted_x_time[..., None])[None, None]
+    kernel = (1 / (1 - jnp.square(rho_ar[..., None]))) * (rho_ar[..., None] ** jnp.abs(time_delta[None])) * sigma_ar[..., None] 
+    L = jnp.linalg.cholesky(kernel)  # (K, T, T)
+    # Apply Cholesky: result (K, N, T)
+    AR = jnp.einsum('...ktd,...knd->...knt', L, beta_ar)
+    gamma_phi_gamma_x = jnp.einsum("...nm, mdk, ...nktdz, jzk, ...nj -> ...knt", psi_x, weights, phi_t_max[:,:,:,:,None,...] - phi_time[None, None, None, None] +  phi_prime_t_max[:, :,:,:, None, ...] * (((shifted_x_time - L_time)[None, None, None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
+    mu = (gamma_phi_gamma_x + intercept) + AR
+    return wTx, mu, t_max, c_max, AR
 
 def make_mu(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, phi_time, shifted_x_time, offset_dict):
     spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
@@ -171,8 +193,7 @@ if __name__ == "__main__":
 
     id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
     validation_data = pd.merge(id_df[["position_group", "id", "name"]], validation_data, on = ["name", "position_group"])
-    season_mask = season_array = validation_data[["id", "age", "season"]].pivot(columns="age",values="season",index="id").reindex(columns = range(18,39)).to_numpy()
-
+    season_mask  = validation_data[["id", "age", "season"]].pivot(columns="age",values="season",index="id").reindex(columns = range(18,39)).to_numpy()
     agg_dict = {"obpm":"mean", "dbpm":"mean", "bpm":"mean", 
             "position_group": "max",
         "minutes":"sum", "dreb": "sum", "fta":"sum", "ftm":"sum", "oreb":"sum",
@@ -281,9 +302,9 @@ if __name__ == "__main__":
             results_mcmc = {key: val[:, ::thin, ...] for key, val in results_mcmc.items()}
     f.close()
     results_mcmc = {**results_map, **results_mcmc}
-    wTx, mu_mcmc, tmax_mcmc, cmax_mcmc = make_mu_mcmc(results_mcmc["X"], results_mcmc["lengthscale_deriv"], results_mcmc["alpha"],
+    wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR = make_mu_mcmc_AR(results_mcmc["X"], results_mcmc["lengthscale_deriv"], results_mcmc["alpha"],
                         results_mcmc["beta"], results_mcmc["W"], results_mcmc["lengthscale"], results_mcmc["c_max"],
-                        results_mcmc["t_max_raw"], results_mcmc["sigma_t"], results_mcmc["sigma_c"], L_time, M_time, x_time + L_time, offset_dict)
+                        results_mcmc["t_max_raw"], results_mcmc["sigma_t"], results_mcmc["sigma_c"], L_time, M_time, x_time + L_time, offset_dict, results_mcmc["beta_ar"], results_mcmc["sigma_ar"], results_mcmc["rho_ar"])
 
     peaks = tmax_mcmc + basis.mean()
     peak_val = cmax_mcmc
@@ -306,20 +327,20 @@ if __name__ == "__main__":
     group_color = ["purple", "purple", "purple", "purple", "red", "red", "purple", "purple", "red", "blue", "red","red", "blue", "blue","blue","blue",]
     sorted_colors = [group_color[i] for i in sorted_idx]
     fig = go.Figure()
-    fig.add_trace(go.Scatter(
+    fig.add_trace(go.Bar(
         x=sorted_names,
         y=sorted_means,
         error_y=dict(
             type='data',
             symmetric=False,
+            width = .4,
             array=sorted_hdi[:, 1] - sorted_means,
             arrayminus=sorted_means - sorted_hdi[:, 0],
             thickness=1.5,
             
-            width=0
+            width=5
         ),
-        mode='markers',
-        marker=dict(color = sorted_colors, size=6),
+        marker_color= sorted_colors,
         showlegend=False,
         name='Posterior Mean'
         ))
@@ -421,75 +442,16 @@ if __name__ == "__main__":
                     opacity = .1, title="PCA Visualization of Latent Player Embedding", )
     fig.update_traces(textfont = dict(size = 7))
     fig.write_image(f"model_output/model_plots/latent_space/map/{model_name}_pca.png", format = "png")
-    # clusters = GaussianMixture(n_components=3).fit_predict(X)
-    # X_tsne_df["cluster"] = clusters
-    # X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in player_labels else "")
-    # X_tsne_df["minutes"] /= np.max(X_tsne_df["minutes"])
-    # X_tsne_df.rename(mapper = {"position_group": "Position"}, inplace=True, axis=1)
-    # for index , metric in enumerate(metrics):
-    #     X_tsne_df["peak_age"] = basis[np.argmax(transformed_mu_mcmc_mean[index], -1)]
-    #     X_tsne_df["peak_val"] = np.max(transformed_mu_mcmc_mean[index], -1)
-    #     cluster_avg = []
-    #     subplot_titles = [f"Cluster {i}"  for i in range(0, X_tsne_df["cluster"].max() + 1)]
-    #     fig = make_subplots(rows=2, cols=int(clusters.max()) + 1, subplot_titles=subplot_titles, shared_xaxes=True,
-    #     shared_yaxes=True,specs=[[{"type": "table"}] * 3,
-    #                             [{"type": "xy"}] * 3],
-    #                             vertical_spacing=0.2)
-    #     for cluster_idx in range(0, X_tsne_df["cluster"].max() + 1):
-    #         cluster_indices = X_tsne_df[X_tsne_df["cluster"] == cluster_idx].index.values
-    #         cluster_avg_curve = np.mean(transformed_mu_mcmc_curves[index, cluster_indices], 0)
-    #         cluster_df = pd.DataFrame(cluster_avg_curve, columns = ["x","value"])
-    #         cluster_df["cluster"] = f"Cluster {cluster_idx}" 
-    #         cluster_avg.append(cluster_df)
-    #         row = 1
-    #         col = cluster_idx + 1
-    #         for i in cluster_indices:
-    #             inter_cluster_curve = transformed_mu_mcmc_curves[index, i]
-    #             fig.add_trace(go.Scatter(
-    #                 x=inter_cluster_curve[:,0], y=inter_cluster_curve[:,1],
-    #                 mode='lines',
-    #                 line=dict(color='gray', width=1),
-    #                 opacity=0.05,
-    #                 showlegend=False), 
-    #                 row=row+1, col=col)
-    #                 ## example players in cluster
-    #         example_players = X_tsne_df[X_tsne_df["cluster"] == cluster_idx].sort_values(by = "minutes", ascending = False)[["id"]].merge(id_df[["id", "name"]], on = ["id"])[["name"]]
-    #         fig.add_trace(
-    #                 go.Table(
-    #                     header=dict(values=list(example_players.columns)),
-    #                     cells=dict(values=[example_players[col].tolist() for col in example_players.columns])
-    #                 ),
-    #                 row=1, col=col
-    #             )
-    #         # Plot one red curve
-    #         fig.add_trace(go.Scatter(
-    #             x=cluster_df["x"], y=cluster_df["value"],
-    #             mode='lines',
-    #             line=dict(color='red', width=2),
-    #             showlegend=False
-    #         ), row=row+1, col=col)
-            
 
-    #     fig.update_layout(
-    #         title_text=f"Per Cluster Curves for {metric}",
-    #         title_x=0.5  )
-    #     fig.write_image(f"model_output/model_plots/{metric}_latent_space_cluster_spaghetti.png", format = "png")
-
-
-
-    #     metric_cluster_df = pd.concat(cluster_avg)
-
-    #     fig = px.line(metric_cluster_df, x="x", y = "value", color = "cluster")
-    #     fig.write_image(f"model_output/model_plots/{metric}_latent_space_cluster_curves.png", format = "png")
-    #     print(f"finished plotting curve analysis for {metric}")
 
 
     for index_player, player in zip(predict_indices, predict_players):
 
         fig = plot_posterior_predictive_career_trajectory(index_player, metrics, metric_output , posterior_mean_samples=mu_mcmc[..., index_player, :], observations=Y,
                                                         exposures= exposures, 
-                                                        posterior_variance_samples=jnp.transpose(results_mcmc["sigma"][None,None], (2,0,1)),
-                                                        posterior_dispersion_samples=results_mcmc["sigma_beta"][None,None],
+                                                        posterior_variance_samples=jnp.transpose(results_mcmc["sigma"][None, None], (2,0,1)),
+                                                        posterior_dispersion_samples=results_mcmc["sigma_beta"][..., None, None],
+                                                        posterior_kappa_samples = results_mcmc["sigma_beta_binomial"][..., None, None], 
                                                         exposure_names= exposure_list)
         fig.update_layout(
             title=dict(text=player))
@@ -501,8 +463,10 @@ if __name__ == "__main__":
 
     obs, pos = create_metric_trajectory_all(mu_mcmc, Y, exposures, 
                                             metric_output, metrics, exposure_list, 
-                                            jnp.transpose(results_mcmc["sigma"][None, None], (2,0,1)),
-                                            results_mcmc["sigma_beta"][None, None]) 
+                                            jnp.transpose(results_mcmc["sigma"][None,None], (2,0,1)),
+                                            results_mcmc["sigma_beta"][..., None, None],
+                                            results_mcmc["sigma_beta_binomial"][..., None, None]
+                                            ) 
 
     hdi = az.hdi(np.array(pos), hdi_prob = .95)
 
@@ -511,25 +475,32 @@ if __name__ == "__main__":
     avg_coverages = ((obs <= hdi_high) & (obs >= hdi_low)).sum((0,1)) / (~np.isnan(obs)).sum((0, 1))
     coverage_df = pd.DataFrame(avg_coverages, columns=["coverage"])
     coverage_df["metric"] = metrics
-    fig = px.bar(coverage_df.sort_values(by = "coverage"), x='metric', y='coverage', title = "In Sample Coverage")
-    fig.write_image(f"model_output/model_plots/coverage/{model_name}.png")
+    
 
     val_indices = [data.groupby("id")["name"].first().values.tolist().index(player) for player in validation_data.groupby("id")["name"].first().values.tolist()]
 
     obs_val, pos_val = create_metric_trajectory_all(mu_mcmc[..., val_indices, :], Y_val, exposures_val, 
                                             metric_output, metrics, exposure_list, 
-                                            jnp.transpose(results_mcmc["sigma"][None, None], (2,0,1)),
-                                            results_mcmc["sigma_beta"][None, None]) 
+                                            jnp.transpose(results_mcmc["sigma"][None,None], (2,0,1)),
+                                            results_mcmc["sigma_beta"][..., None, None], results_mcmc["sigma_beta_binomial"][..., None, None]) 
 
     hdi_val = az.hdi(np.array(pos_val), hdi_prob = .95)
 
     hdi_low = hdi_val[..., 0]
     hdi_high = hdi_val[..., 1]
-    avg_coverages = ((obs_val <= hdi_high) & (obs_val >= hdi_low)).sum((0,1)) / (~np.isnan(obs_val)).sum((0, 1))
-    coverage_df = pd.DataFrame(avg_coverages, columns=["coverage"])
-    coverage_df["metric"] = metrics
-    fig = px.bar(coverage_df.sort_values(by = "coverage"), x='metric', y='coverage', title="Out of Sample Coverage")
-    fig.write_image(f"model_output/model_plots/coverage/{model_name}_validation.png")
+    avg_coverages_val = ((obs_val <= hdi_high) & (obs_val >= hdi_low)).sum((0,1)) / (~np.isnan(obs_val)).sum((0, 1))
+    coverage_df_val = pd.DataFrame(avg_coverages_val, columns=["validation_coverage"])
+    coverage_df_val["metric"] = metrics
+    
+    full_coverage_df = pd.merge(coverage_df, coverage_df_val)
+    full_coverage_df["validation_coverage"] = full_coverage_df["validation_coverage"].map(lambda x: f"{x * 100:.1f}%")
+    full_coverage_df["coverage"] = full_coverage_df["coverage"].map(lambda x: f"{x * 100:.1f}%")
+    fig = go.Figure(data=[go.Table(
+        header=dict(values=list(full_coverage_df.columns), fill_color='lightgrey', align='left'),
+        cells=dict(values=[full_coverage_df[col] for col in full_coverage_df.columns], fill_color='white', align='left'))
+    ])
+    fig.write_image(f"model_output/model_plots/coverage/{model_name}.png", format = "png", width = 600, height = 1000)
+
 
     player_avg_coverages = ((obs_val <= hdi_high) & (obs_val >= hdi_low)).sum((1)) / (~np.isnan(obs_val)).sum((1))
     player_coverage_df = pd.DataFrame(player_avg_coverages, columns=metrics)
@@ -569,3 +540,9 @@ if __name__ == "__main__":
     rhat = az.rhat(np.array(wTx))
     print(f"max rhat across dimensions: {jnp.max(rhat)}")
     print(f"max rhat normalized across dimensions: {jnp.max(rhat_normalized)}")
+
+    print(az.summary(np.array(AR)))
+
+    rhat_pred = az.rhat(np.array(pos[..., ~jnp.isnan(obs)]))
+    print(f"max rhat across ypred: {jnp.max(rhat_pred)}")
+    
