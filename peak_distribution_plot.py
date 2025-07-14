@@ -333,12 +333,11 @@ if __name__ == "__main__":
         error_y=dict(
             type='data',
             symmetric=False,
-            width = .4,
             array=sorted_hdi[:, 1] - sorted_means,
             arrayminus=sorted_means - sorted_hdi[:, 0],
             thickness=1.5,
             
-            width=5
+            width=1
         ),
         marker_color= sorted_colors,
         showlegend=False,
