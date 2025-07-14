@@ -507,7 +507,9 @@ if __name__ == "__main__":
     player_coverage_df = player_coverage_df.reset_index().melt(id_vars = ["index", "num_seasons"],  
                                                      var_name="metric",
                                                      value_name="coverage")
-    player_coverage_df = player_coverage_df.groupby(["num_seasons", "metric"])["coverage"].mean().reset_index()
+    player_coverage_df = player_coverage_df.groupby(["num_seasons", "metric"])["coverage"].agg(coverage='mean', sample_size='count').reset_index()
+    player_coverage_df["sample_size"] /= player_coverage_df["sample_size"].max()
+    
     fig = px.scatter(
         player_coverage_df,
         x="num_seasons",
@@ -515,7 +517,7 @@ if __name__ == "__main__":
         facet_col="metric",
         facet_col_wrap=4,
         title="Out of Sample Coverage vs Minutes Played (Faceted by Metric)",
-        opacity=0.7  # optional, makes overlapping points easier to see
+        # opacity=0.7  # optional, makes overlapping points easier to see
         )
     fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
     fig.write_image(f"model_output/model_plots/coverage/{model_name}_validation_minutes.png")
@@ -534,14 +536,14 @@ if __name__ == "__main__":
     fig.write_image(f"model_output/model_plots/coverage/{model_name}_validation_yearly.png")
 
     
-    normalized_wTx = jnp.mod(wTx, jnp.pi * 2)
-    rhat_normalized = az.rhat(np.array(normalized_wTx))
-    rhat = az.rhat(np.array(wTx))
-    print(f"max rhat across dimensions: {jnp.max(rhat)}")
-    print(f"max rhat normalized across dimensions: {jnp.max(rhat_normalized)}")
+    # normalized_wTx = jnp.mod(wTx, jnp.pi * 2)
+    # rhat_normalized = az.rhat(np.array(normalized_wTx))
+    # rhat = az.rhat(np.array(wTx))
+    # print(f"max rhat across dimensions: {jnp.max(rhat)}")
+    # print(f"max rhat normalized across dimensions: {jnp.max(rhat_normalized)}")
 
-    print(az.summary(np.array(AR)))
+    # print(az.summary(np.array(AR)))
 
-    rhat_pred = az.rhat(np.array(pos[..., ~jnp.isnan(obs)]))
-    print(f"max rhat across ypred: {jnp.max(rhat_pred)}")
+    # rhat_pred = az.rhat(np.array(pos[..., ~jnp.isnan(obs)]))
+    # print(f"max rhat across ypred: {jnp.max(rhat_pred)}")
     
