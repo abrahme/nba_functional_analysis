@@ -183,17 +183,66 @@ def eigenfunctions(
     :returns: An array of the first :math:`m^\\star \\times D` eigenfunctions evaluated at `x`.
     :rtype: ArrayImpl
     """
-    if x.ndim == 1:
-        x_ = x[..., None]
-    else:
-        x_ = x
-    dim = x_.shape[-1]  # others assumed batch dims
-    n_batch_dims = x_.ndim - 1
-    a = jnp.expand_dims(ell, tuple(range(n_batch_dims)))
-    b = jnp.expand_dims(sqrt_eigenvalues(ell, m, dim), tuple(range(n_batch_dims)))
-    return jnp.prod(jnp.sqrt(1 / a) * jnp.sin(b * (x_[..., None] + a)), axis=-2)
 
 
+    a = ell
+    b = sqrt_eigenvalues(ell, m, 1)
+    return jnp.sqrt(1 / a) * jnp.sin(b * (x[..., None] + a))
+
+
+def eigenfunctions_deriv(
+    x: ArrayImpl, ell: float | list[float], m: int | list[int]
+) -> ArrayImpl:
+    """
+    The first :math:`m^\\star` eigenfunctions of the laplacian operator in
+    :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`
+    evaluated at values of `x`. See Eq. (56) in [1].
+    If `x` is 1D, the problem is assumed unidimensional.
+    Otherwise, the dimension of the input space is inferred as the size of the last dimension of
+    `x`. Other dimensions are treated as batch dimensions.
+
+    **Example:**
+
+    .. code-block:: python
+
+        >>> import jax.numpy as jnp
+
+        >>> from numpyro.contrib.hsgp.laplacian import eigenfunctions
+
+        >>> n = 100
+        >>> m = 10
+
+        >>> x = jnp.linspace(-1, 1, n)
+
+        >>> basis = eigenfunctions(x=x, ell=1.2, m=m)
+
+        >>> assert basis.shape == (n, m)
+
+        >>> x = jnp.ones((n, 3))  # 2d input
+        >>> basis = eigenfunctions(x=x, ell=1.2, m=[2, 2, 3])
+        >>> assert basis.shape == (n, 12)
+
+
+    **References:**
+
+        1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
+           Stat Comput 30, 419-446 (2020)
+
+    :param ArrayImpl x: The points at which to evaluate the eigenfunctions.
+        If `x` is 1D the problem is assumed unidimensional.
+        Otherwise, the dimension of the input space is inferred as the last dimension of `x`.
+        Other dimensions are treated as batch dimensions.
+    :param float | list[float] ell: The length of the interval in each dimension divided by 2.
+        If a float, the same length is used in each dimension.
+    :param int | list[int] m: The number of eigenvalues to compute in each dimension.
+        If an integer, the same number of eigenvalues is computed in each dimension.
+    :returns: An array of the first :math:`m^\\star \\times D` eigenfunctions evaluated at `x`.
+    :rtype: ArrayImpl
+    """
+
+    a = ell
+    b = sqrt_eigenvalues(ell, m, 1)
+    return jnp.prod(b * jnp.sqrt(1/ a) * jnp.cos(b * (x[..., None] + a)), axis=-2)
 
 
 
@@ -277,6 +326,25 @@ def make_convex_phi_prime(x, L, M = 1):
     sin_neg = safe_sin_term(diff_eig_vals, x, L)
     phi_prime = sin_neg - sin_pos
     return phi_prime #should be t x m x m where t is the length of x and m is the number of eigen values (or M)
+
+def make_convex_phi_double_prime(x, L, M = 1):
+    eigenfunction_vals = eigenfunctions(x, L, M)
+    phi_double_prime = jnp.outer(eigenfunction_vals, eigenfunction_vals)
+    return phi_double_prime #should be t x m x m where t is the length of x and m is the number of eigen values (or M)
+
+def make_convex_phi_triple_prime(x, L, M = 1):
+
+    eigenfunction_vals = eigenfunctions(x, L, M)
+    deriv_eigenfunction_vals = eigenfunctions_deriv(x,L,M)
+    term = jnp.outer(eigenfunction_vals, deriv_eigenfunction_vals)
+    phi_triple_prime = term + term.T
+    return phi_triple_prime #should be t x m x m where t is the length of x and m is the number of eigen values (or M)
+
+def vmap_make_convex_phi_triple_prime(x, L, M):
+    return jax.vmap(lambda t: make_convex_phi_triple_prime(t, L, M))(x)
+
+def vmap_make_convex_phi_double_prime(x, L, M):
+    return jax.vmap(lambda t: make_convex_phi_double_prime(t, L, M))(x)
 
 def vmap_make_convex_phi_prime(x, L, M):
     return jax.vmap(lambda t: make_convex_phi_prime(t, L, M))(x)
