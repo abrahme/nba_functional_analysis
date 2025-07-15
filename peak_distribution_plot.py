@@ -13,7 +13,7 @@ from data.data_utils import create_fda_data, average_peak_differences
 import numpyro
 import jax.numpy as jnp
 import jax.scipy.special as jsci
-from model.hsgp import  diag_spectral_density, make_psi_gamma, make_convex_phi, make_convex_phi_prime, vmap_make_convex_phi, vmap_make_convex_phi_prime
+from model.hsgp import  diag_spectral_density, make_psi_gamma, make_convex_phi, make_convex_phi_prime, vmap_make_convex_phi, vmap_make_convex_phi_prime, vmap_make_convex_phi_double_prime, vmap_make_convex_phi_triple_prime
 from plotly.subplots import make_subplots
 from sklearn.decomposition import PCA
 from scipy.spatial.distance import squareform
@@ -86,7 +86,7 @@ def transform_mu(mu, metric_outputs):
     return transformed_mu
 
 
-def make_mu_mcmc(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, shifted_x_time, offset_dict):
+def make_mu_mcmc(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, shifted_x_time, offset_dict, phi_time):
     # spd = jax.vmap(jax.vmap(lambda a, l: jnp.sqrt(diag_spectral_density(1, a, l, L_time, M_time))))(alpha_time, ls_deriv)
     spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
     # weights = weights * spd[..., None, :, :]
@@ -104,7 +104,7 @@ def make_mu_mcmc(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigm
     mu = gamma_phi_gamma_x + intercept
     return wTx, mu, t_max, c_max
 
-def make_mu_mcmc_AR(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, shifted_x_time, offset_dict, beta_ar, sigma_ar, rho_ar):
+def make_mu_mcmc_AR(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, shifted_x_time, offset_dict, beta_ar, sigma_ar, rho_ar, phi_time):
     # spd = jax.vmap(jax.vmap(lambda a, l: jnp.sqrt(diag_spectral_density(1, a, l, L_time, M_time))))(alpha_time, ls_deriv)
     spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
     # weights = weights * spd[..., None, :, :]
@@ -131,14 +131,18 @@ def make_mu(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigma_t_m
     weights = weights * spd 
     wTx = jnp.einsum("nr, mr -> nm", X, W * jnp.sqrt(ls))   
     psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(W.shape[0]))
-    t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw) * sigma_t_max) * 2  + offset_dict["t_max"]  
+    t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw) * sigma_t_max) * 5  + offset_dict["t_max"]  
     c_max = make_psi_gamma(psi_x, c_max) * sigma_c_max + offset_dict["c_max"]
     phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
+    phi_double_prime_tmax = jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))(t_max)
+    phi_triple_prime_tmax = jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))(t_max)
     phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
     intercept = jnp.transpose(c_max)[..., None]
     gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
     mu = intercept + gamma_phi_gamma_x
-    return mu, t_max, c_max
+    second_deriv = -1 * jnp.einsum("nm, mdk, nkdz, jzk, nj -> kn", psi_x, weights, phi_double_prime_tmax, weights, psi_x)
+    third_deriv = -1*jnp.einsum("nm, mdk, nkdz, jzk, nj -> kn", psi_x, weights, phi_triple_prime_tmax, weights, psi_x)
+    return mu, t_max, c_max, second_deriv, third_deriv
 
 
 
@@ -304,12 +308,42 @@ if __name__ == "__main__":
     results_mcmc = {**results_map, **results_mcmc}
     wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR = make_mu_mcmc_AR(results_mcmc["X"], results_mcmc["lengthscale_deriv"], results_mcmc["alpha"],
                         results_mcmc["beta"], results_mcmc["W"], results_mcmc["lengthscale"], results_mcmc["c_max"],
-                        results_mcmc["t_max_raw"], results_mcmc["sigma_t"], results_mcmc["sigma_c"], L_time, M_time, x_time + L_time, offset_dict, results_mcmc["beta_ar"], results_mcmc["sigma_ar"], results_mcmc["rho_ar"])
+                        results_mcmc["t_max_raw"], results_mcmc["sigma_t"], results_mcmc["sigma_c"], L_time, M_time, x_time + L_time, offset_dict, results_mcmc["beta_ar"], results_mcmc["sigma_ar"], results_mcmc["rho_ar"], phi_time=phi_time)
 
     peaks = tmax_mcmc + basis.mean()
     peak_val = cmax_mcmc
 
-
+    _, _, _, second_deriv, third_deriv = make_mu(X = results_map["X"],ls_deriv=results_map["lengthscale_deriv"], alpha_time=results_map["alpha"],
+                        weights=results_map["beta"], W=results_map["W"], ls=results_map["lengthscale"], c_max=results_map["c_max"],
+                        t_max_raw=results_map["t_max_raw"], sigma_t_max=results_map["sigma_t"], sigma_c_max=results_map["sigma_c"],
+                         L_time=L_time, M_time=M_time, shifted_x_time=x_time + L_time, offset_dict = offset_dict, phi_time=phi_time)
+    
+    second_deriv_df = pd.concat([pd.DataFrame(-1*second_deriv.T, columns=metrics), id_df], axis=1).melt(value_name="second_deriv", var_name="metric", value_vars=metrics, id_vars=["name", "id", "minutes", "position_group"])
+    third_deriv_df = pd.concat([pd.DataFrame(third_deriv.T, columns=metrics), id_df], axis = 1).melt(value_name="third_deriv", var_name="metric", value_vars=metrics, id_vars=["name", "id", "minutes", "position_group"])
+    deriv_plot_df = pd.merge(second_deriv_df, third_deriv_df, on = ["id", "metric", "name", "position_group", "minutes"])
+    for metric in metrics:
+        fig = px.scatter(
+            deriv_plot_df[deriv_plot_df["metric"] == metric],
+            x='third_deriv',
+            y='second_deriv',
+            color='position_group',
+            # facet_col='metric',
+            # facet_col_wrap=4,
+            opacity = .15)
+        fig.write_image(f"model_output/model_plots/curvature/map/{model_name}_{metric}.png", format = "png")
+    print(deriv_plot_df.describe())
+    fig = px.histogram(
+        deriv_plot_df,
+        x='third_deriv',
+        color='position_group',
+        facet_col='metric',
+        facet_col_wrap=4,
+        barmode="overlay",
+        histnorm='percent',
+        nbins=100
+    )
+    fig.write_image(f"model_output/model_plots/curvature/map/{model_name}_histogram.png", format = "png")
+    
     
 
     print("setup samples for plotting")
