@@ -85,8 +85,8 @@ def create_metric_trajectory_all(posterior_mean_samples, observations, exposures
                                                concentration1=jsc.special.expit(post_games) * posterior_kappa_samples,
                                                total_count=exposure_games[None, None, ...]).sample(key = key) 
     obs_games = observations[games_index]
-    posterior_predictions_games_exposure = jnp.where(~jnp.isnan(obs_games)[None, None, ...], obs_games[None,None,...], jnp.squeeze(posterior_predictions_games))
-    
+    # posterior_predictions_games_exposure = jnp.where(~jnp.isnan(obs_games)[None, None, ...], obs_games[None,None,...], jnp.squeeze(posterior_predictions_games))
+    posterior_predictions_games_exposure = posterior_predictions_games
     #### then sample minutes 
     post_min = posterior_mean_samples[..., minutes_index, :, :]
     posterior_predictions_min = BetaProportion(jsc.special.expit(post_min), posterior_dispersion_samples * jnp.sqrt(posterior_predictions_games_exposure + 1)).sample(key = key) * (48 * posterior_predictions_games)
@@ -144,7 +144,7 @@ def create_metric_trajectory(posterior_mean_samples, player_index, observations,
                                                concentration1=jsc.special.expit(post_games) * posterior_kappa_samples,
                                                total_count=exposure_games[None, None, ...]).sample(key = key) 
     obs_games = observations[games_index,player_index, :]
-    posterior_predictions_games_exposure = jnp.where(~jnp.isnan(obs_games)[None, None, ...], obs_games[None,None,...], jnp.squeeze(posterior_predictions_games))
+    posterior_predictions_games_exposure = posterior_predictions_games
     
     #### then sample minutes 
     post_min = posterior_mean_samples[..., minutes_index, :]
