@@ -141,7 +141,7 @@ def make_mu(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigma_t_m
     gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
     mu = intercept + gamma_phi_gamma_x
     second_deriv = -1 * jnp.einsum("nm, mdk, nkdz, jzk, nj -> kn", psi_x, weights, phi_double_prime_tmax, weights, psi_x)
-    third_deriv = jnp.einsum("nm, mdk, nkdz, jzk, nj -> kn", psi_x, weights, phi_triple_prime_tmax, weights, psi_x)
+    third_deriv = -1 * jnp.einsum("nm, mdk, nkdz, jzk, nj -> kn", psi_x, weights, phi_triple_prime_tmax, weights, psi_x)
     return mu, t_max, c_max, second_deriv, third_deriv
 
 
@@ -318,29 +318,31 @@ if __name__ == "__main__":
                         t_max_raw=results_map["t_max_raw"], sigma_t_max=results_map["sigma_t"], sigma_c_max=results_map["sigma_c"],
                          L_time=L_time, M_time=M_time, shifted_x_time=x_time + L_time, offset_dict = offset_dict, phi_time=phi_time)
     
-    second_deriv_df = pd.concat([pd.DataFrame(-1*second_deriv.T, columns=metrics), id_df], axis=1).melt(value_name="second_deriv", var_name="metric", value_vars=metrics, id_vars=["name", "id", "minutes", "position_group"])
-    third_deriv_df = pd.concat([pd.DataFrame(third_deriv.T, columns=metrics), id_df], axis = 1).melt(value_name="third_deriv", var_name="metric", value_vars=metrics, id_vars=["name", "id", "minutes", "position_group"])
+    second_deriv_df = pd.concat([pd.DataFrame(-1*second_deriv.T, columns=metrics), id_df], axis=1).melt(value_name="Second Derivative", var_name="metric", value_vars=metrics, id_vars=["name", "id", "minutes", "position_group"])
+    third_deriv_df = pd.concat([pd.DataFrame(third_deriv.T, columns=metrics), id_df], axis = 1).melt(value_name="Third Derivative", var_name="metric", value_vars=metrics, id_vars=["name", "id", "minutes", "position_group"])
     deriv_plot_df = pd.merge(second_deriv_df, third_deriv_df, on = ["id", "metric", "name", "position_group", "minutes"])
     for metric in metrics:
         fig = px.scatter(
             deriv_plot_df[deriv_plot_df["metric"] == metric],
-            x='third_deriv',
-            y='second_deriv',
+            x='Third Derivative',
+            y='Second Derivative',
             color='position_group',
             # facet_col='metric',
             # facet_col_wrap=4,
-            opacity = .15)
+            opacity = .15,
+            title = f"Third Derivative vs. Second Derivative ({metric.upper()})")
         fig.write_image(f"model_output/model_plots/curvature/map/{model_name}_{metric}.png", format = "png")
     print(deriv_plot_df.describe())
     fig = px.histogram(
         deriv_plot_df,
-        x='third_deriv',
+        x='Third Derivative',
         color='position_group',
         facet_col='metric',
         facet_col_wrap=4,
         barmode="overlay",
         histnorm='percent',
-        nbins=100
+        nbins=100,
+        title = f"Third Derivative Distribution by Metric"
     )
     fig.write_image(f"model_output/model_plots/curvature/map/{model_name}_histogram.png", format = "png")
     
