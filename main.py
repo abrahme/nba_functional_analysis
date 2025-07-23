@@ -35,6 +35,7 @@ if __name__ == "__main__":
     parser.add_argument("--fixed_param_path",help="where to read in the fixed params from", required=False, default="")
     parser.add_argument("--output_path", help="where to store generated files", required = False, default="")
     parser.add_argument("--vectorized", help="whether to vectorize some chains so all gpus will be used", action="store_true")
+    parser.add_argument("--injury", help="whether to mask out injury years", action="store_true")
     parser.add_argument("--inference_method", help = "which inference method to run the model for", required=True, choices=["mcmc", "svi", "map", "prior"], default = "mcmc" )
     parser.add_argument("--init_path", help = "where to initialize inference from", required=False, default="")
     parser.add_argument("--player_names", help = "which players to run the model for", required=False, default = [], type = lambda x: x.split(","))
@@ -51,13 +52,15 @@ if __name__ == "__main__":
     model_name = args["model_name"]
     basis_dims = args["basis_dims"]
     rff_dim = args["rff_dim"]
+    injury = args["injury"]
     basis_dims_2 = args["basis_dims_2"]
     param_path = args["fixed_param_path"]
     vectorized = args["vectorized"]
     output_path = args["output_path"] if args["output_path"] else f"model_output/{model_name}.pkl"
     players = args["player_names"]
     position_group = args["position_group"]
-    data = pd.read_csv("data/player_data.csv").query(" age <= 38 ")
+    data = pd.read_csv("data/injury_player_cleaned.csv").query("age <= 38 & name != 'Brandon Williams' ")
+    data["first_major_injury"] = data["first_major_injury"].fillna("None")
     names = data.groupby("id")["name"].first().values.tolist()
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
@@ -77,16 +80,16 @@ if __name__ == "__main__":
         player_indices = []
         
     if model_name == "gibbs_nba_rflvm":
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices, injury=injury, validation_data=injury)
         model = GibbsRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)))
     elif model_name == "gibbs_nba_tvrflvm":
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices, injury=injury, validation_data=injury)
         model = GibbsTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
     elif model_name == "gibbs_nba_convex_tvrflvm_max_boundary":
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices, injury=injury, validation_data=injury)
         model = GibbsConvexMaxBoundaryTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
     elif "rflvm" in model_name:
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices, injury=injury, validation_data=injury)
         model = RFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)))
         if "convex" in model_name:
             model = ConvexTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)

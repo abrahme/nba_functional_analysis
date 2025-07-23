@@ -24,7 +24,7 @@ def create_convex_data(num_samples, noise_level = .01, exposure = 1, data_range 
 
     return samples, intercept, multiplier, noise, y_vals
 
-def process_data(df, output_metric, exposure, model, input_metrics, player_indices:list = [], normalize = False, validation_data = False):
+def process_data(df, output_metric, exposure, model, input_metrics, player_indices:list = [], normalize = False, validation_data = False, injury = False):
 
     agg_dict = {input_metric:"max" for input_metric in input_metrics}
     df = df.sort_values(by=["id","year"])
@@ -113,7 +113,19 @@ def process_data(df, output_metric, exposure, model, input_metrics, player_indic
         if normalize:
             metric_array = (metric_array - np.nanmean(metric_array)) / (np.nanstd(metric_array))
         adj_exp_array = jnp.sqrt(exposure_array)
+    if injury:  
+        injury_array = df[["injury_period", "id", "age"]].pivot(columns = "age", values = "injury_period", index = "id").reindex(columns=range(18,39)).to_numpy()
+        injury_mask = (injury_array == "pre-injury")
 
+        injury_type_array = df[["first_major_injury", "id", "age"]].pivot(columns = "age", values = "first_major_injury", index = "id").reindex(columns=range(18,39)).to_numpy() ### gives me per player, if they have an injury
+        has_injury = (~pd.isnull(injury_type_array) & (injury_type_array != "None")).any(axis=1)
+        _, T = metric_array.shape
+        time_idx = np.arange(T)
+        last_pre_idx = np.maximum.reduce(np.where(injury_mask, time_idx, -1), -1) ### gives me per player, where their last pre-injury period is
+        last_pre_idx = np.where(has_injury, last_pre_idx, T + 1)
+        mask = time_idx[None, :] > last_pre_idx[:, None]
+        metric_array = jnp.where(mask, jnp.nan, metric_array)
+        adj_exp_array = jnp.where(mask, jnp.nan, adj_exp_array)
     if player_indices:
         array_indices = jnp.array(player_indices)
         return adj_exp_array[array_indices], jnp.array(metric_array)[array_indices], X
@@ -304,13 +316,13 @@ def create_basis(data, dims):
     return covariate_X
 
 
-def create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_index: list[int] = [], validation_data:bool = False):
+def create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_index: list[int] = [], validation_data:bool = False, injury: bool = False):
     covariate_X = create_basis(data, basis_dims)
     if player_index:
         covariate_X = covariate_X[jnp.array(player_index)]
     data_set = []
     for output,metric,exposure_val in zip(metric_output, metrics, exposure_list):
-        exposure, Y, _ = process_data(data, metric, exposure_val, output, ["position_group"], validation_data=validation_data)
+        exposure, Y, _ = process_data(data, metric, exposure_val, output, ["position_group"], validation_data=validation_data, injury=injury)
         if player_index:
             exposure = exposure[jnp.array(player_index)]
             Y = Y[jnp.array(player_index)]

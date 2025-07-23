@@ -1,4 +1,5 @@
 import jax.numpy as jnp 
+import pandas as pd
 from scipy.spatial.distance import cdist
 import numpy as np
 import jax
@@ -7,6 +8,30 @@ import jax.scipy as jsc
 from numpyro import handlers
 from numpyro.distributions import Normal, Poisson, BinomialLogits, BetaProportion, BetaBinomial
 # jax.config.update('jax_platform_name', 'cuda')
+
+
+def posterior_to_df(posterior_samples, ids, metrics, ages):
+    N_chains, N_samples, D, T, K = posterior_samples.shape
+    # Create index grids
+    chain_idx, sample_idx, d_idx, k_idx, t_idx = np.meshgrid(
+        np.arange(N_chains),
+        np.arange(N_samples),
+        np.arange(D),
+        np.arange(K),
+        np.arange(T),
+        indexing='ij'
+    )
+
+    # Flatten and convert indices to labels
+    df = pd.DataFrame({
+        'chain': chain_idx.ravel(),
+        'sample': sample_idx.ravel(),
+        'player': np.array(ids)[d_idx.ravel()],
+        'metric': np.array(metrics)[k_idx.ravel()],
+        'age': np.array(ages)[t_idx.ravel()],
+        'value': posterior_samples.ravel()
+    })
+    return df
 
 
 
