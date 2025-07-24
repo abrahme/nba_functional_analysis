@@ -13,12 +13,12 @@ from numpyro.distributions import Normal, Poisson, BinomialLogits, BetaProportio
 def posterior_to_df(posterior_samples, ids, metrics, ages):
     N_chains, N_samples, D, T, K = posterior_samples.shape
     # Create index grids
-    chain_idx, sample_idx, d_idx, k_idx, t_idx = np.meshgrid(
+    chain_idx, sample_idx, d_idx, t_idx, k_idx = np.meshgrid(
         np.arange(N_chains),
         np.arange(N_samples),
         np.arange(D),
-        np.arange(K),
         np.arange(T),
+        np.arange(K),
         indexing='ij'
     )
 
@@ -33,6 +33,25 @@ def posterior_to_df(posterior_samples, ids, metrics, ages):
     })
     return df
 
+def posterior_peaks_to_df(posterior_peak_samples, ids, metrics):
+    N_chains, N_samples, D, K = posterior_peak_samples.shape
+    chain_idx, sample_idx, d_idx, k_idx = np.meshgrid(
+    np.arange(N_chains),
+    np.arange(N_samples),
+    np.arange(D),
+    np.arange(K),
+    indexing='ij'
+    )
+
+    # Flatten and convert indices to labels
+    df = pd.DataFrame({
+    'chain': chain_idx.ravel(),
+    'sample': sample_idx.ravel(),
+    'player': np.array(ids)[d_idx.ravel()],
+    'metric': np.array(metrics)[k_idx.ravel()],
+    'value': posterior_peak_samples.ravel()
+    })
+    return df
 
 
 def get_latent_sites(model, model_args):

@@ -9,7 +9,7 @@ import numpyro
 import jax.numpy as jnp
 from model.model_utils import make_mu_mcmc, make_mu, make_mu_mcmc_AR
 from model.hsgp import vmap_make_convex_phi
-from model.inference_utils import create_metric_trajectory_all, posterior_to_df
+from model.inference_utils import create_metric_trajectory_all, posterior_to_df, posterior_peaks_to_df
 
 
 if __name__ == "__main__":
@@ -161,7 +161,11 @@ if __name__ == "__main__":
                                             results_mcmc["sigma_beta"][..., None, None],
                                             results_mcmc["sigma_beta_binomial"][..., None, None]
                                             ) 
+    
+
 
     posterior_df = posterior_to_df(pos, id_df["id"], metrics, range(18,39))
+
     posterior_df.to_csv("posterior_injury.csv", index = False)
-    
+    posterior_peaks = posterior_peaks_to_df(peaks, id_df["id"], metrics)
+    posterior_peaks.to_csv("posterior_peaks_injury.csv", index = False)
