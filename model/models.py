@@ -602,7 +602,7 @@ class ConvexMaxBoundaryARTVRFLVM(ConvexMaxBoundaryTVRFLVM):
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
         self.prior["rho_ar"] = Uniform(-1,1)
-        self.prior["sigma_ar"] = InverseGamma(2.0, 3.0)
+        self.prior["sigma_ar"] = InverseGamma(100.0, .03)
         self.prior["beta_ar"] = Normal()
     
     def make_kernel(self, sigma, rho, time_delta):

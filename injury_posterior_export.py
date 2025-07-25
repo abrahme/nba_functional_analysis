@@ -73,7 +73,7 @@ if __name__ == "__main__":
     else:
         player_indices = []
     positions = ["G", "F", "C"]
-    covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices)
+    covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices, injury = True, validation_data = True)
   
 
     hsgp_params = {}
@@ -144,14 +144,12 @@ if __name__ == "__main__":
             results_mcmc = {key: val[:, ::thin, ...] for key, val in results_mcmc.items()}
     f.close()
     results_mcmc = {**results_map, **results_mcmc}
-    wTx, mu_mcmc, tmax_mcmc, cmax_mcmc = make_mu_mcmc(results_mcmc["X"], results_mcmc["lengthscale_deriv"], results_mcmc["alpha"],
+    wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, _ = make_mu_mcmc_AR(results_mcmc["X"], results_mcmc["lengthscale_deriv"], results_mcmc["alpha"],
                         results_mcmc["beta"], results_mcmc["W"], results_mcmc["lengthscale"], results_mcmc["c_max"],
-                        results_mcmc["t_max_raw"], results_mcmc["sigma_t"], results_mcmc["sigma_c"], L_time, M_time, x_time + L_time, offset_dict, phi_time=phi_time)
+                        results_mcmc["t_max_raw"], results_mcmc["sigma_t"], results_mcmc["sigma_c"], L_time, M_time, x_time + L_time, offset_dict, phi_time=phi_time, beta_ar = results_mcmc["beta_ar"], sigma_ar=results_mcmc["sigma_ar"], rho_ar=results_mcmc["rho_ar"])
 
     peaks = tmax_mcmc + basis.mean()
     peak_val = cmax_mcmc
-
-
 
 
 
@@ -166,6 +164,6 @@ if __name__ == "__main__":
 
     posterior_df = posterior_to_df(pos, id_df["id"], metrics, range(18,39))
 
-    posterior_df.to_csv("posterior_injury.csv", index = False)
+    posterior_df.to_csv("posterior_injury_ar.csv", index = False)
     posterior_peaks = posterior_peaks_to_df(peaks, id_df["id"], metrics)
-    posterior_peaks.to_csv("posterior_peaks_injury.csv", index = False)
+    posterior_peaks.to_csv("posterior_peaks_injury_ar.csv", index = False)
