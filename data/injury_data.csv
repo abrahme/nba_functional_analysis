@@ -90,7 +90,7 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 20719,2014-05-01,Clippers,,Hedo Turkoglu,placed on IL with back injury (out for season),Hedo Turkoglu,2014,2013-14,Back/Spine
 18362,2012-04-30,Knicks,, Iman Shumpert,placed on IL with torn lateral meniscus / ACL (CBC) / ACL and MCL (P) in left knee (out for season),Iman Shumpert,2012,2011-12,ACL
 25637,2017-05-21,Celtics,, Isaiah Thomas,placed on IL with hip injury (out for season),Isaiah Thomas,2017,2016-17,Hip
-13984,2009-04-08,Cavaliers,, J.J. Hickson,placed on IL with sore lower back (out for season),J.J. Hickson,2009,2008-09,Back/Spine
+13984,2009-04-08,Cavaliers,,JJ Hickson,placed on IL with sore lower back (out for season),JJ Hickson,2009,2008-09,Back/Spine
 19753,2013-11-11,Nuggets,, JaVale McGee,placed on IL with stress fracture in left tibia (out for season),JaVale McGee,2014,2013-14,Lower Body Fracture
 21276,2014-12-23,Bucks,, Jabari Parker,placed on IL with torn ACL in left knee (out for season),Jabari Parker,2015,2014-15,ACL
 25469,2017-04-10,Bucks,, Jabari Parker,placed on IL recovering from surgery on left knee to repair torn ACL (out for season),Jabari Parker,2017,2016-17,ACL
@@ -220,7 +220,7 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 34867,2022-01-26,Mavericks,, Tim Hardaway Jr.,placed on IL with fractured left foot (out for season),Tim Hardaway Jr.,2022,2021-22,Lower Body Fracture
 9936,2007-01-12,Celtics,, Tony Allen,placed on IL with torn ACL in left knee (out for season),Tony Allen,2007,2006-07,ACL
 25615,2017-05-05,Spurs,, (William) Tony Parker,placed on IL recovering from surgery to repair ruptured quadriceps tendon in left leg (out for season),Tony Parker,2017,2016-17,Quad Tendon
-21515,2015-01-23,76ers,, Tony Wroten Jr.,placed on IL with torn ACL in right knee (out for season),Tony Wroten Jr.,2015,2014-15,ACL
+21515,2015-01-23,76ers,, Tony Wroten,placed on IL with torn ACL in right knee (out for season),Tony Wroten,2015,2014-15,ACL
 28929,2019-01-26,Pacers,, Victor Oladipo,placed on IL recovering from surgery on right knee to repair ruptured quadriceps tendon (out for season),Victor Oladipo,2019,2018-19,Quad Tendon
 31049,2020-07-31,Nuggets,, Vlatko Cancar,placed on IL with fractured left foot (out for season),Vlatko Cancar,2020,2019-20,Lower Body Fracture
 21831,2015-03-07,Blazers,,Wesley Matthews,placed on IL with torn left Achilles tendon (out for season),Wesley Matthews,2015,2014-15,Achilles

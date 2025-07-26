@@ -59,7 +59,7 @@ if __name__ == "__main__":
     output_path = args["output_path"] if args["output_path"] else f"model_output/{model_name}.pkl"
     players = args["player_names"]
     position_group = args["position_group"]
-    data = pd.read_csv("data/injury_player_cleaned.csv").query("age <= 38 & name != 'Brandon Williams' ")
+    data = pd.read_csv("data/injury_player_cleaned.csv").query("age <= 38")
     data["first_major_injury"] = data["first_major_injury"].fillna("None")
     names = data.groupby("id")["name"].first().values.tolist()
     data["log_min"] = np.log(data["minutes"])
