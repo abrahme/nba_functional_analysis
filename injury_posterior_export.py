@@ -167,3 +167,7 @@ if __name__ == "__main__":
     posterior_df.to_csv("posterior_injury_ar.csv", index = False)
     posterior_peaks = posterior_peaks_to_df(peaks, id_df["id"], metrics)
     posterior_peaks.to_csv("posterior_peaks_injury_ar.csv", index = False)
+
+    latent_space_df = pd.DataFrame(results_map["X"], columns = [f"Dim {i+1}" for i in range(results_map["X"].shape[1])])
+    latent_space_df = pd.concat([latent_space_df, id_df], axis = 1)
+    latent_space_df.to_csv("latent_space_injury.csv", index = False)
