@@ -13,7 +13,31 @@ library(pheatmap)
 
 data <- read.csv("data/injury_player_cleaned.csv")
 
+cor_mat <- injury_data <-  data |> 
+    mutate(`GP%` = games / pmax(games, 82, na.rm = TRUE),
+            MPG = minutes / games,
+            BLK = 36 * (blk / minutes),
+            AST = 36 * (ast / minutes),
+            TOV = 36 * (tov / minutes),
+            OREB = 36 * (oreb / minutes),
+            DREB = 36 * (dreb / minutes),
+            STL = 36 * (stl / minutes),
+            `FT%` =  (ftm / fta), 
+            `FG2%` =  (fg2m / fg2a), 
+            `FG3%` =  (fg3m / fg3a),
+            FG3A = 36 * (fg3a / minutes),
+            FG2A = 36 * (fg2a / minutes), 
+            FTA = 36 * (fta / minutes), 
+            OBPM = obpm,
+            DBPM = dbpm) |>
+    select(c(`GP%`, `FT%`, `FG2%`, `FG3%`, FG2A, FG3A, FTA, OREB, DREB, OBPM, DBPM, STL, TOV, AST, MPG, BLK)) |> na.omit() |> cor( use = "pairwise.complete.obs")
 
+pheatmap(cor_mat,
+         color = colorRampPalette(c("blue", "white", "red"))(100),
+         display_numbers = TRUE,
+         main = "Metric Correlation Heatmap", 
+         filename =  "model_output/model_plots/empirical_correlation.png"
+         )
 
 injury_data <-  data |> 
     mutate( pct_games = games / pmax(games, 82, na.rm = TRUE),
