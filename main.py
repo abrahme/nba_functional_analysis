@@ -11,7 +11,6 @@ import plotly.graph_objects as go
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 from scipy.cluster.hierarchy import linkage, leaves_list
-from scipy.spatial.distance import squareform, pdist
 from numpyro.diagnostics import print_summary
 from model.hsgp import  diag_spectral_density, make_convex_f, make_psi_gamma,  vmap_make_convex_phi, vmap_make_convex_phi_prime
 jax.config.update("jax_enable_x64", True)
@@ -40,6 +39,8 @@ if __name__ == "__main__":
     parser.add_argument("--init_path", help = "where to initialize inference from", required=False, default="")
     parser.add_argument("--player_names", help = "which players to run the model for", required=False, default = [], type = lambda x: x.split(","))
     parser.add_argument("--position_group", help = "which position group to run the model for", required = True, choices=["G", "F", "C", "all"])
+    parser.add_argument("--validation_year", help = "year format of {yyyy} indicating for which dates prior and including will be included in training set", required=True, 
+                        default = 2021, type = int)
     numpyro.set_platform("gpu")
     args = vars(parser.parse_args())
     inference_method = args["inference_method"]
@@ -58,8 +59,9 @@ if __name__ == "__main__":
     vectorized = args["vectorized"]
     output_path = args["output_path"] if args["output_path"] else f"model_output/{model_name}.pkl"
     players = args["player_names"]
+    validation_year = args["validation_year"]
     position_group = args["position_group"]
-    data = pd.read_csv("data/injury_player_cleaned.csv").query("age <= 38")
+    data = pd.read_csv("data/injury_player_cleaned.csv").query(f"age <= 38 & name != 'Brandon Williams' & year <= {validation_year}")
     data["first_major_injury"] = data["first_major_injury"].fillna("None")
     names = data.groupby("id")["name"].first().values.tolist()
     data["log_min"] = np.log(data["minutes"])
@@ -80,16 +82,16 @@ if __name__ == "__main__":
         player_indices = []
         
     if model_name == "gibbs_nba_rflvm":
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices, injury=injury, validation_data=injury)
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices, injury=injury, validation_year=validation_year)
         model = GibbsRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)))
     elif model_name == "gibbs_nba_tvrflvm":
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices, injury=injury, validation_data=injury)
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices, injury=injury, validation_year=validation_year)
         model = GibbsTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
     elif model_name == "gibbs_nba_convex_tvrflvm_max_boundary":
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices, injury=injury, validation_data=injury)
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices, injury=injury, validation_year=validation_year)
         model = GibbsConvexMaxBoundaryTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
     elif "rflvm" in model_name:
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices, injury=injury, validation_data=injury)
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices, injury=injury, validation_year=validation_year)
         model = RFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)))
         if "convex" in model_name:
             model = ConvexTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
@@ -106,7 +108,9 @@ if __name__ == "__main__":
    
     else:
         raise ValueError("Model not implemented")
+    
 
+    print(covariate_X.shape)
     model.initialize_priors()
     initial_params = {}
     if "rflvm" in model_name:
@@ -143,6 +147,7 @@ if __name__ == "__main__":
         masks = jnp.stack([data_entity["mask"] for data_entity in data_set])
         exposures = jnp.stack([data_entity["exposure_data"] for data_entity in data_set])
         Y = jnp.stack([data_entity["output_data"] for data_entity in data_set])
+        hayward_index = names.index("Gordon Hayward")
         offset_list = []
         offset_max_list = []
         offset_peak_list = []

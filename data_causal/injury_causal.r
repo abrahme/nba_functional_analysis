@@ -6,10 +6,13 @@ library(ggplot2)
 library(HDInterval)
 library(purrr)
 library(glue)
+library(uwot)
+library(ggrepel)
+library(ggnewscale)
 
 
 injury_data <- read.csv("data/injury_player_cleaned.csv") |> 
-    mutate( pct_games = games / max(games, 82),
+    mutate( pct_games = games / pmax(games, 82, na.rm = TRUE),
             mpg = minutes / games,
             blk_rate = 36 * (blk / minutes),
             ast_rate = 36 * (ast / minutes),
@@ -37,6 +40,8 @@ print("pivoted the original data")
 posterior_data <- read.csv("posterior_injury_ar.csv")
 print("loaded the posterior data")
 posterior_peaks <- read.csv("posterior_peaks_injury_ar.csv")
+latent_space <- read.csv("latent_space_injury.csv")
+
 posterior_data <- posterior_data |> mutate(value = case_when(metric == "pct_minutes" ~ value / 82, 
                                                              metric == "games" ~ value / 82,
                                                              .default = value)) |> 
@@ -54,7 +59,14 @@ joined_data <- posterior_data |>
                 fill(base_age, base_year, .direction = "downup") |>
                 mutate(
                   year = if_else(is.na(year), base_year + (age - base_age), year)) |> 
-                select(-base_age, -base_year) |> ungroup()
+                select(-base_age, -base_year) |> ungroup() |> 
+                mutate(metric = toupper(metric),
+                              metric = case_when(metric == "GAMES" ~ "GP%",
+                              metric == "FG2M" ~ "FG2%",
+                              metric == "FG3M" ~ "FG3%",
+                              metric == "FTM" ~ "FT%",
+                              metric == "PCT_MINUTES" ~ "MPG",
+                              .default = metric))
 print("joined the data with predictions")
 
 att_plot <- joined_data |> filter(injury_period == "post-injury")  |> group_by(player, metric, chain, sample) |> 
@@ -63,9 +75,10 @@ mutate(obs_value = if_else(year <= 2026 & !metric %in% c("obpm","dbpm") & is.na(
 filter(!is.na(obs_value)) |> 
 filter(first_major_injury %in% c("ACL", "Achilles", "Hip", "Back/Spine", "Patellar Tendon", "Quad Tendon", "Lower Body Fracture", "Meniscus")) |>
 mutate(injury_change =  obs_value - value) |> ungroup() |> 
-group_by(first_major_injury, metric, injury_type) |> 
-summarize(mean_ate = mean(injury_change), lower = hdi(injury_change, credMass = 0.95)["lower"],
-    upper = hdi(injury_change, credMass = 0.95)["upper"]) |> ungroup() |> 
+group_by(first_major_injury, metric, injury_type, chain, sample) |> 
+summarize(sample_ate = mean(injury_change)) |> ungroup() |> group_by(first_major_injury, metric, injury_type) |>
+    summarize(mean_ate = mean(sample_ate), lower = hdi(sample_ate, credMass = 0.95)["lower"],
+    upper = hdi(sample_ate, credMass = 0.95)["upper"]) |>
     ggplot(aes(x = first_major_injury, y = mean_ate, color = injury_type)) + 
     geom_point( size = 3)  + scale_colour_brewer(palette = "Set1") + 
     geom_errorbar(aes(ymin = lower, ymax = upper), width = .2, ) + 
@@ -73,6 +86,99 @@ summarize(mean_ate = mean(injury_change), lower = hdi(injury_change, credMass = 
     labs(y = "Average Treatment Effect for Treated (ATT) with 95% CI", x = "Injury") + 
     ggtitle("Average Treatment Effect for Treated (ATT) per Injury Type, by Metric") 
 ggsave("model_output/model_plots/causal/att_causal_plot.png", att_plot)
+
+umap_latent_space <- umap(latent_space |> select(starts_with("Dim")), n_neighbors = 15, min_dist = 0.001, verbose = TRUE)
+
+umap_df <- latent_space |> select(-starts_with("Dim")) |> cbind(as.tibble(umap_latent_space, .name_repair = "minimal") |> rename(Dim1 = 1, Dim2 = 2))
+
+plot_names <-  c("Stephen Curry", "Kevin Durant", "LeBron James", "Isaiah Thomas", "Kobe Bryant", "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash", 
+                "Chris Paul", "Shaquille O'Neal","Anthony Edwards", "Jamal Murray", "Donovan Mitchell", "Ray Allen", "Klay Thompson",
+                "Scottie Pippen", "Amar'e Stoudemire", "Shawn Marion", "Dirk Nowitzki", "Jason Kidd","Marcus Camby", "Rudy Gobert", "Tim Duncan",
+                 "Manu Ginobili", "James Harden", "Russell Westbrook", "Luka Doncic", "Devin Booker", "Paul Pierce", "Allen Iverson", "Tyrese Haliburton", 
+                 "LaMelo Ball", "Carmelo Anthony", "Dwyane Wade", "Derrick Rose", "Chris Bosh", "Karl-Anthony Towns", "Kristaps Porzingis", "Giannis Antetokounmpo", "Jrue Holiday")
+
+umap_df <- umap_df |> mutate(plot_name = if_else(name %in% plot_names, TRUE, FALSE))
+
+
+
+
+itt_df <- joined_data |> filter(injury_period == "post-injury") |> group_by(player, metric, chain, sample) |> 
+mutate(injury_type = if_else(min(age) > peak_age, "post-peak", "pre-peak")) |> ungroup() |>
+mutate(obs_value = if_else(year <= 2026 & !metric %in% c("obpm","dbpm") & is.na(obs_value), 0, obs_value)) |>
+filter(!is.na(obs_value)) |> 
+mutate(injury_change =  obs_value - value) |> ungroup() |> group_by(metric, player, first_major_injury, injury_type) |> 
+summarize(mean_itt = mean(injury_change)) |> ungroup()
+
+
+
+metrics <- na.omit(unique(itt_df$metric))
+all_ids <- unique(umap_df$id)
+
+# Create full grid of id × metric
+expanded <- expand_grid(id = all_ids, metric = metrics)
+
+
+joined_itt_df <- itt_df |> right_join(umap_df |> inner_join(expanded), by = c("player" = "id", "metric"))
+
+plot_umap <- function(grouped_data_set){
+  # Load libraries
+
+
+# Plot
+ plt <- ggplot() +
+  # Background: non-injured players faded
+    geom_point(
+    data = filter(grouped_data_set, is.na(first_major_injury)),
+    aes(x = Dim1, y = Dim2, color = position_group),
+    size = 1.5,
+    alpha = 0.1,
+    
+  ) +
+    new_scale_color() +
+  # Injured players with shape by injury type, color by ITE
+  geom_point(
+    data = filter(grouped_data_set, first_major_injury %in% c("ACL", "Achilles", "Hip", "Back/Spine", "Patellar Tendon", "Quad Tendon", "Lower Body Fracture", "Meniscus") & injury_type == "pre-peak"),
+    aes(shape = first_major_injury, color = mean_itt, x =Dim1, y = Dim2),
+    size = 4,
+    alpha = 1
+  ) +
+
+
+  # Labels for chosen players only
+  geom_text_repel(
+    data = filter(grouped_data_set, !is.na(first_major_injury) & plot_name),
+    aes(label = name, x = Dim1, y = Dim2),
+    size = 3,
+    max.overlaps = 15,
+    box.padding = 0.3
+  ) +
+  # Manual shapes for injury types
+  scale_shape_manual(values = c(
+    "ACL" = 4,       # x
+    "Achilles" = 1, # filled circle
+    "Meniscus" = 8 ,  # star
+    "Patellar Tendon" = 0, 
+    "Quad Tendon" = 3,
+    "Back/Spine" = 2,
+    "Lower Body Fracture" = 11,
+    "Hip" = 5
+  )) +
+  # Color gradient for ITE values (diverging)
+  scale_color_gradient2(
+    low = "blue", mid = "white", high = "red",
+    name = "ITE magnitude"
+  ) +
+  theme_bw() +
+  labs(
+    title = "Player ITE and Injury Type in Latent Space",
+    x = "Latent Dimension 1",
+    y = "Latent Dimension 2",
+    shape = "Injury Type"
+  ) +
+  theme(legend.position = "right")
+  return(plt)
+}
+
 
 
 plot_counterfactual <- function(grouped_data_set) {
@@ -135,6 +241,20 @@ plots_list <- joined_data %>%
     # Save the plot to disk (change path as needed)
     ggsave(
       filename = glue("model_output/model_plots/causal/{name}.png"),
+      plot = plt,
+    )
+    })
+
+
+plots_list <- joined_itt_df %>%
+  group_by(metric) %>%
+  group_split() %>%               # splits into a list of grouped tibbles
+  map(~ {
+    plt <- plot_umap(.x)
+    name <- gsub("%", "",unique( .x$metric))
+    # Save the plot to disk (change path as needed)
+    ggsave(
+      filename = glue("model_output/model_plots/causal/{name}_itt.png"),
       plot = plt,
     )
     })
