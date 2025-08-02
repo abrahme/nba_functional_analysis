@@ -12,6 +12,9 @@ library(ggridges)
 library(pheatmap)
 
 data <- read.csv("data/injury_player_cleaned.csv")
+
+
+
 injury_data <-  data |> 
     mutate( pct_games = games / pmax(games, 82, na.rm = TRUE),
             mpg = minutes / games,
@@ -34,12 +37,41 @@ injury_data <-  data |>
              fta, ftm, fg2m, fg3m),
     names_to = "metric",
     values_to = "obs_value")
+
+
+empirical_player_plt <- injury_data |> filter(name %in% c("Kobe Bryant", "Dwight Howard")) |> mutate(metric = toupper(metric),
+           metric = case_when(metric == "GAMES" ~ "GP%",
+                              metric == "FG2M" ~ "FG2%",
+                              metric == "FG3M" ~ "FG3%",
+                              metric == "FTM" ~ "FT%",
+                              metric == "PCT_MINUTES" ~ "MPG",
+                              .default = metric)) |> ggplot(aes(x = age, y = obs_value, color = name, group = name)) +  
+                              geom_smooth(method = "loess", se = TRUE) + facet_wrap(~metric, scales = "free_y") + theme_bw() + scale_colour_brewer(palette = "Set1") + 
+                              ggtitle("Kobe Bryant vs. Dwight Howard: An Empirical Production Curve Comparison by Metric") +xlab("Age") + ylab("Metric Value")
+ggsave("model_output/model_plots/empirical_production_player.png", empirical_player_plt)    
+
+empirical_plt <- injury_data  |> mutate(metric = toupper(metric),
+           metric = case_when(metric == "GAMES" ~ "GP%",
+                              metric == "FG2M" ~ "FG2%",
+                              metric == "FG3M" ~ "FG3%",
+                              metric == "FTM" ~ "FT%",
+                              metric == "PCT_MINUTES" ~ "MPG",
+                              .default = metric)) |> ggplot(aes(x = age, y = obs_value)) + 
+                              geom_smooth(method = "loess", se = TRUE) + facet_wrap(~metric, scales = "free_y") + theme_bw() + scale_colour_brewer(palette = "Set1") + 
+                              ggtitle("Empirical Production Curves by Metric ") +xlab("Age") + ylab("Metric Value")
+ggsave("model_output/model_plots/empirical_production.png", empirical_plt) 
+
+
 print("pivoted the original data")
 posterior_data <- read.csv("posterior_ar.csv")
 print("loaded the posterior data")
 posterior_peaks <- read.csv("posterior_peaks_ar.csv")
 latent_space <- read.csv("latent_space.csv")
 phi_X <- read.csv("phi_X.csv")
+
+
+
+
 
 posterior_data <- posterior_data |> mutate(value = case_when(metric == "pct_minutes" ~ value / 82, 
                                                              metric == "games" ~ value / 82,
@@ -67,7 +99,7 @@ print("joined the data with predictions")
 validation_coverage_df <- joined_data |> filter(year >= 2022) |> group_by(metric, player, age) |> summarize(lower = hdi(value, credMass = 0.95)["lower"],
     upper = hdi(value, credMass = 0.95)["upper"], obs_value = first(obs_value), year = min(year), posterior_mean = mean(value) ) |> ungroup() |>
 
-    mutate(obs_value = if_else(year <= 2026 & !metric %in% c("obpm", "dbpm") & is.na(obs_value), 0 , obs_value), 
+    mutate(obs_value = if_else(year <= 2025 & !metric %in% c("obpm", "dbpm") & is.na(obs_value), 0 , obs_value), 
     validation_coverage = between(obs_value, lower, upper)) |> filter(!is.na(obs_value)) |> 
     mutate(metric = toupper(metric),
            metric = case_when(metric == "GAMES" ~ "GP%",
@@ -99,8 +131,8 @@ coverage_plt_basic <- validation_coverage_df |> group_by(metric) |> summarize(va
                       theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Coverage (In-Sample vs. Validation)") + labs(x = NULL, fill = "Coverage Type") + theme(axis.text.x = element_blank())
 ggsave("model_output/model_plots/coverage/nba_convex_tvrflvm_max_boundary_ar.png", coverage_plt_basic)
 coverage_plt_yearly <- validation_coverage_df |> group_by(metric, year) |> summarize(Coverage = mean(validation_coverage)) |> ungroup() |> ggplot(aes(x = year, y = Coverage)) + 
-                        geom_col() + facet_wrap(~metric, scales = "fixed") + coord_cartesian(ylim = c(0, 1)) +
-                        theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Validation Coverage by Time Horizon")
+                        geom_col() + facet_wrap(~metric, scales = "fixed") + coord_cartesian(ylim = c(0, 1)) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+                        theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Validation Coverage by Time Horizon") +xlab("Year")
 ggsave("model_output/model_plots/coverage/nba_convex_tvrflvm_max_boundary_ar_validation_yearly.png", coverage_plt_yearly)
 coverage_plt_minutes <- validation_coverage_df |> inner_join(data |> filter(year <= 2021) |> group_by(id) |> summarize(years_played = n()) |> ungroup(), by = c("player" = "id")) |> group_by(metric, years_played) |> summarize(Coverage = mean(validation_coverage)) |> ungroup() |>
                         ggplot(aes(x = years_played, y = Coverage)) + 
