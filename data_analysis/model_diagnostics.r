@@ -47,7 +47,7 @@ empirical_player_plt <- injury_data |> filter(name %in% c("Kobe Bryant", "Dwight
                               metric == "PCT_MINUTES" ~ "MPG",
                               .default = metric)) |> ggplot(aes(x = age, y = obs_value, color = name, group = name)) +  
                               geom_smooth(method = "loess", se = TRUE) + facet_wrap(~metric, scales = "free_y") + theme_bw() + scale_colour_brewer(palette = "Set1") + 
-                              ggtitle("Kobe Bryant vs. Dwight Howard: An Empirical Production Curve Comparison by Metric") +xlab("Age") + ylab("Metric Value")
+                              ggtitle("An Empirical Production Curve Comparison by Metric") +xlab("Age") + ylab("Metric Value")
 ggsave("model_output/model_plots/empirical_production_player.png", empirical_player_plt)    
 
 empirical_plt <- injury_data  |> mutate(metric = toupper(metric),
@@ -58,7 +58,7 @@ empirical_plt <- injury_data  |> mutate(metric = toupper(metric),
                               metric == "PCT_MINUTES" ~ "MPG",
                               .default = metric)) |> ggplot(aes(x = age, y = obs_value)) + 
                               geom_smooth(method = "loess", se = TRUE) + facet_wrap(~metric, scales = "free_y") + theme_bw() + scale_colour_brewer(palette = "Set1") + 
-                              ggtitle("Empirical Production Curves by Metric ") +xlab("Age") + ylab("Metric Value")
+                              ggtitle("Empirical Production Curves by Metric") +xlab("Age") + ylab("Metric Value")
 ggsave("model_output/model_plots/empirical_production.png", empirical_plt) 
 
 
