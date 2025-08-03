@@ -92,8 +92,47 @@ print("loaded the posterior data")
 posterior_peaks <- read.csv("posterior_peaks_ar.csv")
 latent_space <- read.csv("latent_space.csv")
 phi_X <- read.csv("phi_X.csv")
+third_deriv <- read.csv("posterior_third_deriv_ar.csv")
 
 
+
+peaks_plt <- ggplot(posterior_peaks |> inner_join(data |> group_by(id) |> summarize(name = first(name), position_group = first(position_group)) |> ungroup(),
+                    by = c("player" = "id")) |>
+                    mutate(metric = toupper(metric),
+                    metric = case_when(metric == "GAMES" ~ "GP%",
+                    metric == "FG2M" ~ "FG2%",
+                    metric == "FG3M" ~ "FG3%",
+                    metric == "FTM" ~ "FT%",
+                    metric == "PCT_MINUTES" ~ "MPG",
+                    .default = metric)) |> 
+                    mutate(metric_group = case_when( metric %in% c("AST", "TOV", "OBPM", "GP%", "DBPM", "MPG", "DREB") ~ "Both",
+                                                     metric %in% c("BLK", "STL", "OREB", "FG2A", "FTA", "FG2%") ~ "Athleticism",
+                                                     metric %in% c("FT%", "FG3%", "FG3A") ~ "Skill")) |> 
+                    
+                    group_by(metric) |> summarize(metric_group = first(metric_group), posterior_mean = mean(value),
+                    lower = hdi(value, credMass = 0.95)["lower"],
+                    upper = hdi(value, credMass = 0.95)["upper"]) |> ungroup() |> mutate(metric = fct_reorder(metric, posterior_mean, .desc = TRUE)), 
+              aes(x = metric, y = posterior_mean, fill = metric_group)) + geom_col() +  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
+  ggtitle("Posterior Distribution of Peak Age by Metric") +
+  theme_bw() + scale_fill_brewer(palette = "Set1") + labs(y = "Posterior Mean", x = "Metric", fill = "Metric Group") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary.png", peaks_plt)
+
+
+third_deriv_plt <- ggplot(third_deriv |> inner_join(data |> group_by(id) |> summarize(name = first(name), position_group = first(position_group)) |> ungroup(),
+                    by = c("player" = "id")) |>
+                    mutate(metric = toupper(metric),
+                    metric = case_when(metric == "GAMES" ~ "GP%",
+                    metric == "FG2M" ~ "FG2%",
+                    metric == "FG3M" ~ "FG3%",
+                    metric == "FTM" ~ "FT%",
+                    metric == "PCT_MINUTES" ~ "MPG",
+                    .default = metric)) |> group_by(position_group, chain, sample, metric) |> summarize(value = mean(value)) |> ungroup()
+              , aes(x = value, y = position_group, fill = position_group)) +
+  geom_density_ridges() + facet_wrap(~ metric) + ggtitle("Posterior Distribution of Third Derivative by Metric Across Position Groups") +xlab("Third Derivative at Peak Age") +
+  theme_bw() + scale_fill_brewer(palette = "Set1") 
+
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_third_deriv.png", third_deriv_plt)
 
 
 
@@ -155,7 +194,7 @@ coverage_plt_basic <- validation_coverage_df |> group_by(metric) |> summarize(va
                       theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Coverage (In-Sample vs. Validation)") + labs(x = NULL, fill = "Coverage Type") + theme(axis.text.x = element_blank())
 ggsave("model_output/model_plots/coverage/nba_convex_tvrflvm_max_boundary_ar.png", coverage_plt_basic)
 coverage_plt_yearly <- validation_coverage_df |> group_by(metric, year) |> summarize(Coverage = mean(validation_coverage)) |> ungroup() |> ggplot(aes(x = year, y = Coverage)) + 
-                        geom_col() + facet_wrap(~metric, scales = "fixed") + coord_cartesian(ylim = c(0, 1)) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+                        geom_col() + facet_wrap(~metric, scales = "fixed") + coord_cartesian(ylim = c(0, 1)) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
                         theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Validation Coverage by Time Horizon") +xlab("Year")
 ggsave("model_output/model_plots/coverage/nba_convex_tvrflvm_max_boundary_ar_validation_yearly.png", coverage_plt_yearly)
 coverage_plt_minutes <- validation_coverage_df |> inner_join(data |> filter(year <= 2021) |> group_by(id) |> summarize(years_played = n()) |> ungroup(), by = c("player" = "id")) |> group_by(metric, years_played) |> summarize(Coverage = mean(validation_coverage)) |> ungroup() |>
@@ -171,89 +210,76 @@ posterior_plot_names <-  c("Stephen Curry", "Kevin Durant", "LeBron James", "Kob
 
 
 
-latent_space_umap <- latent_space |> select(starts_with("Dim")) |> umap() |> as.tibble(.name_repair = "unique") |> cbind(latent_space |> select(-starts_with("Dim"))) |> rename(UMAP1 = `...1`, UMAP2 = `...2`)
+# latent_space_umap <- latent_space |> select(starts_with("Dim")) |> umap() |> as.tibble(.name_repair = "unique") |> cbind(latent_space |> select(-starts_with("Dim"))) |> rename(UMAP1 = `...1`, UMAP2 = `...2`)
 
-latent_space_plot  <- latent_space_umap |> ggplot(aes(x = UMAP1, y = UMAP2)) + geom_point(aes(alpha = minutes, color = position_group)) + scale_alpha(range = c(0,1)) +
-                      geom_text_repel(
-                      data = filter(latent_space_umap, name %in% posterior_plot_names),
-                      aes(label = name),
-                      size = 3,
-                      max.overlaps = Inf) +
-  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("UMAP Visualization of Learned Latent Embedding") + xlab("UMAP 1") + ylab("UMAP 2")
+# latent_space_plot  <- latent_space_umap |> ggplot(aes(x = UMAP1, y = UMAP2)) + geom_point(aes(alpha = minutes, color = position_group)) + scale_alpha(range = c(0,1)) +
+#                       geom_text_repel(
+#                       data = filter(latent_space_umap, name %in% posterior_plot_names),
+#                       aes(label = name),
+#                       size = 3,
+#                       max.overlaps = Inf) +
+#   theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("UMAP Visualization of Learned Latent Embedding") + xlab("UMAP 1") + ylab("UMAP 2")
 
-ggsave("model_output/model_plots/latent_space/map/nba_convex_tvrflvm_max_boundary.png", latent_space_plot)
-
-
+# ggsave("model_output/model_plots/latent_space/map/nba_convex_tvrflvm_max_boundary.png", latent_space_plot)
 
 
 
-plot_posterior <- function(grouped_data_set, hold_out_year) {
 
-  group_name <- unique(grouped_data_set$name)
-  raw_plt <-
-  grouped_data_set |> mutate(
-    age_of_holdout = if_else(year ==  hold_out_year, age, Inf),
-    age_of_holdout = min(age_of_holdout)
-  ) 
+
+# plot_posterior <- function(grouped_data_set, hold_out_year) {
+
+#   group_name <- unique(grouped_data_set$name)
+#   raw_plt <-
+#   grouped_data_set |> mutate(
+#     age_of_holdout = if_else(year ==  hold_out_year, age, Inf),
+#     age_of_holdout = min(age_of_holdout)
+#   ) 
   
-  validation_label <- "Hold-Out"
+#   validation_label <- "Hold-Out"
   
-  plt <- raw_plt |>
-    ggplot(aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
-                                       fill = "blue",
-                                       alpha = 0.2) +
-    geom_line(aes(x = age, y = posterior_mean)) +
-    geom_point(aes(x = age, y = obs_value), color = "black") +
-    geom_vline(aes(xintercept = age_of_holdout),
-               linetype = "dashed",
-               color = "red") +
-    facet_wrap( ~ metric, scales = "free_y") +
-    labs(x = "Age", y = "Metric Value") + ggtitle(paste("Posterior Predictive Career Trajectory: ", group_name))
-  return(plt)
-}
+#   plt <- raw_plt |>
+#     ggplot(aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
+#                                        fill = "blue",
+#                                        alpha = 0.2) +
+#     geom_line(aes(x = age, y = posterior_mean)) +
+#     geom_point(aes(x = age, y = obs_value), color = "black") +
+#     geom_vline(aes(xintercept = age_of_holdout),
+#                linetype = "dashed",
+#                color = "red") +
+#     facet_wrap( ~ metric, scales = "free_y") +
+#     labs(x = "Age", y = "Metric Value") + ggtitle(paste("Posterior Predictive Career Trajectory: ", group_name))
+#   return(plt)
+# }
 
 
-plots_list <- joined_data |> 
-              group_by(metric, player, age) |> 
-              summarize(lower = hdi(value, credMass = 0.95)["lower"],
-              upper = hdi(value, credMass = 0.95)["upper"], 
-              obs_value = first(obs_value), 
-              year = min(year), 
-              posterior_mean = mean(value)) |> ungroup() |> 
-            mutate(metric = toupper(metric),
-                    metric = case_when(metric == "GAMES" ~ "GP%",
-                    metric == "FG2M" ~ "FG2%",
-                    metric == "FG3M" ~ "FG3%",
-                    metric == "FTM" ~ "FT%",
-                    metric == "PCT_MINUTES" ~ "MPG",
-                    .default = metric)) |> inner_join(latent_space |> filter(name %in% posterior_plot_names) |> select(name,id), by = c("player" = "id")) %>%
-  group_by(player) %>%
-  group_split() %>%               # splits into a list of grouped tibbles
-  map(~ {
-    plt <- plot_posterior(.x, 2021)
-    name <- unique(.x$name)
-    # Save the plot to disk (change path as needed)
-    ggsave(
-      filename = glue("model_output/model_plots/player_plots/predictions/mcmc/nba_convex_tvrflvm_max_boundary_AR_{name}.png"),
-      plot = plt
-    )
-    })
+# plots_list <- joined_data |> 
+#               group_by(metric, player, age) |> 
+#               summarize(lower = hdi(value, credMass = 0.95)["lower"],
+#               upper = hdi(value, credMass = 0.95)["upper"], 
+#               obs_value = first(obs_value), 
+#               year = min(year), 
+#               posterior_mean = mean(value)) |> ungroup() |> 
+#             mutate(metric = toupper(metric),
+#                     metric = case_when(metric == "GAMES" ~ "GP%",
+#                     metric == "FG2M" ~ "FG2%",
+#                     metric == "FG3M" ~ "FG3%",
+#                     metric == "FTM" ~ "FT%",
+#                     metric == "PCT_MINUTES" ~ "MPG",
+#                     .default = metric)) |> inner_join(latent_space |> filter(name %in% posterior_plot_names) |> select(name,id), by = c("player" = "id")) %>%
+#   group_by(player) %>%
+#   group_split() %>%               # splits into a list of grouped tibbles
+#   map(~ {
+#     plt <- plot_posterior(.x, 2021)
+#     name <- unique(.x$name)
+#     # Save the plot to disk (change path as needed)
+#     ggsave(
+#       filename = glue("model_output/model_plots/player_plots/predictions/mcmc/nba_convex_tvrflvm_max_boundary_AR_{name}.png"),
+#       plot = plt
+#     )
+#     })
 
 
-peaks_plt <- ggplot(posterior_peaks |> inner_join(data |> group_by(id) |> summarize(name = first(name), position_group = first(position_group)) |> ungroup(),
-                    by = c("player" = "id")) |>
-                    mutate(metric = toupper(metric),
-                    metric = case_when(metric == "GAMES" ~ "GP%",
-                    metric == "FG2M" ~ "FG2%",
-                    metric == "FG3M" ~ "FG3%",
-                    metric == "FTM" ~ "FT%",
-                    metric == "PCT_MINUTES" ~ "MPG",
-                    .default = metric))
-              , aes(x = value, y = position_group, fill = position_group)) +
-  geom_density_ridges() + facet_wrap(~ metric) + ggtitle("Posterior Distribution of Peak Age by Metric Across Position Groups") +xlab("Peak Age") +
-  theme_bw() + scale_fill_brewer(palette = "Set1") 
 
-ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary.png", peaks_plt)
 
 X <- latent_space |> select(starts_with("Dim")) |> as.matrix()
 D <- dist(X)^2  # default: Euclidean
