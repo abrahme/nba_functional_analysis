@@ -159,7 +159,7 @@ joined_data <- posterior_data |>
                 select(-base_age, -base_year) |> ungroup()
 print("joined the data with predictions")
 
-validation_coverage_df <- joined_data |> filter(year >= 2022) |> group_by(metric, player, age) |> summarize(lower = hdi(value, credMass = 0.95)["lower"],
+validation_coverage_df <- joined_data |> filter(year >= 2022 & year <= 2025) |> group_by(metric, player, age) |> summarize(lower = hdi(value, credMass = 0.95)["lower"],
     upper = hdi(value, credMass = 0.95)["upper"], obs_value = first(obs_value), year = min(year), posterior_mean = mean(value) ) |> ungroup() |>
 
     mutate(obs_value = if_else(year <= 2025 & !metric %in% c("obpm", "dbpm") & is.na(obs_value), 0 , obs_value), 
@@ -210,73 +210,73 @@ posterior_plot_names <-  c("Stephen Curry", "Kevin Durant", "LeBron James", "Kob
 
 
 
-# latent_space_umap <- latent_space |> select(starts_with("Dim")) |> umap() |> as.tibble(.name_repair = "unique") |> cbind(latent_space |> select(-starts_with("Dim"))) |> rename(UMAP1 = `...1`, UMAP2 = `...2`)
+latent_space_umap <- latent_space |> select(starts_with("Dim")) |> umap() |> as.tibble(.name_repair = "unique") |> cbind(latent_space |> select(-starts_with("Dim"))) |> rename(UMAP1 = `...1`, UMAP2 = `...2`)
 
-# latent_space_plot  <- latent_space_umap |> ggplot(aes(x = UMAP1, y = UMAP2)) + geom_point(aes(alpha = minutes, color = position_group)) + scale_alpha(range = c(0,1)) +
-#                       geom_text_repel(
-#                       data = filter(latent_space_umap, name %in% posterior_plot_names),
-#                       aes(label = name),
-#                       size = 3,
-#                       max.overlaps = Inf) +
-#   theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("UMAP Visualization of Learned Latent Embedding") + xlab("UMAP 1") + ylab("UMAP 2")
+latent_space_plot  <- latent_space_umap |> ggplot(aes(x = UMAP1, y = UMAP2)) + geom_point(aes(alpha = minutes, color = position_group)) + scale_alpha(range = c(0,1)) +
+                      geom_text_repel(
+                      data = filter(latent_space_umap, name %in% posterior_plot_names),
+                      aes(label = name),
+                      size = 3,
+                      max.overlaps = Inf) +
+  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("UMAP Visualization of Learned Latent Embedding") + xlab("UMAP 1") + ylab("UMAP 2")
 
-# ggsave("model_output/model_plots/latent_space/map/nba_convex_tvrflvm_max_boundary.png", latent_space_plot)
-
-
+ggsave("model_output/model_plots/latent_space/map/nba_convex_tvrflvm_max_boundary.png", latent_space_plot)
 
 
 
-# plot_posterior <- function(grouped_data_set, hold_out_year) {
 
-#   group_name <- unique(grouped_data_set$name)
-#   raw_plt <-
-#   grouped_data_set |> mutate(
-#     age_of_holdout = if_else(year ==  hold_out_year, age, Inf),
-#     age_of_holdout = min(age_of_holdout)
-#   ) 
+
+plot_posterior <- function(grouped_data_set, hold_out_year) {
+
+  group_name <- unique(grouped_data_set$name)
+  raw_plt <-
+  grouped_data_set |> mutate(
+    age_of_holdout = if_else(year ==  hold_out_year, age, Inf),
+    age_of_holdout = min(age_of_holdout)
+  ) 
   
-#   validation_label <- "Hold-Out"
+  validation_label <- "Hold-Out"
   
-#   plt <- raw_plt |>
-#     ggplot(aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
-#                                        fill = "blue",
-#                                        alpha = 0.2) +
-#     geom_line(aes(x = age, y = posterior_mean)) +
-#     geom_point(aes(x = age, y = obs_value), color = "black") +
-#     geom_vline(aes(xintercept = age_of_holdout),
-#                linetype = "dashed",
-#                color = "red") +
-#     facet_wrap( ~ metric, scales = "free_y") +
-#     labs(x = "Age", y = "Metric Value") + ggtitle(paste("Posterior Predictive Career Trajectory: ", group_name))
-#   return(plt)
-# }
+  plt <- raw_plt |>
+    ggplot(aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
+                                       fill = "blue",
+                                       alpha = 0.2) +
+    geom_line(aes(x = age, y = posterior_mean)) +
+    geom_point(aes(x = age, y = obs_value), color = "black") +
+    geom_vline(aes(xintercept = age_of_holdout),
+               linetype = "dashed",
+               color = "red") +
+    facet_wrap( ~ metric, scales = "free_y") +
+    labs(x = "Age", y = "Metric Value") + ggtitle(paste("Posterior Predictive Career Trajectory: ", group_name))
+  return(plt)
+}
 
 
-# plots_list <- joined_data |> 
-#               group_by(metric, player, age) |> 
-#               summarize(lower = hdi(value, credMass = 0.95)["lower"],
-#               upper = hdi(value, credMass = 0.95)["upper"], 
-#               obs_value = first(obs_value), 
-#               year = min(year), 
-#               posterior_mean = mean(value)) |> ungroup() |> 
-#             mutate(metric = toupper(metric),
-#                     metric = case_when(metric == "GAMES" ~ "GP%",
-#                     metric == "FG2M" ~ "FG2%",
-#                     metric == "FG3M" ~ "FG3%",
-#                     metric == "FTM" ~ "FT%",
-#                     metric == "PCT_MINUTES" ~ "MPG",
-#                     .default = metric)) |> inner_join(latent_space |> filter(name %in% posterior_plot_names) |> select(name,id), by = c("player" = "id")) %>%
-#   group_by(player) %>%
-#   group_split() %>%               # splits into a list of grouped tibbles
-#   map(~ {
-#     plt <- plot_posterior(.x, 2021)
-#     name <- unique(.x$name)
-#     # Save the plot to disk (change path as needed)
-#     ggsave(
-#       filename = glue("model_output/model_plots/player_plots/predictions/mcmc/nba_convex_tvrflvm_max_boundary_AR_{name}.png"),
-#       plot = plt
-#     )
-#     })
+plots_list <- joined_data |> 
+              group_by(metric, player, age) |> 
+              summarize(lower = hdi(value, credMass = 0.95)["lower"],
+              upper = hdi(value, credMass = 0.95)["upper"], 
+              obs_value = first(obs_value), 
+              year = min(year), 
+              posterior_mean = mean(value)) |> ungroup() |> 
+            mutate(metric = toupper(metric),
+                    metric = case_when(metric == "GAMES" ~ "GP%",
+                    metric == "FG2M" ~ "FG2%",
+                    metric == "FG3M" ~ "FG3%",
+                    metric == "FTM" ~ "FT%",
+                    metric == "PCT_MINUTES" ~ "MPG",
+                    .default = metric)) |> inner_join(latent_space |> filter(name %in% posterior_plot_names) |> select(name,id), by = c("player" = "id")) %>%
+  group_by(player) %>%
+  group_split() %>%               # splits into a list of grouped tibbles
+  map(~ {
+    plt <- plot_posterior(.x, 2021)
+    name <- unique(.x$name)
+    # Save the plot to disk (change path as needed)
+    ggsave(
+      filename = glue("model_output/model_plots/player_plots/predictions/mcmc/nba_convex_tvrflvm_max_boundary_AR_{name}.png"),
+      plot = plt
+    )
+    })
 
 
 
@@ -293,7 +293,7 @@ K_subset <- K[latent_space$name %in% posterior_plot_names, latent_space$name %in
 hr <- hclust(as.dist(1 - K_subset))
 
 # Step 2: reorder full matrix by clustering
-mat_reordered <- K_subset[hr$order, hr$order]
+mat_subset <- K_subset[hr$order, hr$order]
 
 # Step 5: create subset labels (optional)
 labels_subset <- posterior_plot_names[hr$order]
