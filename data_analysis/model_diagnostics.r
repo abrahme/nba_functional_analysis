@@ -62,6 +62,8 @@ injury_data <-  data |>
     names_to = "metric",
     values_to = "obs_value")
 
+print("pivoted the original data")
+
 
 empirical_player_plt <- injury_data |> filter(name %in% c("Kobe Bryant", "Dwight Howard")) |> mutate(metric = toupper(metric),
            metric = case_when(metric == "GAMES" ~ "GP%",
@@ -86,8 +88,9 @@ empirical_plt <- injury_data  |> mutate(metric = toupper(metric),
 ggsave("model_output/model_plots/empirical_production.png", empirical_plt) 
 
 
-print("pivoted the original data")
+
 posterior_data <- read.csv("posterior_ar.csv")
+posterior_mu_data <- read.csv("posterior_mu_ar.csv")
 print("loaded the posterior data")
 posterior_peaks <- read.csv("posterior_peaks_ar.csv")
 latent_space <- read.csv("latent_space.csv")
@@ -105,7 +108,7 @@ peaks_plt <- ggplot(posterior_peaks |> inner_join(data |> group_by(id) |> summar
                     metric == "FTM" ~ "FT%",
                     metric == "PCT_MINUTES" ~ "MPG",
                     .default = metric)) |> 
-                    mutate(metric_group = case_when( metric %in% c("AST", "TOV", "OBPM", "GP%", "DBPM", "MPG", "DREB") ~ "Both",
+                    mutate(metric_group = case_when( metric %in% c("AST", "TOV", "OBPM", "GP%", "DBPM", "MPG", "DREB") ~ "Composite",
                                                      metric %in% c("BLK", "STL", "OREB", "FG2A", "FTA", "FG2%") ~ "Athleticism",
                                                      metric %in% c("FT%", "FG3%", "FG3A") ~ "Skill")) |> 
                     
@@ -127,13 +130,33 @@ third_deriv_plt <- ggplot(third_deriv |> inner_join(data |> group_by(id) |> summ
                     metric == "FG3M" ~ "FG3%",
                     metric == "FTM" ~ "FT%",
                     metric == "PCT_MINUTES" ~ "MPG",
-                    .default = metric)) |> group_by(position_group, chain, sample, metric) |> summarize(value = mean(value)) |> ungroup()
-              , aes(x = value, y = position_group, fill = position_group)) +
-  geom_density_ridges() + facet_wrap(~ metric) + ggtitle("Posterior Distribution of Third Derivative by Metric Across Position Groups") +xlab("Third Derivative at Peak Age") +
-  theme_bw() + scale_fill_brewer(palette = "Set1") 
+                    .default = metric)) |> 
+                    mutate(metric_group = case_when( metric %in% c("AST", "TOV", "OBPM", "GP%", "DBPM", "MPG", "DREB") ~ "Composite",
+                                                     metric %in% c("BLK", "STL", "OREB", "FG2A", "FTA", "FG2%") ~ "Athleticism",
+                                                     metric %in% c("FT%", "FG3%", "FG3A") ~ "Skill")) |>
+                    group_by(metric) |> summarize(posterior_mean = mean(value), metric_group = first(metric_group),
+                    lower = hdi(value, credMass = 0.95)["lower"],
+                    upper = hdi(value, credMass = 0.95)["upper"] ) |> ungroup() |> mutate(metric = fct_reorder(metric, posterior_mean, .desc = TRUE)),
+               aes(x = metric, y = posterior_mean, color = metric_group)) + geom_point() + geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) + 
+  ggtitle("Posterior Distribution of Third Derivative by Metric") +labs(y = "Posterior Value of Third Derivative", x = "Metric", color = "Metric Group") + 
+  theme_bw() + scale_fill_brewer(palette = "Set1") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
 
 ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_third_deriv.png", third_deriv_plt)
 
+third_deriv_plt <- ggplot(third_deriv |> inner_join(data |> group_by(id) |> summarize(name = first(name), position_group = first(position_group)) |> ungroup(),
+                    by = c("player" = "id")) |>
+                    mutate(metric = toupper(metric),
+                    metric = case_when(metric == "GAMES" ~ "GP%",
+                    metric == "FG2M" ~ "FG2%",
+                    metric == "FG3M" ~ "FG3%",
+                    metric == "FTM" ~ "FT%",
+                    metric == "PCT_MINUTES" ~ "MPG",
+                    .default = metric)) |> ungroup()
+               ) + geom_density_ridges(aes(x = value, y = position_group, fill = position_group)) + facet_wrap(~metric, scales = "free_x") + 
+  ggtitle("Posterior Distribution of Third Derivative by Metric, Across Position") +labs(x = "Third Derivative", fill = "Position Group", y = "Position Group") + 
+  theme_bw() + scale_fill_brewer(palette = "Set1") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_third_deriv_density.png", third_deriv_plt)
 
 
 posterior_data <- posterior_data |> mutate(value = case_when(metric == "pct_minutes" ~ value / 82, 
