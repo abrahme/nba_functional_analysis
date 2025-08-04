@@ -124,12 +124,14 @@ def process_data(df, output_metric, exposure, model, input_metrics, player_indic
         mask = time_idx[None, :] > last_pre_idx[:, None]
         metric_array = jnp.where(mask, jnp.nan, metric_array)
         adj_exp_array = jnp.where(mask, jnp.nan, adj_exp_array)
+    else:
+        mask = jnp.ones_like(metric_array, dtype= bool)
     
     if player_indices:
         array_indices = jnp.array(player_indices)
         return adj_exp_array[array_indices], jnp.array(metric_array)[array_indices], X
     else:
-        return adj_exp_array, jnp.array(metric_array), X
+        return adj_exp_array, jnp.array(metric_array), X, mask
 
 def process_data_time(df, output_metric, exposure, model):
     df = df.sort_values(by=["id","year"])
@@ -321,11 +323,12 @@ def create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, pla
         covariate_X = covariate_X[jnp.array(player_index)]
     data_set = []
     for output,metric,exposure_val in zip(metric_output, metrics, exposure_list):
-        exposure, Y, _ = process_data(data, metric, exposure_val, output, ["position_group"], validation_year=validation_year, injury=injury)
+        exposure, Y, _, injury_mask = process_data(data, metric, exposure_val, output, ["position_group"], validation_year=validation_year, injury=injury)
         if player_index:
             exposure = exposure[jnp.array(player_index)]
             Y = Y[jnp.array(player_index)]
-        data_dict = {"metric":metric, "output": output, "exposure_data": exposure, "output_data": Y, "mask": jnp.isfinite(Y)}
+            injury_mask = injury_mask[jnp.array(player_index)]
+        data_dict = {"metric":metric, "output": output, "exposure_data": exposure, "output_data": Y, "mask": jnp.isfinite(Y), "injury_mask": injury_mask}
         data_set.append(data_dict)
     basis = jnp.arange(18,39)
 

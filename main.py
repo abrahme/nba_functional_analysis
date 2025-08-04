@@ -147,7 +147,6 @@ if __name__ == "__main__":
         masks = jnp.stack([data_entity["mask"] for data_entity in data_set])
         exposures = jnp.stack([data_entity["exposure_data"] for data_entity in data_set])
         Y = jnp.stack([data_entity["output_data"] for data_entity in data_set])
-        hayward_index = names.index("Gordon Hayward")
         offset_list = []
         offset_max_list = []
         offset_peak_list = []
