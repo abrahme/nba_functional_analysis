@@ -86,7 +86,6 @@ if __name__ == "__main__":
         player_indices = []
     positions = ["G", "F", "C"]
     covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices, validation_year=validation_year, injury=injury)
-    print(injury)
     hsgp_params = {}
     x_time = basis - basis.mean()
     L_time = 2.0 * np.max(np.abs(x_time), 0, keepdims=True)
@@ -100,6 +99,7 @@ if __name__ == "__main__":
     masks = jnp.stack([data_entity["mask"] for data_entity in data_set])
     exposures = jnp.stack([data_entity["exposure_data"] for data_entity in data_set])
     Y = jnp.stack([data_entity["output_data"] for data_entity in data_set])
+    injury_masks = jnp.stack([data_entity["injury_mask"] for data_entity in data_set])
 
     offset_list = []
     offset_max_list = []
@@ -157,9 +157,11 @@ if __name__ == "__main__":
     wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv = make_mu_mcmc_AR(results_mcmc["X"], results_mcmc["lengthscale_deriv"], results_mcmc["alpha"],
                         results_mcmc["beta"], results_mcmc["W"], results_mcmc["lengthscale"], results_mcmc["c_max"],
                         results_mcmc["t_max_raw"], results_mcmc["sigma_t"], results_mcmc["sigma_c"], L_time, M_time, x_time + L_time, offset_dict, results_mcmc["beta_ar"], results_mcmc["sigma_ar"], results_mcmc["rho_ar"], phi_time=phi_time)
-
     peaks = tmax_mcmc + basis.mean()
     peak_val = cmax_mcmc    
+
+    if injury:
+        mu_mcmc = jnp.where(injury_masks[None,None], mu_mcmc - AR, mu_mcmc)
     
     _, pos = create_metric_trajectory_all(mu_mcmc, Y, exposures, 
                                             metric_output, metrics, exposure_list, 
@@ -175,6 +177,10 @@ if __name__ == "__main__":
     posterior_peaks = posterior_peaks_to_df(peaks, id_df["id"], metrics)
     posterior_peaks.to_csv("posterior_peaks_ar.csv", index = False)
 
+    posterior_mu_df = posterior_to_df(jnp.transpose(mu_mcmc - AR, (0, 1, 3, 4, 2)), id_df["id"], metrics, range(18,39))
+    posterior_mu_df.to_csv("posterior_mu_ar.csv", index = False)
+
+
     latent_space_df = pd.DataFrame(results_map["X"], columns = [f"Dim {i+1}" for i in range(results_map["X"].shape[1])])
     latent_space_df = pd.concat([latent_space_df, id_df], axis = 1)
     latent_space_df.to_csv("latent_space.csv", index = False)
@@ -184,3 +190,7 @@ if __name__ == "__main__":
     phi_X_df = pd.DataFrame(phi_x, columns = [f"Dim {i+1}" for i in range(phi_x.shape[1])])
     phi_X_df = pd.concat([phi_X_df, id_df], axis = 1)
     phi_X_df.to_csv("phi_X.csv", index = False)
+
+
+    posterior_third_deriv = posterior_peaks_to_df(third_deriv, id_df["id"], metrics)
+    posterior_third_deriv.to_csv("posterior_third_deriv_ar.csv", index = False)
