@@ -114,8 +114,8 @@ def make_mu_mcmc(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigm
     phi_double_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))))(t_max)
     phi_triple_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))))(t_max)
     intercept = jnp.swapaxes(c_max, -2, -1)[..., None]
-    second_deriv = -1 * jnp.einsum("...nm, mdk, ...nkdz, jzk, ...nj -> ...kn", psi_x, weights, phi_double_prime_tmax, weights, psi_x)
-    third_deriv = -1 * jnp.einsum("...nm, mdk, ...nkdz, jzk, ...nj -> ...kn", psi_x, weights, phi_triple_prime_tmax, weights, psi_x)
+    second_deriv = -1 * jnp.einsum("...nm, mdk, ...nkdz, jzk, ...nj -> ...nk", psi_x, weights, phi_double_prime_tmax, weights, psi_x)
+    third_deriv = -1 * jnp.einsum("...nm, mdk, ...nkdz, jzk, ...nj -> ...nk", psi_x, weights, phi_triple_prime_tmax, weights, psi_x)
     gamma_phi_gamma_x = jnp.einsum("...nm, mdk, ...nktdz, jzk, ...nj -> ...knt", psi_x, weights, phi_t_max[:,:,:,:,None,...] - phi_time[None, None, None, None] +  phi_prime_t_max[:, :,:,:, None, ...] * (((shifted_x_time - L_time)[None, None, None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
     mu = gamma_phi_gamma_x + intercept
     return wTx, mu, t_max, c_max, second_deriv, third_deriv
@@ -139,8 +139,8 @@ def make_mu_mcmc_AR(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, s
     kernel = (1 / (1 - jnp.square(rho_ar[..., None]))) * (rho_ar[..., None] ** jnp.abs(time_delta[None])) * sigma_ar[..., None] 
     L = jnp.linalg.cholesky(kernel)  # (K, T, T)
     # Apply Cholesky: result (K, N, T)
-    second_deriv = -1 * jnp.einsum("...nm, mdk, ...nkdz, jzk, ...nj -> ...kn", psi_x, weights, phi_double_prime_tmax, weights, psi_x)
-    third_deriv = -1 * jnp.einsum("...nm, mdk, ...nkdz, jzk, ...nj -> ...kn", psi_x, weights, phi_triple_prime_tmax, weights, psi_x)
+    second_deriv = -1 * jnp.einsum("...nm, mdk, ...nkdz, jzk, ...nj -> ...nk", psi_x, weights, phi_double_prime_tmax, weights, psi_x)
+    third_deriv = -1 * jnp.einsum("...nm, mdk, ...nkdz, jzk, ...nj -> ...nk", psi_x, weights, phi_triple_prime_tmax, weights, psi_x)
     AR = jnp.einsum('...ktd,...knd->...knt', L, beta_ar)
     gamma_phi_gamma_x = jnp.einsum("...nm, mdk, ...nktdz, jzk, ...nj -> ...knt", psi_x, weights, phi_t_max[:,:,:,:,None,...] - phi_time[None, None, None, None] +  phi_prime_t_max[:, :,:,:, None, ...] * (((shifted_x_time - L_time)[None, None, None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
     mu = (gamma_phi_gamma_x + intercept) + AR
