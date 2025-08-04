@@ -158,6 +158,12 @@ third_deriv_plt <- ggplot(third_deriv |> inner_join(data |> group_by(id) |> summ
 
 ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_third_deriv_density.png", third_deriv_plt)
 
+curve_third_deriv_plt <- ggplot(third_deriv |> filter(metric == "obpm") |> mutate(quantile = cut(value, breaks = c(-Inf, -0.05, 0.05, Inf),
+                                                                     labels = c("Left-Skew Symmetry", "Symmetric", "Right-Skew Symmetry"))) |> group_by(quantile) |> slice_sample(n = 5) |> ungroup() |> group_by(metric, sample,chain, player) |> select(-value) |> 
+                                inner_join(posterior_mu_data) |> mutate(value = value - value[age == 18]) , aes(x = age, y = value, group = interaction(chain, sample, player, metric), color = quantile)) + geom_line(alpha = .9)  + theme_bw() + scale_fill_brewer(palette = "Set1") +
+                                labs(x = "Age", y = "Latent Curve Value", color = "Skew Type") + ggtitle("Illustration of Third Derivative Influence on Latent Curve Symmetry")
+
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_third_deriv_curves.png", curve_third_deriv_plt)
 
 posterior_data <- posterior_data |> mutate(value = case_when(metric == "pct_minutes" ~ value / 82, 
                                                              metric == "games" ~ value / 82,
