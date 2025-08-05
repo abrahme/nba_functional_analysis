@@ -13,8 +13,8 @@ library(pheatmap)
 
 data <- read.csv("data/injury_player_cleaned.csv")
 
-cor_mat <- injury_data <-  data |> 
-    mutate(`GP%` = games / pmax(games, 82, na.rm = TRUE),
+player_corrs <- injury_data <-  data |> 
+    mutate(`GP%` = games / pmax(games, total_games, na.rm = TRUE),
             MPG = minutes / games,
             BLK = 36 * (blk / minutes),
             AST = 36 * (ast / minutes),
@@ -22,17 +22,19 @@ cor_mat <- injury_data <-  data |>
             OREB = 36 * (oreb / minutes),
             DREB = 36 * (dreb / minutes),
             STL = 36 * (stl / minutes),
-            `FT%` =  (ftm / fta), 
-            `FG2%` =  (fg2m / fg2a), 
+            `FT%` =  (ftm / fta),
+            `FG2%` =  (fg2m / fg2a),
             `FG3%` =  (fg3m / fg3a),
             FG3A = 36 * (fg3a / minutes),
-            FG2A = 36 * (fg2a / minutes), 
-            FTA = 36 * (fta / minutes), 
+            FG2A = 36 * (fg2a / minutes),
+            FTA = 36 * (fta / minutes),
             OBPM = obpm,
             DBPM = dbpm) |>
-    select(c(`GP%`, `FT%`, `FG2%`, `FG3%`, FG2A, FG3A, FTA, OREB, DREB, OBPM, DBPM, STL, TOV, AST, MPG, BLK)) |> na.omit() |> cor( use = "pairwise.complete.obs")
+  select(c(`GP%`, `FT%`, `FG2%`, `FG3%`, FG2A, FG3A, FTA, OREB, DREB, OBPM, DBPM, STL, TOV, AST, MPG, BLK)) |> cor( use = "pairwise.complete.obs")
 
-pheatmap(cor_mat,
+
+
+pheatmap(player_corrs,
          color = colorRampPalette(c("blue", "white", "red"))(100),
          display_numbers = TRUE,
          main = "Metric Correlation Heatmap", 
@@ -65,14 +67,14 @@ injury_data <-  data |>
 print("pivoted the original data")
 
 
-empirical_player_plt <- injury_data |> filter(name %in% c("Kobe Bryant", "Dwight Howard")) |> mutate(metric = toupper(metric),
+empirical_player_plt <- injury_data |> filter(name %in% c("Kobe Bryant", "Dwight Howard", "LeBron James")) |> mutate(metric = toupper(metric),
            metric = case_when(metric == "GAMES" ~ "GP%",
                               metric == "FG2M" ~ "FG2%",
                               metric == "FG3M" ~ "FG3%",
                               metric == "FTM" ~ "FT%",
                               metric == "PCT_MINUTES" ~ "MPG",
                               .default = metric)) |> ggplot(aes(x = age, y = obs_value, color = name, group = name)) +  
-                              geom_smooth(method = "loess", se = TRUE) + facet_wrap(~metric, scales = "free_y") + theme_bw() + scale_colour_brewer(palette = "Set1") + 
+                              geom_smooth(method = "loess", se = FALSE) + facet_wrap(~metric, scales = "free_y") + theme_bw() + scale_colour_brewer(palette = "Set1") + 
                               ggtitle("An Empirical Production Curve Comparison by Metric") +xlab("Age") + ylab("Metric Value")
 ggsave("model_output/model_plots/empirical_production_player.png", empirical_player_plt)    
 
@@ -99,25 +101,47 @@ third_deriv <- read.csv("posterior_third_deriv_ar.csv")
 
 
 
-peaks_plt <- ggplot(posterior_peaks |> inner_join(data |> group_by(id) |> summarize(name = first(name), position_group = first(position_group)) |> ungroup(),
-                    by = c("player" = "id")) |>
-                    mutate(metric = toupper(metric),
-                    metric = case_when(metric == "GAMES" ~ "GP%",
-                    metric == "FG2M" ~ "FG2%",
-                    metric == "FG3M" ~ "FG3%",
-                    metric == "FTM" ~ "FT%",
-                    metric == "PCT_MINUTES" ~ "MPG",
-                    .default = metric)) |> 
-                    mutate(metric_group = case_when( metric %in% c("AST", "TOV", "OBPM", "GP%", "DBPM", "MPG", "DREB") ~ "Composite",
-                                                     metric %in% c("BLK", "STL", "OREB", "FG2A", "FTA", "FG2%") ~ "Athleticism",
-                                                     metric %in% c("FT%", "FG3%", "FG3A") ~ "Skill")) |> 
-                    
-                    group_by(metric) |> summarize(metric_group = first(metric_group), posterior_mean = mean(value),
-                    lower = hdi(value, credMass = 0.95)["lower"],
-                    upper = hdi(value, credMass = 0.95)["upper"]) |> ungroup() |> mutate(metric = fct_reorder(metric, posterior_mean, .desc = TRUE)), 
-              aes(x = metric, y = posterior_mean, fill = metric_group)) + geom_col() +  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
-  ggtitle("Posterior Distribution of Peak Age by Metric") +
-  theme_bw() + scale_fill_brewer(palette = "Set1") + labs(y = "Posterior Mean", x = "Metric", fill = "Metric Group") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+
+peaks_plt_df <- posterior_peaks |>
+  inner_join(
+    data |>
+      group_by(id) |>
+      summarize(name = first(name), position_group = first(position_group)) |>
+      ungroup(),
+    by = c("player" = "id")
+  ) |>
+  mutate(
+    metric = toupper(metric),
+    metric = case_when(
+      metric == "GAMES" ~ "GP%",
+      metric == "FG2M" ~ "FG2%",
+      metric == "FG3M" ~ "FG3%",
+      metric == "FTM" ~ "FT%",
+      metric == "PCT_MINUTES" ~ "MPG",
+      .default = metric
+    ),
+    metric_group = case_when(
+      metric %in% c("AST", "TOV", "OBPM", "GP%", "DBPM", "MPG", "DREB") ~ "Composite",
+      metric %in% c("BLK", "STL", "OREB", "FG2A", "FTA", "FG2%") ~ "Athleticism",
+      metric %in% c("FT%", "FG3%", "FG3A") ~ "Skill"
+    )
+  ) |>
+  mutate(
+    metric = fct_reorder(metric, value, .fun = median, .desc = TRUE)
+  )
+
+peaks_plt <- ggplot(peaks_plt_df, aes(y = metric, x = value, fill = metric_group)) +
+  geom_boxplot(outlier.shape = NA, width = 0.6) +
+  scale_fill_brewer(palette = "Set1") +
+  theme_bw() +
+  labs(
+    title = "Posterior Distribution of Peak Age by Metric",
+    x = "Age",
+    y = "Metric",
+    fill = "Metric Group"
+  ) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
 
 ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary.png", peaks_plt)
 
@@ -245,9 +269,10 @@ latent_space_plot  <- latent_space_umap |> ggplot(aes(x = UMAP1, y = UMAP2)) + g
                       geom_text_repel(
                       data = filter(latent_space_umap, name %in% posterior_plot_names),
                       aes(label = name),
-                      size = 3,
+                      size = 4,
+                      fontface = "bold",
                       max.overlaps = Inf) +
-  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("UMAP Visualization of Learned Latent Embedding") + xlab("UMAP 1") + ylab("UMAP 2")
+  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("UMAP Visualization of Learned Latent Embedding") + labs(x = "UMAP 1", y = "UMAP 2", alpha = "Minutes", color = "Position Group")
 
 ggsave("model_output/model_plots/latent_space/map/nba_convex_tvrflvm_max_boundary.png", latent_space_plot)
 
