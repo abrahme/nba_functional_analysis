@@ -66,8 +66,8 @@ if __name__ == "__main__":
     names = data.groupby("id")["name"].first().values.tolist()
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
-    data["games_exposure"] = np.maximum(82, data["games"]) ### 82 or whatever
-    data["pct_minutes"] = (data["minutes"] / data["games_exposure"]) / 48
+    data["games_exposure"] = np.maximum(data["total_games"], data["games"]) ### 82 or whatever
+    data["pct_minutes"] = (data["minutes"] / data["games"]) / 48
     data["retirement"] = 1
     metric_output = ["beta-binomial", "beta"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
     metrics = ["games", "pct_minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]

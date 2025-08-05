@@ -11,7 +11,7 @@ config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, average_peak_differences
 import numpyro
 import jax.numpy as jnp
-from model.model_utils import make_mu, make_mu_mcmc_AR
+from model.model_utils import make_mu, make_mu_mcmc_AR, make_mu_mcmc
 from model.inference_utils import posterior_peaks_to_df, posterior_to_df
 from model.hsgp import vmap_make_convex_phi
 
@@ -48,8 +48,8 @@ if __name__ == "__main__":
     names = data.groupby("id")["name"].first().values.tolist()
     data["log_min"] = np.log(data["minutes"])
     data["simple_exposure"] = 1
-    data["games_exposure"] = np.maximum(82, data["games"]) ### 82 or whatever
-    data["pct_minutes"] = (data["minutes"] / data["games_exposure"]) / 48
+    data["games_exposure"] = np.maximum(data["total_games"], data["games"]) ### 82 or whatever
+    data["pct_minutes"] = (data["minutes"] / data["games"]) / 48
     data["retirement"] = 1
 
     id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
@@ -154,14 +154,14 @@ if __name__ == "__main__":
             results_mcmc = {key: val[:, ::thin, ...] for key, val in results_mcmc.items()}
     f.close()
     results_mcmc = {**results_map, **results_mcmc}
-    wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv = make_mu_mcmc_AR(results_mcmc["X"], results_mcmc["lengthscale_deriv"], results_mcmc["alpha"],
+    wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, second_deriv, third_deriv = make_mu_mcmc(results_mcmc["X"], results_mcmc["lengthscale_deriv"], results_mcmc["alpha"],
                         results_mcmc["beta"], results_mcmc["W"], results_mcmc["lengthscale"], results_mcmc["c_max"],
-                        results_mcmc["t_max_raw"], results_mcmc["sigma_t"], results_mcmc["sigma_c"], L_time, M_time, x_time + L_time, offset_dict, results_mcmc["beta_ar"], results_mcmc["sigma_ar"], results_mcmc["rho_ar"], phi_time=phi_time)
+                        results_mcmc["t_max_raw"], results_mcmc["sigma_t"], results_mcmc["sigma_c"], L_time, M_time, x_time + L_time, offset_dict, phi_time=phi_time)
     peaks = tmax_mcmc + basis.mean()
     peak_val = cmax_mcmc    
 
-    if injury:
-        mu_mcmc = jnp.where(injury_masks[None,None], mu_mcmc - AR, mu_mcmc)
+    # if injury:
+    #     mu_mcmc = jnp.where(injury_masks[None,None], mu_mcmc - AR, mu_mcmc)
     
     _, pos = create_metric_trajectory_all(mu_mcmc, Y, exposures, 
                                             metric_output, metrics, exposure_list, 
@@ -173,24 +173,24 @@ if __name__ == "__main__":
 
     posterior_df = posterior_to_df(pos, id_df["id"], metrics, range(18,39))
 
-    posterior_df.to_csv("posterior_ar.csv", index = False)
+    posterior_df.to_csv("posterior_injury.csv", index = False)
     posterior_peaks = posterior_peaks_to_df(peaks, id_df["id"], metrics)
-    posterior_peaks.to_csv("posterior_peaks_ar.csv", index = False)
+    posterior_peaks.to_csv("posterior_peaks_injury.csv", index = False)
 
-    posterior_mu_df = posterior_to_df(jnp.transpose(mu_mcmc - AR, (0, 1, 3, 4, 2)), id_df["id"], metrics, range(18,39))
-    posterior_mu_df.to_csv("posterior_mu_ar.csv", index = False)
+    posterior_mu_df = posterior_to_df(jnp.transpose(mu_mcmc, (0, 1, 3, 4, 2)), id_df["id"], metrics, range(18,39))
+    posterior_mu_df.to_csv("posterior_mu_injury.csv", index = False)
 
 
     latent_space_df = pd.DataFrame(results_map["X"], columns = [f"Dim {i+1}" for i in range(results_map["X"].shape[1])])
     latent_space_df = pd.concat([latent_space_df, id_df], axis = 1)
-    latent_space_df.to_csv("latent_space.csv", index = False)
+    latent_space_df.to_csv("latent_space_injury.csv", index = False)
 
     wTx = jnp.einsum("nr,mr -> nm", results_map["X"], results_map["W"]  * jnp.sqrt(results_map["lengthscale"]))
     phi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(rff_dim))   
     phi_X_df = pd.DataFrame(phi_x, columns = [f"Dim {i+1}" for i in range(phi_x.shape[1])])
     phi_X_df = pd.concat([phi_X_df, id_df], axis = 1)
-    phi_X_df.to_csv("phi_X.csv", index = False)
+    phi_X_df.to_csv("phi_X_injury.csv", index = False)
 
 
     posterior_third_deriv = posterior_peaks_to_df(third_deriv, id_df["id"], metrics)
-    posterior_third_deriv.to_csv("posterior_third_deriv_ar.csv", index = False)
+    posterior_third_deriv.to_csv("posterior_third_deriv_injury.csv", index = False)

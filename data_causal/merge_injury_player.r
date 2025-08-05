@@ -30,13 +30,13 @@ full_data <- full_data |> full_join(injury_data |> select(name,year,season,injur
             fill(known_age, known_year, .direction = "downup") |>
             mutate(
               age = if_else(is.na(age), known_age + (year - known_year), age)) |>
-            ungroup() |> select(-known_age, -known_year) |>
+            ungroup() |> select(-known_age, -known_year) |> mutate(total_games = if_else(year == 2012, 66, 82)) |>
             group_by(name, id) |>
             mutate(
               first_injury_year = min(year[!is.na(injury_type)], na.rm = TRUE),
               first_injury_year = if_else(is.infinite(first_injury_year), NA, first_injury_year) ,
               gp_injury_year = coalesce(games[year == first_injury_year],0),
-              first_injury_year = if_else((gp_injury_year / max(82, gp_injury_year)) > .7, first_injury_year + 1, first_injury_year),
+              first_injury_year = if_else((gp_injury_year / max(total_games[year == first_injury_year], gp_injury_year)) > .5, first_injury_year + 1, first_injury_year),
               injury_period = case_when(
                 is.na(first_injury_year) ~ "pre-injury",
                 is.na(minutes) & !is.na(first_injury_year) ~ "post-injury",

@@ -37,9 +37,28 @@ injury_data <- read.csv("data/injury_player_cleaned.csv") |>
     names_to = "metric",
     values_to = "obs_value")
 print("pivoted the original data")
-posterior_data <- read.csv("posterior_injury_ar.csv")
+
+causal_empirical <- ggplot(injury_data |> group_by(id, injury_period, metric, first_major_injury) |> summarize(max_val = mean(obs_value)) |> ungroup() |> pivot_wider(
+    names_from = injury_period,   # the values in this column become column names
+    values_from = max_val           # the values to fill in those new columns
+) |> mutate(empirical_change = `pre-injury` - `post-injury`) |>  mutate(metric = toupper(metric),
+                              metric = case_when(metric == "GAMES" ~ "GP%",
+                              metric == "FG2M" ~ "FG2%",
+                              metric == "FG3M" ~ "FG3%",
+                              metric == "FTM" ~ "FT%",
+                              metric == "PCT_MINUTES" ~ "MPG",
+                              .default = metric)) |> filter(first_major_injury %in% c("ACL", "Achilles", "Hip", "Back/Spine", "Patellar Tendon", "Quad Tendon", "Lower Body Fracture", "Meniscus")), 
+                              aes(x = first_major_injury, y = empirical_change)) + 
+                              geom_boxplot(outlier.shape = NA, width = 0.6) + facet_wrap(~metric, scales = "free_y") + 
+                              scale_fill_brewer(palette = "Set1") + theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) + 
+  labs(x = "Injury Type", y = "Empirical Average Treatment Effect (ATT)", title = "Empirical Distribution of Average Treatment Effect by Metric")
+
+ggsave("model_output/model_plots/causal/empirical_att_causal_plot.png", causal_empirical)
+
+posterior_data <- read.csv("posterior_injury.csv")
 print("loaded the posterior data")
-posterior_peaks <- read.csv("posterior_peaks_injury_ar.csv")
+posterior_peaks <- read.csv("posterior_peaks_injury.csv")
 latent_space <- read.csv("latent_space_injury.csv")
 
 posterior_data <- posterior_data |> mutate(value = case_when(metric == "pct_minutes" ~ value / 82, 
