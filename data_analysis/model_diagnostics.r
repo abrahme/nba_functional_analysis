@@ -42,7 +42,7 @@ pheatmap(player_corrs,
          )
 
 injury_data <-  data |> 
-    mutate( pct_games = games / pmax(games, 82, na.rm = TRUE),
+    mutate( pct_games = games / pmax(games, total_games, na.rm = TRUE),
             mpg = minutes / games,
             blk_rate = 36 * (blk / minutes),
             ast_rate = 36 * (ast / minutes),
@@ -247,12 +247,12 @@ coverage_plt_basic <- validation_coverage_df |> group_by(metric) |> summarize(va
                       theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Coverage (In-Sample vs. Validation)") + labs(x = NULL, fill = "Coverage Type") + theme(axis.text.x = element_blank())
 ggsave("model_output/model_plots/coverage/nba_convex_tvrflvm_max_boundary_ar.png", coverage_plt_basic)
 coverage_plt_yearly <- validation_coverage_df |> group_by(metric, year) |> summarize(Coverage = mean(validation_coverage)) |> ungroup() |> ggplot(aes(x = year, y = Coverage)) + 
-                        geom_col() + facet_wrap(~metric, scales = "fixed") + coord_cartesian(ylim = c(0, 1)) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
+                        geom_col() + facet_wrap(~metric, scales = "free_y") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
                         theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Validation Coverage by Time Horizon") +xlab("Year")
 ggsave("model_output/model_plots/coverage/nba_convex_tvrflvm_max_boundary_ar_validation_yearly.png", coverage_plt_yearly)
 coverage_plt_minutes <- validation_coverage_df |> inner_join(data |> filter(year <= 2021) |> group_by(id) |> summarize(years_played = n()) |> ungroup(), by = c("player" = "id")) |> group_by(metric, years_played) |> summarize(Coverage = mean(validation_coverage)) |> ungroup() |>
                         ggplot(aes(x = years_played, y = Coverage)) + 
-                        geom_point() + facet_wrap(~metric, scales = "fixed") + coord_cartesian(ylim = c(0, 1)) +
+                        geom_point() + facet_wrap(~metric, scales = "free_y") +
                         theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Validation Coverage by Years of Training Data Available") + xlab("Years Played")
 ggsave("model_output/model_plots/coverage/nba_convex_tvrflvm_max_boundary_ar_validation_minutes.png", coverage_plt_minutes)
 posterior_plot_names <-  c("Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash", 
