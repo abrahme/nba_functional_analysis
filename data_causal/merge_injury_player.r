@@ -30,7 +30,12 @@ full_data <- full_data |> full_join(injury_data |> select(name,year,season,injur
             fill(known_age, known_year, .direction = "downup") |>
             mutate(
               age = if_else(is.na(age), known_age + (year - known_year), age)) |>
-            ungroup() |> select(-known_age, -known_year) |> mutate(total_games = if_else(year == 2012, 66, 82)) |>
+            ungroup() |> select(-known_age, -known_year) |> mutate(first_team = str_split(team, "\\s*\\|\\s*") |> map_chr(~ .x[1])) |> 
+            mutate(total_games = case_when(year == 2012 ~ 66, 
+                                                                                           year == 2021 ~ 72,
+                                                                                           year == 2020 ~ if_else(is.infinite(max(games, na.rm = TRUE)),NA_integer_,max(games, na.rm = TRUE)),  
+                                                                                           .default = 82,
+                                                                                           ),.by = c(first_team, year)) |>
             group_by(name, id) |>
             mutate(
               first_injury_year = min(year[!is.na(injury_type)], na.rm = TRUE),
