@@ -7,7 +7,7 @@ from jax import hessian
 from scipy.linalg import cho_solve, cho_factor, cholesky
 from numpyro.infer.util import log_density
 from numpyro import sample 
-from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, LKJ, BetaProportion, Distribution, Uniform, BetaBinomial, Gamma, BinomialLogits
+from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Binomial, Dirichlet, MultivariateNormal, LKJ, BetaProportion, Distribution, Uniform, BetaBinomial, Gamma, BinomialLogits, NegativeBinomial2
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, TraceEnum_ELBO, Predictive, init_to_value, init_to_feasible, init_to_uniform, init_to_mean
 from numpyro.infer.autoguide import AutoDelta, AutoDiagonalNormal, AutoNormal, AutoLowRankMultivariateNormal, AutoLaplaceApproximation
 import optax
@@ -427,13 +427,14 @@ class ConvexMaxBoundaryTVRFLVM(ConvexTVRFLVM):
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
         self.prior["lengthscale"] = InverseGamma(2.0, 1.0)
-        self.prior["sigma_beta"] = InverseGamma(2.0, 1.0)
-        self.prior["sigma_beta_binomial"] = InverseGamma(2.0, 1.0)
-        self.prior["sigma_c"] = InverseGamma(2.0, .3)
+        self.prior["sigma_beta"] = Gamma(5000, 100.0)
+        self.prior["sigma_beta_binomial"] = Gamma(5000, 100.0)
+        self.prior["sigma_negative_binomial"] = Gamma(50, 10)
+        self.prior["sigma_c"] = InverseGamma(2.0, 1.0)
         self.prior["sigma_boundary_r"] = InverseGamma(2.0, 3.0)
         self.prior["sigma_boundary_l"] = InverseGamma(2.0, 3.0)
-        self.prior["sigma_t"] = InverseGamma(2.0, .3)
-        self.prior["alpha"] = InverseGamma(100.0, .0003)
+        self.prior["sigma_t"] = InverseGamma(2.0, 1.0)
+        self.prior["alpha"] = InverseGamma(100.0, .03)
         self.prior["t_max_raw"] = Normal()
         self.prior["c_max"] = Normal()
         self.prior["boundary_l"] = Normal()
@@ -441,6 +442,7 @@ class ConvexMaxBoundaryTVRFLVM(ConvexTVRFLVM):
     def model_fn(self, data_set, hsgp_params, offsets = {}, inference_method:str = "prior") -> None:
         prior = (inference_method == "prior")
         num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
+        num_neg_bins = data_set["negative-binomial"]["Y"].shape[0] if "negative-binomial" in data_set else 0
         num_metrics = sum(len(data_set[family]["indices"]) for family in data_set)
         phi_time  = hsgp_params["phi_x_time"]
         L_time = hsgp_params["L_time"]
@@ -469,6 +471,9 @@ class ConvexMaxBoundaryTVRFLVM(ConvexTVRFLVM):
             expanded_sigmas = jnp.tile(sigmas[:, None, None], (1, self.n, self.j))
         sigma_beta = self.prior["sigma_beta"] if not isinstance(self.prior["sigma_beta"], Distribution) else sample("sigma_beta", self.prior["sigma_beta"])
         sigma_beta_binomial = self.prior["sigma_beta_binomial"] if not isinstance(self.prior["sigma_beta_binomial"], Distribution) else sample("sigma_beta_binomial", self.prior["sigma_beta_binomial"])
+        if num_neg_bins > 0:
+            sigma_negative_binomial = self.prior["sigma_negative_binomial"] if not isinstance(self.prior["sigma_negative_binomial"], Distribution) else sample("sigma_negative_binomial", self.prior["sigma_negative_binomial"], sample_shape=(num_neg_bins, ))
+            expanded_sigma_neg_bin = jnp.tile(sigma_negative_binomial[:, None, None], (1, self.n, self.j))
         X = self.prior["X"] if not isinstance(self.prior["X"], Distribution) else sample("X", self.prior["X"])
         
 
@@ -519,6 +524,9 @@ class ConvexMaxBoundaryTVRFLVM(ConvexTVRFLVM):
             elif family == "poisson":
                 rate = jnp.exp(linear_predictor + jnp.where(mask, exposure, 0))
                 dist = Poisson(rate).mask(mask)
+            elif family == "negative-binomial":
+                rate = jnp.exp(linear_predictor + jnp.where(mask, exposure, 0))
+                dist = NegativeBinomial2(mean = rate, concentration = expanded_sigma_neg_bin).mask(mask)
             elif family == "binomial":
                 rate = linear_predictor
                 dist = BinomialLogits(logits = rate, total_count=jnp.where(mask, exposure.astype(int), 0)).mask(mask)
@@ -603,6 +611,7 @@ class ConvexMaxBoundaryARTVRFLVM(ConvexMaxBoundaryTVRFLVM):
         super().initialize_priors(*args, **kwargs)
         self.prior["rho_ar"] = Uniform(-1,1)
         self.prior["sigma_ar"] = InverseGamma(2, 1)
+        # self.prior["sigma_ar"] = Exponential(50)
         self.prior["beta_ar"] = Normal()
     
     def make_kernel(self, sigma, rho, time_delta):

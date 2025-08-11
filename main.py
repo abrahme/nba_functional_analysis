@@ -161,7 +161,7 @@ if __name__ == "__main__":
                 offset_boundary_l.append(boundary_l)
                 offset_boundary_r.append(boundary_r)
             else:
-                if family == "poisson":
+                if family in ["poisson", "negative-binomial"]:
                     p = jnp.nansum(Y[index]) / jnp.nansum(jnp.exp(exposures[index]))
                     p_max = jnp.nanmean(jnp.nanmax(Y[index] / jnp.exp(exposures[index]), -1))
                     peak = jnp.nanmean(jnp.nanargmax(Y[index] / jnp.exp(exposures[index]), -1))
@@ -260,6 +260,7 @@ if __name__ == "__main__":
         weights = weights * spd * .0001
         lengthscale = samples["lengthscale__loc"]
         print(1 / lengthscale)
+        print(samples["sigma_beta__loc"], samples["sigma_beta_binomial__loc"])
         W = samples["W__loc"]
         X = samples["X__loc"]
         X_center = X - jnp.mean(X, keepdims = True, axis = 0)
