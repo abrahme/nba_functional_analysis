@@ -19,6 +19,9 @@ RUN apt-get update && \
         g++ \
         tmux \
         curl \
+        chromium \
+
+
         ###################################################
         ### Add your own system dependencies installed  ###
         ### with `apt-get` as needed below this comment ###

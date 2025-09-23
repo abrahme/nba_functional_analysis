@@ -2,10 +2,13 @@ import pandas as pd
 import numpy as np
 import jax
 import jax.numpy as jnp
+import re
 import argparse
 import pickle
 import numpyro
+from functools import partial
 import plotly.express as px
+from plotly.subplots import make_subplots
 import plotly.figure_factory as ff
 import plotly.graph_objects as go
 from sklearn.manifold import TSNE
@@ -14,9 +17,10 @@ from scipy.cluster.hierarchy import linkage, leaves_list
 from numpyro.diagnostics import print_summary
 from model.hsgp import  diag_spectral_density, make_convex_f, make_psi_gamma,  vmap_make_convex_phi, vmap_make_convex_phi_prime
 jax.config.update("jax_enable_x64", True)
-from model.inference_utils import get_latent_sites
+from model.inference_utils import get_latent_sites, create_metric_trajectory_map
+from model.model_utils import make_mu, compute_residuals_map
 from data.data_utils import create_fda_data, average_peak_differences
-from model.models import RFLVM, TVRFLVM, ConvexTVRFLVM, ConvexMaxTVRFLVM, GibbsRFLVM, GibbsTVRFLVM, GibbsConvexMaxBoundaryTVRFLVM, ConvexMaxBoundaryTVRFLVM, ConvexMaxBoundaryKronTVRFLVM, ConvexMaxBoundaryARTVRFLVM
+from model.models import  ConvexTVRFLVM, ConvexMaxTVRFLVM, GibbsConvexMaxBoundaryTVRFLVM, GibbsConvexMaxBoundaryARTVRFLVM, ConvexMaxBoundaryTVRFLVM, ConvexMaxBoundaryARTVRFLVM, ConvexMaxARTVRFLVM
 from visualization.visualization import plot_posterior_predictive_career_trajectory_map, plot_prior_predictive_career_trajectory, plot_prior_mean_trajectory
 
 
@@ -41,6 +45,9 @@ if __name__ == "__main__":
     parser.add_argument("--position_group", help = "which position group to run the model for", required = True, choices=["G", "F", "C", "all"])
     parser.add_argument("--validation_year", help = "year format of {yyyy} indicating for which dates prior and including will be included in training set", required=True, 
                         default = 2021, type = int)
+    parser.add_argument("--cohort_year", help = "year format of {yyyy} indicating for which cohort dates prior and including will be included in training set", required=True, 
+                        default = 2021, type = int)
+    parser.add_argument("--de_trend_metrics", help = "csv list of which metrics to de trend", required = False, default = [], type = lambda x: x.split(","))
     numpyro.set_platform("gpu")
     args = vars(parser.parse_args())
     inference_method = args["inference_method"]
@@ -59,9 +66,12 @@ if __name__ == "__main__":
     vectorized = args["vectorized"]
     output_path = args["output_path"] if args["output_path"] else f"model_output/{model_name}.pkl"
     players = args["player_names"]
+    de_trend_metrics = args["de_trend_metrics"]
     validation_year = args["validation_year"]
+    cohort_year = args["cohort_year"]
     position_group = args["position_group"]
-    data = pd.read_csv("data/injury_player_cleaned.csv").query(f"age <= 38 & name != 'Brandon Williams' & year <= {validation_year}")
+    data = pd.read_csv("data/injury_player_cleaned.csv").query(f"age <= 38 & name != 'Brandon Williams' & year <= {validation_year}") ### filter out years that happen after this year
+    data = data.groupby("id").filter(lambda x: x["year"].min() <= cohort_year) ### filter out players who entered the league after this cohort year
     data["first_major_injury"] = data["first_major_injury"].fillna("None")
     names = data.groupby("id")["name"].first().values.tolist()
     data["log_min"] = np.log(data["minutes"])
@@ -69,48 +79,72 @@ if __name__ == "__main__":
     data["games_exposure"] = np.maximum(data["total_games"], data["games"]) ### 82 or whatever
     data["pct_minutes"] = (data["minutes"] / data["games"]) / 48
     data["retirement"] = 1
-    metric_output = ["beta-binomial", "beta"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+    metric_output = ["beta-binomial", "beta"] + (["gaussian"] * 2) + (["negative-binomial"] * 9) + (["binomial"] * 3)
     metrics = ["games", "pct_minutes", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","fg3a","ftm","fg2m","fg3m"]
     exposure_list = (["games_exposure", "games_exposure"]) + (["minutes"] * 11) + ["fta","fg2a","fg3a"]
-
+    for metric, metric_type, exposure in zip(metrics, metric_output, exposure_list):
+        if metric_type in ["gaussian", "beta"]:
+            league_avg_broadcasted = data.groupby(["year"]).apply(
+            lambda g: (g[metric]*g[exposure]).sum() / g[exposure].sum()).reset_index().rename(columns={0: f"{metric}_league_avg"})
+            
+            data = data.merge(league_avg_broadcasted)
+        elif metric_type in ["poisson", "negative-binomial", "binomial", "beta-binomial"]:
+            data[f"{metric}_league_avg"] = data.groupby("year")[metric].transform("sum") / data.groupby("year")[exposure].transform("sum")
+    
     if players:
-        player_indices = [names.index(item) for item in players]
+        pattern = r"class-of-(\d{4})"
+        player_indices = []
+        for item in players:
+            match = re.fullmatch(pattern, item)
+            if item == "low-minutes":
+                total_mins = data.groupby("id")["minutes"].sum().reset_index()
+                for index, val in enumerate(total_mins["minutes"].values.tolist()):
+                    if val <= np.percentile(total_mins["minutes"], 25) and index not in player_indices: 
+                        player_indices.append(index) 
+            elif match:
+                year = int(match.group(1))
+                subset =  data.groupby("id")["year"].min().reset_index()
+                
+                for index,val in enumerate(subset["year"].values.tolist()):
+                    if index not in player_indices and val == year:
+                        player_indices.append(index)
+            else:
+                if names.index(item) not in player_indices:
+                    player_indices.append(names.index(item))
     elif position_group in ["G","F","C"]:
         all_indices = data.drop_duplicates(subset=["position_group","name","id"]).reset_index()
         player_indices = all_indices[all_indices["position_group"] == position_group].index.values.tolist()
     else:
         player_indices = []
-        
-    if model_name == "gibbs_nba_rflvm":
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices, injury=injury, validation_year=validation_year)
-        model = GibbsRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)))
-    elif model_name == "gibbs_nba_tvrflvm":
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices, injury=injury, validation_year=validation_year)
-        model = GibbsTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
-    elif model_name == "gibbs_nba_convex_tvrflvm_max_boundary":
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices, injury=injury, validation_year=validation_year)
+    
+    de_trend_indices = [True if metric in de_trend_metrics else False for metric in metrics]
+
+    
+    if model_name == "gibbs_nba_convex_tvrflvm_max_boundary":
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, [], injury=injury, validation_year=validation_year)
         model = GibbsConvexMaxBoundaryTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
-    elif "rflvm" in model_name:
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_indices, injury=injury, validation_year=validation_year)
-        model = RFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)))
-        if "convex" in model_name:
-            model = ConvexTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
-            if "max" in model_name:
-                model = ConvexMaxTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
-                if "boundary" in model_name:
-                    model = ConvexMaxBoundaryTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
-                    if "kron" in model_name:
-                        model = ConvexMaxBoundaryKronTVRFLVM(latent_rank_1=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis, num_metrics=len(metrics), latent_rank_2=basis_dims_2)
-                    elif "AR" in model_name:
-                        model = ConvexMaxBoundaryARTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
-        elif "tvrflvm" in model_name:
-            model = TVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+    elif model_name == "gibbs_nba_convex_tvrflvm_max_boundary_AR":
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, [], injury=injury, validation_year=validation_year)
+        model = GibbsConvexMaxBoundaryARTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+    elif "convex" in model_name:
+        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, [], injury=injury, validation_year=validation_year)
+        
+        model = ConvexTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+        if "max" in model_name:
+            model = ConvexMaxTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+            if "boundary" in model_name:
+                model = ConvexMaxBoundaryTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+                if "AR" in model_name:
+                    model = ConvexMaxBoundaryARTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+            else:
+                if "AR" in model_name:
+                    model = ConvexMaxARTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+
    
     else:
         raise ValueError("Model not implemented")
     
 
-    print(covariate_X.shape)
     model.initialize_priors()
     initial_params = {}
     if "rflvm" in model_name:
@@ -125,8 +159,6 @@ if __name__ == "__main__":
                 results_param = {key.replace("__loc",""):val for key,val in results_param.items()}
             for param_name in results_param:
                 value = results_param[param_name]
-                if (param_name == "X") and (player_indices):
-                    value = results_param[param_name][jnp.array(player_indices)]
                 response = input(f"Fix parameter {param_name} ?" + " [Y/N]: ")
                 if response == "Y":
                     prior_dict[param_name] = numpyro.deterministic(param_name, value)
@@ -138,15 +170,17 @@ if __name__ == "__main__":
                 ### we're usually initializing from autodelta in the numpyro sense so the loc suffix is present. need for all guide models but not for mcmc since 
                 ### the sample site is used and the name needs to match
                 initial_params = {key.replace("__loc",""):val for key,val in initial_params.items()}
-                for param_name in initial_params:
-                    if (param_name == "X") and (player_indices):
-                        initial_params[param_name] = initial_params[param_name][jnp.array(player_indices)]
+                if (len(player_indices) > 0):
+                    initial_params["X_free"] = initial_params["X"][jnp.array(player_indices)]
+
         model.prior.update(prior_dict)
         distribution_families = set([data_entity["output"] for data_entity in data_set])
         distribution_indices = {family: jnp.array([index for index, data_entity in enumerate(data_set) if family == data_entity["output"]]) for family in distribution_families}
         masks = jnp.stack([data_entity["mask"] for data_entity in data_set])
         exposures = jnp.stack([data_entity["exposure_data"] for data_entity in data_set])
         Y = jnp.stack([data_entity["output_data"] for data_entity in data_set])
+        de_trend = jnp.stack([data_entity["de_trend"] for data_entity in data_set]) 
+        de_trend = jnp.where(jnp.array(de_trend_indices)[..., None, None], de_trend, 0.0)
         offset_list = []
         offset_max_list = []
         offset_peak_list = []
@@ -188,7 +222,6 @@ if __name__ == "__main__":
         offset_peak = jnp.array(offset_peak_list)[None]
         offset_boundary_r = jnp.log(jnp.exp(2) - 1)
         offset_boundary_l = jnp.log(jnp.exp(2) - 1)
-        num_gaussians = 0 if "gaussian" not in distribution_indices else len(distribution_indices.get('gaussian'))
         data_dict = {}
         for family in distribution_families:
             family_dict = {}
@@ -197,6 +230,7 @@ if __name__ == "__main__":
             family_dict["exposure"] = exposures[indices]
             family_dict["mask"] = masks[indices]
             family_dict["indices"] = indices
+            family_dict["de_trend"] = de_trend[indices]
             data_dict[family] = family_dict
         if "convex" in model_name:
                 hsgp_params = {}
@@ -210,7 +244,10 @@ if __name__ == "__main__":
                 hsgp_params["shifted_x_time"] = x_time + L_time
                 hsgp_params["t_0"] = jnp.min(x_time)
                 hsgp_params["t_r"] = jnp.max(x_time)
-        model_args = {"data_set": data_dict, "offsets": offsets, "inference_method": inference_method}
+
+        model_args = {"data_set": data_dict, "offsets": offsets, "inference_method": inference_method, "sample_free_indices": jnp.array(player_indices), 
+                      "sample_fixed_indices": jnp.setdiff1d(jnp.arange(covariate_X.shape[0]), jnp.array(player_indices), assume_unique=True)}
+
         if "gibbs" in model_name:
             if "convex" in model_name:
                 model_args.update({"hsgp_params": hsgp_params})
@@ -230,20 +267,84 @@ if __name__ == "__main__":
                 model_args.update({ "hsgp_params": hsgp_params})
                 if "max" in model_name:
                     model_args["offsets"] = {"t_max": offset_peak, "c_max": offset_max, "boundary_r": offset_boundary_r, "boundary_l": offset_boundary_l}
+                    if "AR" in model_name and (len(initial_params) > 0) & (inference_method == "mcmc"):
+                        mu, *_ = make_mu(initial_params["X"], initial_params["lengthscale_deriv"], initial_params["alpha"], initial_params["beta"],
+                                            initial_params["W"], initial_params["lengthscale"], initial_params["c_max"], initial_params["t_max_raw"], initial_params["sigma_t"],
+                                            initial_params["sigma_c"], L_time, M_time, phi_time, x_time + L_time, model_args["offsets"])
+                        obs, preds = create_metric_trajectory_map(mu, [], Y, exposures, metric_output, metrics)
+                        
+                        avg_sd, autocorr = compute_residuals_map(preds["y"], obs["y"], exposures, metric_output, initial_params["sigma"], initial_params["sigma_negative_binomial"], 
+                                                                initial_params["sigma_beta_binomial"], initial_params["sigma_beta"])
+                        # avg_sd = jnp.ones((len(metrics))) * .01
+                        # autocorr = jnp.zeros_like(avg_sd)
+                        model_args["offsets"].update({"avg_sd": avg_sd, "rho":autocorr})
+                        print(avg_sd, autocorr)
+                        # raise ValueError
+                        # model_args["offsets"].update({"avg_sd" : jnp.ones(16)})
+  
             if map_inference:
-                samples = model.run_map_inference(num_steps=50000, model_args=model_args, initial_values=initial_params)
+                samples = model.run_map_inference(num_steps=9000, model_args=model_args, initial_values=initial_params)
             elif prior_predictive:
                 print("sampling from prior")
                 samples = model.predict({}, model_args, num_samples = num_samples)
             elif mcmc_inference:
-                samples = model.run_inference(num_chains=num_chains, num_samples=num_samples, num_warmup=num_warmup, vectorized=vectorized, model_args=model_args, initial_values=initial_params)
+                samples = model.run_inference(num_chains=num_chains, num_samples=num_samples, num_warmup=num_warmup, vectorized=vectorized, 
+                model_args=model_args, initial_values=initial_params, thinning = int(num_samples / 50))
 
             elif svi_inference:
                 samples = model.run_svi_inference(num_steps=300, guide_kwargs={}, model_args=model_args, initial_values=initial_params, 
                                                          sample_shape = (num_chains, num_samples))
     if mcmc_inference:
         print_summary(samples)
+        
+        # log_prior, log_likelihood = extra["log_prior"], extra["log_likelihood"]
+        # num_chains, num_samples = log_prior.shape
 
+        # fig = make_subplots(
+        #     rows=1, cols=2,
+        #     subplot_titles=("Log Prior", "Log Likelihood"),
+        #     shared_xaxes=True
+        # )
+
+        # x = jnp.arange(num_samples)
+
+        # # Left subplot: log prior
+        # for c in range(num_chains):
+        #     fig.add_trace(
+        #         go.Scatter(
+        #             x=x,
+        #             y=log_prior[c],
+        #             mode="lines",
+        #             name=f"chain {c}",
+        #         ),
+        #         row=1, col=1
+        #     )
+
+        # # Right subplot: log likelihood
+        # for c in range(num_chains):
+        #     fig.add_trace(
+        #         go.Scatter(
+        #             x=x,
+        #             y=log_likelihood[c],
+        #             mode="lines",
+        #             name=f"chain {c}",
+        #             showlegend=(c == 0),  # only show legend once
+        #         ),
+        #         row=1, col=2
+        #     )
+
+        # fig.update_xaxes(title_text="Sample", row=1, col=1)
+        # fig.update_xaxes(title_text="Sample", row=1, col=2)
+        # fig.update_yaxes(title_text="Value", row=1, col=1)
+        # fig.update_yaxes(title_text="Value", row=1, col=2)
+
+        # fig.update_layout(
+        #     title="Log Prior and Log Likelihood by Chain",
+        #     template="plotly_white",
+        #     legend_title="Chain"
+        # )
+
+        # fig.write_image("model_outputs/model_plots/log_terms.png", width=1200, height=400)
     if not prior_predictive:
         with open(output_path, "wb") as f:
             pickle.dump(samples, f)
@@ -346,64 +447,6 @@ if __name__ == "__main__":
                         opacity = .1, title="PCA Visualization of Latent Player Embedding", )
         fig.update_traces(textfont = dict(size = 7))
         fig.write_image(f"model_output/model_plots/latent_space/map/{model_name}_pca.png", format = "png")
-
-        if "kron" in model_name:
-
-            LKJ = samples["LKJ__loc"]
-            cov_mat_dict = {"cov_t_max": LKJ[0], "cov_c_max":LKJ[1], "cov_boundary_l":LKJ[2], "cov_boundary_r": LKJ[3]}
-            for cov_type in cov_mat_dict:
-                D = cov_mat_dict[cov_type]
-                    # ---- Hierarchical clustering ----
-                linkage_mat = linkage(D, method="ward")
-                order = leaves_list(linkage_mat)
-
-                # ---- Reorder correlation matrix ----
-                C_reordered = D[np.ix_(order, order)]
-                labels_ordered = [metrics[i] for i in order]
-
-                # ---- Create dendrograms ----
-                dendro_rows = ff.create_dendrogram(D, orientation='left', linkagefun=lambda _: linkage_mat, labels=labels_ordered)
-                dendro_cols = ff.create_dendrogram(D, orientation='top', linkagefun=lambda _: linkage_mat, labels=labels_ordered)
-
-                # ---- Create heatmap ----
-                heatmap = go.Heatmap(
-                    z=C_reordered,
-                    x=labels_ordered,
-                    y=labels_ordered,
-                    colorscale='RdBu',
-                    zmin=0,
-                    zmax=1,
-                    xaxis='x2',
-                    yaxis='y2',
-                    reversescale=False
-                )
-
-                # ---- Combine into single figure ----
-                fig = go.Figure()
-
-                for trace in dendro_cols['data']:
-                    fig.add_trace(trace)
-                for trace in dendro_rows['data']:
-                    fig.add_trace(trace)
-                fig.add_trace(heatmap)
-
-                fig.update_layout(
-                    width=900,
-                    height=900,
-                    showlegend=False,
-                    hovermode='closest',
-                    xaxis=dict(domain=[0.15, 1.0], zeroline=False, showticklabels=False, ticks=''),
-                    yaxis=dict(domain=[0.15, 1.0], zeroline=False, showticklabels=False, ticks=''),
-                    xaxis2=dict(domain=[0.15, 1.0], anchor='y2'),
-                    yaxis2=dict(domain=[0.15, 1.0], anchor='x2'),
-                    margin=dict(t=50, l=50)
-                )
-
-                # Plot!
-
-                fig.write_image(f"model_output/model_plots/loading_correlation/{file_pre}/{model_name}_{cov_type}.png", format = "png")
-
-
 
         players_df = id_df[id_df["name"].isin(predict_players)]
         for index, row in players_df.iterrows():

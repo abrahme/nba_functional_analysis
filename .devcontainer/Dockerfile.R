@@ -1,5 +1,5 @@
 FROM docker.io/rocker/tidyverse:latest
-RUN install2.r --error --deps TRUE uwot HDInterval ggrepel ggridges ggnewscale pheatmap
+RUN install2.r --error --deps TRUE uwot HDInterval ggrepel ggridges ggnewscale pheatmap gt ggdist nnTensor ggbeeswarm umap
 
 ### Environment variables
 ENV GITHUB_CLI_VERSION 2.30.0
@@ -20,6 +20,10 @@ RUN apt-get update && \
         g++ \
         tmux \
         curl \
+        tcl8.6 \
+        tk8.6 \
+        libtcl8.6 \
+        libtk8.6 \
         ###################################################
         ### Add your own system dependencies installed  ###
         ### with `apt-get` as needed below this comment ###

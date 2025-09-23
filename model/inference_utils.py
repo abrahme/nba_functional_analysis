@@ -6,8 +6,58 @@ import jax
 import jax.numpy as jnp
 import jax.scipy as jsc
 from numpyro import handlers
-from numpyro.distributions import Normal, Poisson, BinomialLogits, BetaProportion, BetaBinomial
+from numpyro.handlers import trace, condition, seed
+from numpyro.distributions import Normal, Poisson, BinomialLogits, BetaProportion, BetaBinomial, NegativeBinomial2
 # jax.config.update('jax_platform_name', 'cuda')
+
+
+import numpy as np
+import pandas as pd
+
+import numpy as np
+import pandas as pd
+
+def posterior_X_to_df(posterior_samples, ids, names, minutes, position_group, labels):
+    """
+    posterior_samples: array of shape (num_chain, num_samples, N, D)
+    ids: array of length N giving arbitrary id numbers for each index in N
+    labels: subset of ids -> marked as "sampled"; others as "fixed"
+    """
+    num_chain, num_samples, N, D = posterior_samples.shape
+    # Create index grids
+    chain_idx, sample_idx, n_idx = np.meshgrid(
+        np.arange(num_chain),
+        np.arange(num_samples),
+        np.arange(N),
+        indexing="ij"
+    )
+
+    # Flatten values
+    flat_values = posterior_samples.reshape(-1, D)
+    flat_chain = chain_idx.ravel()
+    flat_sample = sample_idx.ravel()
+    flat_n = n_idx.ravel()
+
+    # Map index -> arbitrary id
+    flat_id = np.array(ids)[flat_n]
+    flat_names = np.array(names)[flat_n]
+    flat_minutes = np.array(minutes)[flat_n]
+    flat_position_group = np.array(position_group)[flat_n]
+    # Label based on id membership
+    flat_label = np.where(np.isin(flat_n, labels), "sampled", "fixed")
+
+    # Build DataFrame
+    df = pd.DataFrame(flat_values, columns=[f"Dim {str(i+1)}" for i in range(D)])
+    df["chain"] = flat_chain
+    df["sample"] = flat_sample
+    df["id"] = flat_id
+    df["name"] = flat_names
+    df["minutes"] = flat_minutes
+    df["position_group"] = flat_position_group
+    df["label"] = flat_label
+
+    return df
+
 
 
 def posterior_to_df(posterior_samples, ids, metrics, ages):
@@ -33,6 +83,42 @@ def posterior_to_df(posterior_samples, ids, metrics, ages):
     })
     return df
 
+def loadings_to_df(loading_samples, ids, metrics, weights):
+    K, D, T = loading_samples.shape
+        # Create index grids
+    d_idx, t_idx, k_idx = np.meshgrid(
+        np.arange(D),
+        np.arange(T),
+        np.arange(K),
+        indexing='ij'
+    )
+
+    # Flatten and convert indices to labels
+    df = pd.DataFrame({
+        'player': np.array(ids)[d_idx.ravel()],
+        'metric': np.array(metrics)[k_idx.ravel()],
+        'weights': np.array(weights)[t_idx.ravel()],
+        'value': loading_samples.ravel()
+    })
+    return df
+
+def time_factors_to_df(factor_samples, ages):
+    D, T = factor_samples.shape
+    d_idx, t_idx = np.meshgrid(
+        np.arange(D),
+        np.arange(T),
+        indexing='ij'
+    )
+
+    # Flatten and convert indices to labels
+    df = pd.DataFrame({
+        'factor': np.arange(D)[d_idx.ravel()],
+        'age': np.array(ages)[t_idx.ravel()],
+        'value': factor_samples.ravel()
+    })
+    return df
+
+
 def posterior_peaks_to_df(posterior_peak_samples, ids, metrics):
     N_chains, N_samples, D, K = posterior_peak_samples.shape
     chain_idx, sample_idx, d_idx, k_idx = np.meshgrid(
@@ -53,6 +139,19 @@ def posterior_peaks_to_df(posterior_peak_samples, ids, metrics):
     })
     return df
 
+def single_log_terms(s, model, model_args):
+    conditioned = condition(model, s)
+    tr = trace(seed(conditioned, rng_seed=0)).get_trace(**model_args)
+
+    log_prior, log_likelihood = 0.0, 0.0
+    for site in tr.values():
+        if site["type"] == "sample":
+            logp = site["fn"].log_prob(site["value"]).sum()
+            if site.get("is_observed", False):
+                log_likelihood += logp
+            else:
+                log_prior += logp
+    return log_prior, log_likelihood
 
 def get_latent_sites(model, model_args):
     seeded_model = handlers.seed(model, rng_seed=0)
@@ -116,9 +215,11 @@ def match_align(Phi):
 
     return Phi_star
 
-def create_metric_trajectory_all(posterior_mean_samples, observations, exposures, metric_outputs: list[str], metrics: list[str], exposure_names: list[str], posterior_variance_samples = None, posterior_dispersion_samples = None, posterior_kappa_samples=None):
+def create_metric_trajectory_all(posterior_mean_samples, observations, exposures, metric_outputs: list[str], metrics: list[str], exposure_names: list[str], posterior_variance_samples = None, posterior_dispersion_samples = None, posterior_kappa_samples=None,
+                                 posterior_neg_bin_samples = None):
     key = jax.random.key(0)
     gaussian_index = 0
+    neg_bin_index = 0
     obs_exposure_map = {m: e for m, e in zip(metrics, exposure_names)}
     minutes_index = metrics.index("pct_minutes")
     games_index = metrics.index("games")  ### 1 -> playing, 0 --> retired
@@ -137,11 +238,11 @@ def create_metric_trajectory_all(posterior_mean_samples, observations, exposures
     #### then sample minutes 
     post_min = posterior_mean_samples[..., minutes_index, :, :]
     posterior_predictions_min = BetaProportion(jsc.special.expit(post_min), posterior_dispersion_samples * jnp.sqrt(posterior_predictions_games_exposure + 1)).sample(key = key) * (48 * posterior_predictions_games)
-    posterior_predictions_min = posterior_predictions_min.at[posterior_predictions_games == 0].set(0)
+    # posterior_predictions_min = posterior_predictions_min.at[posterior_predictions_games == 0].set(0)
     obs_min = observations[minutes_index]
     posterior_predictions_min_exposure = jnp.where(~jnp.isnan(obs_min)[None, None, ...], obs_min[None,None,...] * 48 * exposure_games, posterior_predictions_min)
-    posteriors = {"games": posterior_predictions_games, "minutes":posterior_predictions_min}
-    obs_normalized = {"games": obs_games / exposure_games, "minutes": obs_min * 48 * exposure_games}
+    posteriors = {"games": posterior_predictions_games / exposure_games, "minutes":jnp.where(posterior_predictions_games == 0, 0, posterior_predictions_min / (posterior_predictions_games * 48))}
+    obs_normalized = {"games": obs_games / exposure_games, "minutes": obs_min}
     ### sample all the poisson metrics using posterior predictions log min as exposure, and sample obpm / dbpm using sqrt(minutes) as exposure
     for metric_index, metric_output in enumerate(metric_outputs):
         metric = metrics[metric_index]
@@ -154,13 +255,18 @@ def create_metric_trajectory_all(posterior_mean_samples, observations, exposures
             scale = posterior_variance_samples[gaussian_index][..., None, None] / jnp.sqrt(posterior_predictions_min_exposure)
             dist = Normal()
             posterior_predictions = (dist.sample(key = key, sample_shape=post.shape) * scale + post)
-            posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_min_exposure < 1)].set(-2.0)
+            # posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_min_exposure < 1)].set(-2.0)
             gaussian_index += 1
             obs_normal = obs
-        elif metric_output == "poisson":
-            dist = Poisson(rate = jnp.exp(post) * posterior_predictions_min_exposure )
+        elif metric_output in ["poisson", "negative-binomial"]:
+            rate = jnp.exp(post) * posterior_predictions_min_exposure
+            if metric_output == "poisson":
+                dist = Poisson(rate = rate)
+            elif metric_output == "negative-binomial":
+                dist = NegativeBinomial2(mean = rate, concentration=posterior_neg_bin_samples[neg_bin_index][..., None, None])
+                neg_bin_index += 1
             posterior_predictions = 36 * (dist.sample(key = key) / posterior_predictions_min_exposure)  ### per 36 min statistics
-            posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_min_exposure == 0)].set(0) ### set to 0 wherever 
+            # posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_min_exposure == 0)].set(0) ### set to 0 wherever 
             obs_normal = 36.0 * (obs / jnp.exp(exposure))
         elif metric_output == "binomial":
             exp_name = obs_exposure_map[metric]
@@ -168,7 +274,7 @@ def create_metric_trajectory_all(posterior_mean_samples, observations, exposures
             counts = (jnp.where(~jnp.isnan(exposure)[None, None, ...], exposure[None,None,...], exp_values)) 
             dist = BinomialLogits(logits = post, total_count = jnp.astype(counts, jnp.int64)) 
             posterior_predictions = dist.sample(key = key) / counts
-            posterior_predictions = posterior_predictions.at[jnp.where(counts == 0)].set(0)
+            # posterior_predictions = posterior_predictions.at[jnp.where(counts == 0)].set(0)
             obs_normal = obs / exposure
 
         posteriors[metric] = posterior_predictions
@@ -275,7 +381,7 @@ def create_metric_trajectory_mu(posterior_mean_samples, player_index, observatio
             posterior_predictions = post
             obs_normal = obs
 
-        elif metric_output == "poisson":
+        elif metric_output in ["poisson", "negative-binomial"]:
             posterior_predictions = 36 * jnp.exp(post) 
             obs_normal = 36.0 * (obs / jnp.exp(exposure))
 
@@ -294,6 +400,10 @@ def create_metric_trajectory_mu(posterior_mean_samples, player_index, observatio
 
 
 def create_metric_trajectory_map(posterior_mean_map: jnp.ndarray, player_index, observations, exposures, metric_outputs: list[str], metrics: list[str]):
+    if type(player_index) == int:
+        pass
+    elif len(player_index) == 0:
+        player_index = jnp.arange(0, posterior_mean_map.shape[1])
     ### this is assuming that posterior_mean_map is shape (k,t)
     gaussian_index = 0
     minutes_index = metrics.index("pct_minutes")
@@ -323,10 +433,10 @@ def create_metric_trajectory_map(posterior_mean_map: jnp.ndarray, player_index, 
             posterior_predictions = post
             obs_normal = obs
             gaussian_index += 1
-        elif metric_output == "poisson":
+        elif metric_output in ["poisson", "negative-binomial"]:
             posterior_predictions = 36.0 * jnp.exp(post) / 1
             obs_normal = 36.0 * (obs / (1 * jnp.exp(exposure)))
-        elif metric_output == "binomial":
+        elif metric_output in ["binomial", "beta", "beta-binomial"]:
             posterior_predictions = jsc.special.expit(post)
             obs_normal = obs / exposure ### per shot
     

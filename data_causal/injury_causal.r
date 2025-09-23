@@ -9,10 +9,11 @@ library(glue)
 library(uwot)
 library(ggrepel)
 library(ggnewscale)
+library(ggdist)
 
 
 injury_data <- read.csv("data/injury_player_cleaned.csv") |> 
-    mutate( pct_games = games / pmax(games, 82, na.rm = TRUE),
+    mutate( pct_games = games / pmax(games, total_games, na.rm = TRUE),
             mpg = minutes / games,
             blk_rate = 36 * (blk / minutes),
             ast_rate = 36 * (ast / minutes),
@@ -56,13 +57,13 @@ causal_empirical <- ggplot(injury_data |> group_by(id, injury_period, metric, fi
 
 ggsave("model_output/model_plots/causal/empirical_att_causal_plot.png", causal_empirical)
 
-posterior_data <- read.csv("posterior_injury.csv")
+posterior_data <- read.csv("posterior_ar_injury.csv")
 print("loaded the posterior data")
-posterior_peaks <- read.csv("posterior_peaks_injury.csv")
+posterior_peaks <- read.csv("posterior_peaks_ar_injury.csv")
 latent_space <- read.csv("latent_space_injury.csv")
 
-posterior_data <- posterior_data |> mutate(value = case_when(metric == "pct_minutes" ~ value / 82, 
-                                                             metric == "games" ~ value / 82,
+posterior_data <- posterior_data |> mutate(value = case_when(metric == "pct_minutes" ~ value * 48, 
+                                                             metric == "games" ~ value,
                                                              .default = value)) |> 
                                     inner_join(posterior_peaks |> 
                                     rename(peak_age = value), by = c("player", "chain", "sample", "metric"))
@@ -88,23 +89,45 @@ joined_data <- posterior_data |>
                               .default = metric))
 print("joined the data with predictions")
 
-att_plot <- joined_data |> filter(injury_period == "post-injury")  |> group_by(player, metric, chain, sample) |> 
+att_plot <- joined_data |> filter(injury_period == "post-injury")  |> 
+mutate(obs_value = if_else(year <= 2026 & metric %in% c("games") & is.na(obs_value), 0, obs_value),
+        value = if_else(is.finite(value), value, NA_real_)) |>
+filter(!is.na(obs_value) & is.finite(obs_value)) |> 
+group_by(player, metric, chain, sample) |> 
 mutate(injury_type = if_else(min(age) > peak_age, "post-peak", "pre-peak")) |> ungroup() |>
-mutate(obs_value = if_else(year <= 2026 & !metric %in% c("obpm","dbpm") & is.na(obs_value), 0, obs_value)) |>
-filter(!is.na(obs_value)) |> 
 filter(first_major_injury %in% c("ACL", "Achilles", "Hip", "Back/Spine", "Patellar Tendon", "Quad Tendon", "Lower Body Fracture", "Meniscus")) |>
 mutate(injury_change =  obs_value - value) |> ungroup() |> 
 group_by(first_major_injury, metric, injury_type, chain, sample) |> 
-summarize(sample_ate = mean(injury_change)) |> ungroup() |> group_by(first_major_injury, metric, injury_type) |>
-    summarize(mean_ate = mean(sample_ate), lower = hdi(sample_ate, credMass = 0.95)["lower"],
-    upper = hdi(sample_ate, credMass = 0.95)["upper"]) |>
+summarize(sample_ate = mean(injury_change, na.rm = TRUE)) |> ungroup() |> group_by(first_major_injury, metric, injury_type) |>
+    summarize(mean_ate = mean(sample_ate), lower = HDInterval::hdi(sample_ate, credMass = 0.95)["lower"],
+    upper = HDInterval::hdi(sample_ate, credMass = 0.95)["upper"]) |>
     ggplot(aes(x = first_major_injury, y = mean_ate, color = injury_type)) + 
     geom_point( size = 3)  + scale_colour_brewer(palette = "Set1") + 
     geom_errorbar(aes(ymin = lower, ymax = upper), width = .2, ) + 
     facet_wrap(~metric, scales = "free_y") + theme_bw() + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
-    labs(y = "Average Treatment Effect for Treated (ATT) with 95% CI", x = "Injury") + 
+    labs(y = "Average Treatment Effect for Treated (ATT) with 95% CI", x = "Injury", color = "Injury Time Period") + 
     ggtitle("Average Treatment Effect for Treated (ATT) per Injury Type, by Metric") 
 ggsave("model_output/model_plots/causal/att_causal_plot.png", att_plot)
+
+att_plot_total <- joined_data |> filter(injury_period == "post-injury")  |> 
+mutate(obs_value = if_else(year <= 2026 & metric %in% c("games") & is.na(obs_value), 0, obs_value),
+        value = if_else(is.finite(value), value, NA_real_)) |>
+filter(!is.na(obs_value) & is.finite(obs_value)) |> 
+group_by(player, metric, chain, sample) |> 
+mutate(injury_type = if_else(min(age) > peak_age, "post-peak", "pre-peak")) |> ungroup() |>
+filter(first_major_injury %in% c("ACL", "Achilles", "Hip", "Back/Spine", "Patellar Tendon", "Quad Tendon", "Lower Body Fracture", "Meniscus")) |>
+mutate(injury_change =  obs_value - value) |> ungroup() |> 
+group_by(metric, injury_type, chain, sample) |> 
+summarize(sample_ate = mean(injury_change, na.rm = TRUE)) |> ungroup() |> group_by(metric, injury_type) |>
+    summarize(mean_ate = mean(sample_ate), lower = HDInterval::hdi(sample_ate, credMass = 0.95)["lower"],
+    upper = HDInterval::hdi(sample_ate, credMass = 0.95)["upper"]) |>
+    ggplot(aes(x = injury_type, y = mean_ate, color = injury_type)) + 
+    geom_point( size = 3)  + scale_colour_brewer(palette = "Set1") + 
+    geom_errorbar(aes(ymin = lower, ymax = upper), width = .2, ) + 
+    facet_wrap(~metric, scales = "free_y") + theme_bw() + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+    labs(y = "Average Treatment Effect for Treated (ATT) with 95% CI", x = "Injury Time Period", color = "Injury Time Period") + 
+    ggtitle("Average Treatment Effect for Treated (ATT) by Metric") 
+ggsave("model_output/model_plots/causal/att_causal_plot_total.png", att_plot_total)
 
 umap_latent_space <- umap(latent_space |> select(starts_with("Dim")), n_neighbors = 15, min_dist = 0.001, verbose = TRUE)
 
@@ -123,10 +146,11 @@ umap_df <- umap_df |> mutate(plot_name = if_else(name %in% plot_names, TRUE, FAL
 
 itt_df <- joined_data |> filter(injury_period == "post-injury") |> group_by(player, metric, chain, sample) |> 
 mutate(injury_type = if_else(min(age) > peak_age, "post-peak", "pre-peak")) |> ungroup() |>
-mutate(obs_value = if_else(year <= 2026 & !metric %in% c("obpm","dbpm") & is.na(obs_value), 0, obs_value)) |>
-filter(!is.na(obs_value)) |> 
+mutate(obs_value = if_else(year <= 2026 & metric %in% c("games") & is.na(obs_value), 0, obs_value),
+value = if_else(is.finite(value), value, NA_real_)) |>
+filter(!is.na(obs_value) & is.finite(obs_value)) |> 
 mutate(injury_change =  obs_value - value) |> ungroup() |> group_by(metric, player, first_major_injury, injury_type) |> 
-summarize(mean_itt = mean(injury_change)) |> ungroup()
+summarize(mean_itt = mean(injury_change, na.rm = TRUE)) |> ungroup()
 
 
 
@@ -199,6 +223,37 @@ plot_umap <- function(grouped_data_set){
 }
 
 
+plot_counterfactual_gp <- function(grouped_data_set) {
+
+  injury_type <- unique(grouped_data_set$first_major_injury)
+  group_name <- unique(grouped_data_set$name)
+  
+
+  raw_df <- grouped_data_set |>
+    group_by(injury_period, chain, sample) |> summarize(
+      counterfactual_gp = 82*sum(value, na.rm = TRUE),
+      total_obs_value = 82*sum(if_else(is.na(obs_value),0,obs_value)),
+      first_major_injury = first(first_major_injury),
+      player = first(player),
+      name = first(name)
+    ) |> ungroup() 
+  vline_val <- max(raw_df$total_obs_value)
+  dens <- density(raw_df$counterfactual_gp)
+  y_mid <- max(dens$y) *  .9  # middle of the density curve
+  plt <- ggplot(raw_df, aes(x = counterfactual_gp)) + 
+    geom_density() + 
+    geom_vline(aes(xintercept = vline_val), 
+              color = "blue",
+             linetype = "dashed", size = 1) +
+    annotate("text", label = glue("Observed Games Played: {round(vline_val)}"), x = vline_val, y = y_mid, vjust = -0.5, color = "black") +
+     scale_x_continuous(limits = c(0, NA)) + 
+    labs(x = "Games Played Post Injury", y = "Posterior Density") + 
+    ggtitle(glue("Counterfactual Games Played Post {injury_type} Injury: {group_name}")) + theme_bw() 
+
+  return(plt)
+}
+
+
 
 plot_counterfactual <- function(grouped_data_set) {
 
@@ -211,7 +266,7 @@ plot_counterfactual <- function(grouped_data_set) {
   
   injury_label <- raw_plt |> group_by(metric) |> 
     summarise(
-      upper = hdi(value, credMass = 0.95)["upper"],
+      upper = HDInterval::hdi(value, credMass = .95)["upper"],
       max_upper = max(upper),
       age_of_injury = first(age_of_injury),
       first_major_injury = first(first_major_injury)
@@ -219,10 +274,10 @@ plot_counterfactual <- function(grouped_data_set) {
   
   plt <- raw_plt |>
     group_by(metric, age) |> summarize(
-      posterior_mean = mean(value),
-      upper = hdi(value, credMass = 0.95)["upper"],
-      #max_upper = max(upper),
-      lower = hdi(value, credMass = 0.95)["lower"],
+      posterior_mean = mean(value, na.rm = TRUE),
+      upper = HDInterval::hdi(value, credMass = 0.95)["upper"],
+      max_upper = max(upper),
+      lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
       obs_value = first(obs_value),
       first_major_injury = first(first_major_injury),
       injury_period = first(injury_period),
@@ -246,12 +301,13 @@ plot_counterfactual <- function(grouped_data_set) {
       color = "black"
     )  +
     facet_wrap( ~ metric, scales = "free_y") +
-    labs(x = "Age", y = "Metric Value") + ggtitle(paste("Counterfactual Career Trajectory: ", group_name))
+    labs(x = "Age", y = "Metric Value") + ggtitle(paste("Counterfactual Career Trajectory: ", group_name)) + theme_bw()
   return(plt)
 }
 
 
-plots_list <- joined_data %>%
+plots_list <- joined_data %>% 
+  mutate(value = if_else(is.finite(value), value, NA_real_)) %>% 
   group_by(player) %>%
   group_split() %>%               # splits into a list of grouped tibbles
   map(~ {
@@ -260,6 +316,20 @@ plots_list <- joined_data %>%
     # Save the plot to disk (change path as needed)
     ggsave(
       filename = glue("model_output/model_plots/causal/{name}.png"),
+      plot = plt,
+    )
+    })
+
+plots_list <- joined_data %>%
+filter(metric == "GP%" & injury_period == "post-injury" & year <= 2026) %>%
+  group_by(player) %>%
+  group_split() %>%               # splits into a list of grouped tibbles
+  map(~ {
+    plt <- plot_counterfactual_gp(.x)
+    name <- unique(.x$name)
+    # Save the plot to disk (change path as needed)
+    ggsave(
+      filename = glue("model_output/model_plots/causal/{name}_gp_itt.png"),
       plot = plt,
     )
     })

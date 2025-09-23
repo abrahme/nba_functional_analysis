@@ -15,13 +15,13 @@ season_ending <- injury_data |>
     str_detect(Notes, regex("ACL", ignore_case = TRUE)) ~ "ACL",
     str_detect(Notes, regex("meniscus", ignore_case = TRUE)) ~ "Meniscus",
     str_detect(Notes, regex("labrum|labral|injury", ignore_case = TRUE)) & str_detect(Notes, regex("hip|pelvis", ignore_case = TRUE))  ~ "Hip",
-    str_detect(Notes, regex("labrum|labral", ignore_case = TRUE)) & !str_detect(Notes, regex("hip", ignore_case = TRUE))  ~ "Labrum",
+    # str_detect(Notes, regex("labrum|labral", ignore_case = TRUE)) & !str_detect(Notes, regex("hip", ignore_case = TRUE))  ~ "Labrum",
     str_detect(Notes, regex("rupture|torn", ignore_case = TRUE)) & str_detect(Notes, regex("patella", ignore_case = TRUE)) ~ "Patellar Tendon",
     str_detect(Notes, regex("rupture|torn", ignore_case = TRUE)) & str_detect(Notes, regex("quad", ignore_case = TRUE)) ~ "Quad Tendon",
     str_detect(Notes, regex("back|spine|disc|hernia|spinal", ignore_case = TRUE)) ~ "Back/Spine",
-    str_detect(Notes, regex("rotator", ignore_case = TRUE))  ~ "Rotator Cuff",
+    # str_detect(Notes, regex("rotator", ignore_case = TRUE))  ~ "Rotator Cuff",
     str_detect(Notes,regex("fracture|broken", ignore_case =  TRUE)) & str_detect(Notes, regex("tibia|ankle|femur|fibula|foot|leg|toe|navicular", ignore_case = TRUE)) ~ "Lower Body Fracture",
-    str_detect(Notes,regex("fracture|broken", ignore_case =  TRUE)) & str_detect(Notes, regex("arm|thumb|hand|wrist|finger|ulna", ignore_case = TRUE)) ~ "Upper Body Fracture",
+    # str_detect(Notes,regex("fracture|broken", ignore_case =  TRUE)) & str_detect(Notes, regex("arm|thumb|hand|wrist|finger|ulna", ignore_case = TRUE)) ~ "Upper Body Fracture",
     TRUE ~ "Other")) |>
     filter(injury_type != "Other") |> 
   group_by(name) |>
