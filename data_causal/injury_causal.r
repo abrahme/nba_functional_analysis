@@ -223,32 +223,53 @@ plot_umap <- function(grouped_data_set){
 }
 
 
-plot_counterfactual_gp <- function(grouped_data_set) {
+plot_counterfactual_metrics <- function(grouped_data_set) {
 
   injury_type <- unique(grouped_data_set$first_major_injury)
   group_name <- unique(grouped_data_set$name)
   
 
   raw_df <- grouped_data_set |>
-    group_by(injury_period, chain, sample) |> summarize(
-      counterfactual_gp = 82*sum(value, na.rm = TRUE),
-      total_obs_value = 82*sum(if_else(is.na(obs_value),0,obs_value)),
+    group_by(injury_period, chain, sample, metric) |> summarize(
+      counterfactual_value = case_when(metric == "GP%" ~ 82*sum(value, na.rm = TRUE),
+                                       .default = mean(value, na.rm = TRUE)),
+      total_obs_value = case_when(metric == "GP%" ~ 82*sum(if_else(is.na(obs_value),0,obs_value)),
+                                  .default = mean(obs_value, na.rm = TRUE)),
       first_major_injury = first(first_major_injury),
       player = first(player),
       name = first(name)
     ) |> ungroup() 
-  vline_val <- max(raw_df$total_obs_value)
-  dens <- density(raw_df$counterfactual_gp)
-  y_mid <- max(dens$y) *  .9  # middle of the density curve
-  plt <- ggplot(raw_df, aes(x = counterfactual_gp)) + 
+  obs_df <- raw_df %>%
+    group_by(injury_period, metric) %>%
+    summarize(total_obs_value = first(total_obs_value), .groups = "drop")
+
+  # 2. compute densities per facet to get y max
+  dens_df <- raw_df %>%
+    group_by(injury_period, metric) %>%
+    summarize(d = list(density(counterfactual_value, na.rm = TRUE)), .groups = "drop") %>%
+    mutate(y_max = map_dbl(d, ~ max(.x$y))) %>%
+    select(-d)
+
+  # 3. join obs values with y positions
+  label_df <- obs_df %>%
+    left_join(dens_df, by = c("injury_period", "metric")) %>%
+    mutate(
+      y = y_max * 0.9,
+      label = case_when(metric == "GP%" ~ glue("Observed Total: {round(total_obs_value)}"),
+                        .default = glue("Observed: {round(total_obs_value, 2)}"))
+    )
+  plt <- ggplot(raw_df, aes(x = counterfactual_value)) + 
     geom_density() + 
-    geom_vline(aes(xintercept = vline_val), 
-              color = "blue",
-             linetype = "dashed", size = 1) +
-    annotate("text", label = glue("Observed Games Played: {round(vline_val)}"), x = vline_val, y = y_mid, vjust = -0.5, color = "black") +
+    geom_vline(data = obs_df,
+             aes(xintercept = total_obs_value),
+             color = "red", size = 1, linetype = "dashed") +
+    geom_text(data = label_df,
+            aes(x = total_obs_value, y = y, label = label),
+            inherit.aes = FALSE, vjust = -0.5, color = "black", angle = 270) +
      scale_x_continuous(limits = c(0, NA)) + 
-    labs(x = "Games Played Post Injury", y = "Posterior Density") + 
-    ggtitle(glue("Counterfactual Games Played Post {injury_type} Injury: {group_name}")) + theme_bw() 
+    facet_wrap(~metric, scale = "free") +
+    labs(x = "Metric Measurables Post Injury", y = "Posterior Predictive Density") + 
+    ggtitle(glue("Counterfactual Metric Values Post {injury_type} Injury: {group_name}")) + theme_bw() 
 
   return(plt)
 }
@@ -321,15 +342,15 @@ plots_list <- joined_data %>%
     })
 
 plots_list <- joined_data %>%
-filter(metric == "GP%" & injury_period == "post-injury" & year <= 2026) %>%
+filter(injury_period == "post-injury" & year <= 2026 & metric %in% c("GP%", "FTA")) %>%
   group_by(player) %>%
   group_split() %>%               # splits into a list of grouped tibbles
   map(~ {
-    plt <- plot_counterfactual_gp(.x)
+    plt <- plot_counterfactual_metrics(.x)
     name <- unique(.x$name)
     # Save the plot to disk (change path as needed)
     ggsave(
-      filename = glue("model_output/model_plots/causal/{name}_gp_itt.png"),
+      filename = glue("model_output/model_plots/causal/{name}_metrics_itt.png"),
       plot = plt,
     )
     })
