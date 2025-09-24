@@ -266,8 +266,7 @@ plot_counterfactual_metrics <- function(grouped_data_set) {
     geom_text(data = label_df,
             aes(x = total_obs_value, y = y, label = label),
             inherit.aes = FALSE, vjust = -0.5, color = "black", angle = 270) +
-     scale_x_continuous(limits = c(0, NA)) + 
-    facet_wrap(~metric, scale = "free") +
+    facet_wrap(~metric, scale = "free") + 
     labs(x = "Metric Measurables Post Injury", y = "Posterior Predictive Density") + 
     ggtitle(glue("Counterfactual Metric Values Post {injury_type} Injury: {group_name}")) + theme_bw() 
 
@@ -318,10 +317,10 @@ plot_counterfactual <- function(grouped_data_set) {
       data = injury_label, 
       size = 2,
       aes(x = age_of_injury, y = max_upper, label = first_major_injury),
-      vjust = -1,
+      
       color = "black"
     )  +
-    facet_wrap( ~ metric, scales = "free_y") +
+    facet_wrap( ~ metric, scales = "free_y") + 
     labs(x = "Age", y = "Metric Value") + ggtitle(paste("Counterfactual Career Trajectory: ", group_name)) + theme_bw()
   return(plt)
 }
