@@ -10,6 +10,7 @@ library(uwot)
 library(ggrepel)
 library(ggnewscale)
 library(ggdist)
+library(patchwork)
 
 
 injury_data <- read.csv("data/injury_player_cleaned.csv") |> 
@@ -254,21 +255,32 @@ plot_counterfactual_metrics <- function(grouped_data_set) {
   label_df <- obs_df %>%
     left_join(dens_df, by = c("injury_period", "metric")) %>%
     mutate(
-      y = y_max * 0.9,
+      y = y_max * 0.4,
       label = case_when(metric == "GP%" ~ glue("Observed Total: {round(total_obs_value)}"),
                         .default = glue("Observed: {round(total_obs_value, 2)}"))
     )
-  plt <- ggplot(raw_df, aes(x = counterfactual_value)) + 
-    geom_density() + 
-    geom_vline(data = obs_df,
+  plt_gp <- ggplot(raw_df |> filter(metric == "GP%"), aes(x = counterfactual_value)) + 
+    geom_density(adjust=3) + 
+    geom_vline(data = obs_df |> filter(metric == "GP%"),
              aes(xintercept = total_obs_value),
-             color = "red", size = 1, linetype = "dashed") +
-    geom_text(data = label_df,
+             color = "blue", size = 1, linetype = "dashed") +
+    geom_text(data = label_df |> filter(metric == "GP%"),
             aes(x = total_obs_value, y = y, label = label),
-            inherit.aes = FALSE, vjust = -0.5, color = "black", angle = 270) +
-    facet_wrap(~metric, scale = "free") + 
-    labs(x = "Metric Measurables Post Injury", y = "Posterior Predictive Density") + 
-    ggtitle(glue("Counterfactual Metric Values Post {injury_type} Injury: {group_name}")) + theme_bw() 
+            inherit.aes = FALSE, vjust = -0.5, color = "black", angle = 270) + scale_x_continuous(limits = c(0, NA)) + coord_cartesian(clip = "off") +
+    labs(y = "Posterior Predictive Density", x = "Total Games Played (Post-Inury)") +  theme_classic() # start at 0, no extra padding 
+  
+  plt_fta <- ggplot(raw_df |> filter(metric == "FTA"), aes(x = counterfactual_value)) + 
+    geom_density(adjust=3) + 
+    geom_vline(data = obs_df |> filter(metric == "FTA"),
+             aes(xintercept = total_obs_value),
+             color = "blue", size = 1, linetype = "dashed") +
+    geom_text(data = label_df |> filter(metric == "FTA"),
+            aes(x = total_obs_value, y = y, label = label),
+            inherit.aes = FALSE, vjust = -0.5, color = "black", angle = 270) + 
+    labs(y = "", x = "Avg. FTA Per 36 (Post-Injury)") +  theme_classic() + scale_x_continuous(limits = c(0, NA)) + coord_cartesian(clip = "off") 
+
+  plt <- plt_gp + plt_fta + plot_annotation(title = glue("Counterfactual Posterior Distribution Post {injury_type} Injury: {group_name}"))
+
 
   return(plt)
 }
