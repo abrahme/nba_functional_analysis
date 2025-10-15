@@ -6,11 +6,11 @@ library(ggplot2)
 library(HDInterval)
 library(purrr)
 library(glue)
-library(uwot)
 library(ggrepel)
 library(ggnewscale)
 library(ggdist)
 library(patchwork)
+library(umap)
 
 
 injury_data <- read.csv("data/injury_player_cleaned.csv") |> 
@@ -130,7 +130,7 @@ summarize(sample_ate = mean(injury_change, na.rm = TRUE)) |> ungroup() |> group_
     ggtitle("Average Treatment Effect for Treated (ATT) by Metric") 
 ggsave("model_output/model_plots/causal/att_causal_plot_total.png", att_plot_total)
 
-umap_latent_space <- umap(latent_space |> select(starts_with("Dim")), n_neighbors = 15, min_dist = 0.001, verbose = TRUE)
+umap_latent_space <- umap(latent_space |> select(starts_with("Dim")), n_neighbors = 15, min_dist = 0.001, verbose = TRUE) %>% .$layout
 
 umap_df <- latent_space |> select(-starts_with("Dim")) |> cbind(as.tibble(umap_latent_space, .name_repair = "minimal") |> rename(Dim1 = 1, Dim2 = 2))
 
@@ -260,7 +260,7 @@ plot_counterfactual_metrics <- function(grouped_data_set) {
                         .default = glue("Observed: {round(total_obs_value, 2)}"))
     )
   plt_gp <- ggplot(raw_df |> filter(metric == "GP%"), aes(x = counterfactual_value)) + 
-    geom_density(adjust=3) + 
+    geom_density(adjust=3, from = 0, to = max(raw_df |> filter(metric == "GP%") |> select(counterfactual_value))*1.5) + 
     geom_vline(data = obs_df |> filter(metric == "GP%"),
              aes(xintercept = total_obs_value),
              color = "blue", size = 1, linetype = "dashed") +
@@ -270,7 +270,7 @@ plot_counterfactual_metrics <- function(grouped_data_set) {
     labs(y = "Posterior Predictive Density", x = "Total Games Played (Post-Inury)") +  theme_classic() # start at 0, no extra padding 
   
   plt_fta <- ggplot(raw_df |> filter(metric == "FTA"), aes(x = counterfactual_value)) + 
-    geom_density(adjust=3) + 
+    geom_density(adjust=3, from = 0, to = max(raw_df |> filter(metric == "FTA") |> select(counterfactual_value))*1.5) + 
     geom_vline(data = obs_df |> filter(metric == "FTA"),
              aes(xintercept = total_obs_value),
              color = "blue", size = 1, linetype = "dashed") +

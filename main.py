@@ -2,10 +2,13 @@ import pandas as pd
 import numpy as np
 import jax
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
 import re
 import argparse
 import pickle
 import numpyro
+from matplotlib import cm 
+from matplotlib.colors import Normalize
 from functools import partial
 import plotly.express as px
 from plotly.subplots import make_subplots
@@ -134,6 +137,7 @@ if __name__ == "__main__":
             model = ConvexMaxTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
             if "boundary" in model_name:
                 model = ConvexMaxBoundaryTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
+
                 if "AR" in model_name:
                     model = ConvexMaxBoundaryARTVRFLVM(latent_rank=basis_dims, rff_dim=rff_dim, output_shape=(covariate_X.shape[0], len(basis)), basis=basis)
             else:
@@ -236,7 +240,7 @@ if __name__ == "__main__":
                 hsgp_params = {}
                 x_time = basis - basis.mean()
                 L_time = 2.0 * jnp.max(jnp.abs(x_time), 0, keepdims=True)
-                M_time = 15 
+                M_time = 20
                 phi_time = vmap_make_convex_phi(jnp.squeeze(x_time), jnp.squeeze(L_time), M_time)
                 hsgp_params["phi_x_time"] = phi_time
                 hsgp_params["M_time"] = M_time
@@ -283,7 +287,7 @@ if __name__ == "__main__":
                         # model_args["offsets"].update({"avg_sd" : jnp.ones(16)})
   
             if map_inference:
-                samples = model.run_map_inference(num_steps=9000, model_args=model_args, initial_values=initial_params)
+                samples = model.run_map_inference(num_steps=30000, model_args=model_args, initial_values=initial_params)
             elif prior_predictive:
                 print("sampling from prior")
                 samples = model.predict({}, model_args, num_samples = num_samples)
@@ -292,7 +296,7 @@ if __name__ == "__main__":
                 model_args=model_args, initial_values=initial_params, thinning = int(num_samples / 50))
 
             elif svi_inference:
-                samples = model.run_svi_inference(num_steps=300, guide_kwargs={}, model_args=model_args, initial_values=initial_params, 
+                samples = model.run_svi_inference(num_steps=30000, guide_kwargs={}, model_args=model_args, initial_values=initial_params, 
                                                          sample_shape = (num_chains, num_samples))
     if mcmc_inference:
         print_summary(samples)
@@ -421,18 +425,28 @@ if __name__ == "__main__":
                                         "Luka Doncic", "Devin Booker", "Paul Pierce", "Allen Iverson", "Tyrese Haliburton", "LaMelo Ball",
                                         "Carmelo Anthony", "Dwyane Wade", "Derrick Rose", "Chris Bosh", "Karl-Anthony Towns", "Kristaps Porzingis", 
                                         "Giannis Antetokounmpo", "Jrue Holiday"]
+        
+        categories = data["position_group"].unique()
+
+     
+        cmap = cm.get_cmap("tab10", len(categories))  # 'tab10' has 10 distinct colors
+
+
+        category_to_color = {cat: cmap(i) for i, cat in enumerate(categories)}
+        data["color"] = data["position_group"].map(category_to_color)
         tsne = TSNE(n_components=2)
         X_tsne_df = pd.DataFrame(tsne.fit_transform(X_center), columns = ["Dim. 1", "Dim. 2"])
-        id_df = data[["position_group","name","id", "minutes"]].groupby("id").max().reset_index()
+        id_df = data[["position_group","name","id", "minutes", "color"]].groupby("id").max().reset_index()
         X_tsne_df = pd.concat([X_tsne_df, id_df], axis = 1)
         X_tsne_df["name"] = X_tsne_df["name"].apply(lambda x: x if x in predict_players else "")
         X_tsne_df["minutes"] /= np.max(X_tsne_df["minutes"])
         X_tsne_df.rename(mapper = {"position_group": "Position"}, inplace=True, axis=1)
-        fig = px.scatter(X_tsne_df, x = "Dim. 1", y = "Dim. 2", color = "Position", text="name", size = "minutes",
-                        opacity = .1, title="T-SNE Visualization of Latent Player Embedding", )
-        fig.update_traces(textfont = dict(size = 7))
-        fig.write_image(f"model_output/model_plots/latent_space/{file_pre}/{model_name}.png", format = "png")
-
+        ax = X_tsne_df.plot.scatter(x = "Dim. 1", y = "Dim. 2", c = "color", s = "minutes", title="T-SNE Visualization of Latent Player Embedding")
+        # for _, row in X_tsne_df.iterrows():
+        #     ax.text(row["Dim. 1"], row["Dim. 2"], row["name"], ha='right')
+        fig = ax.get_figure()
+        fig.savefig(f"model_output/model_plots/latent_space/{file_pre}/{model_name}.png", format = "png")
+        plt.close()
 
 
         pca_latent_space = PCA(n_components=2)
@@ -443,10 +457,12 @@ if __name__ == "__main__":
         X_pca_df["name"] = X_pca_df["name"].apply(lambda x: x if x in predict_players else "")
         X_pca_df["minutes"] /= np.max(X_pca_df["minutes"])
         X_pca_df.rename(mapper = {"position_group": "Position"}, inplace=True, axis=1)
-        fig = px.scatter(X_pca_df, x = "Dim. 1", y = "Dim. 2", color = "Position", text="name", size = "minutes",
-                        opacity = .1, title="PCA Visualization of Latent Player Embedding", )
-        fig.update_traces(textfont = dict(size = 7))
-        fig.write_image(f"model_output/model_plots/latent_space/map/{model_name}_pca.png", format = "png")
+        ax = X_pca_df.plot.scatter(x = "Dim. 1", y = "Dim. 2", c = "color", s = "minutes", title="PCA Visualization of Latent Player Embedding", )
+        # for _, row in X_pca_df.iterrows():
+        #     ax.text(row["Dim. 1"], row["Dim. 2"], row["name"], ha='right', )
+        fig = ax.get_figure()
+        fig.savefig(f"model_output/model_plots/latent_space/map/{model_name}_pca.png", format = "png")
+        plt.close()
 
         players_df = id_df[id_df["name"].isin(predict_players)]
         for index, row in players_df.iterrows():
@@ -454,9 +470,10 @@ if __name__ == "__main__":
             name = row["name"]
             if map_inference:
                 fig = plot_posterior_predictive_career_trajectory_map(player_index, metrics, metric_output, mu[:, jnp.array(player_index), :].squeeze(), Y, exposures)
-                fig.update_layout(title = dict(text=name))
-                fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/{model_name}_{name.replace(' ', '_')}.png", format = "png")
-        
+                # fig.update_layout(title = dict(text=name))
+                # fig.write_image(f"model_output/model_plots/player_plots/predictions/{file_pre}/{model_name}_{name.replace(' ', '_')}.png", format = "png")
+                fig.savefig(f"model_output/model_plots/player_plots/predictions/{file_pre}/{model_name}_{name.replace(' ', '_')}.png", format = "png")
+                plt.close()
         if prior_predictive:
             fig = plot_prior_predictive_career_trajectory(metrics, metric_output, exposure_list, mu[:, :, jnp.array(0), :].squeeze(), prior_variance_samples=jnp.transpose(posterior_variance_samples), prior_dispersion_samples = posterior_dispersion_samples)
             fig.update_layout(title = "Prior Predictive Curves")

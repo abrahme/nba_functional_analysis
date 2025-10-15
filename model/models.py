@@ -457,7 +457,9 @@ class ConvexMaxTVRFLVM(ConvexTVRFLVM):
 
     def predict(self, posterior_samples: dict, model_args, num_samples=1000):
         return super().predict(posterior_samples, model_args, num_samples)
-      
+
+
+
 
 class ConvexMaxBoundaryTVRFLVM(ConvexTVRFLVM):
     """
@@ -471,7 +473,7 @@ class ConvexMaxBoundaryTVRFLVM(ConvexTVRFLVM):
         self.prior["lengthscale"] = InverseGamma(2, 1)
         self.prior["sigma_beta"] = Gamma(5000, 100.0)
         self.prior["sigma_beta_binomial"] = Gamma(5000, 100.0)
-        self.prior["sigma_negative_binomial"] = Gamma(5000, 100)
+        self.prior["sigma_negative_binomial"] =  Gamma(5000, 100)
         self.prior["sigma_c"] = InverseGamma(2.0, 1.0)
         self.prior["sigma_boundary_r"] = InverseGamma(2.0, 3.0)
         self.prior["sigma_boundary_l"] = InverseGamma(2.0, 3.0)
@@ -592,9 +594,16 @@ class ConvexMaxBoundaryTVRFLVM(ConvexTVRFLVM):
             y = sample(f"likelihood_{family}", dist, obs) if not prior else sample(f"likelihood_{family}", dist, obs=None)
 
         value = (mu[..., 0] - mu[..., -1]) - jnp.transpose(boundary_diff)
-        logp = Normal(0, 1).log_prob(value)
-        numpyro.factor(f"boundary_conditions", logp.sum())              
+        logp = Normal(0, .1).log_prob(value)
+        numpyro.factor(f"boundary_conditions", logp.sum())   
 
+        value = (boundary_r - jnp.transpose(mu[..., -1]))
+        logp = Normal(0, .1).log_prob(value)
+        numpyro.factor(f"boundary_conditions_r", logp.sum()) 
+
+        value = (boundary_l - jnp.transpose(mu[..., 0]))
+        logp = Normal(0, .1).log_prob(value)
+        numpyro.factor(f"boundary_conditions_l", logp.sum()) 
 
     def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args, initial_values={}, thinning=1):
         return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args, initial_values, thinning = thinning)
@@ -661,8 +670,8 @@ class ConvexMaxBoundaryARTVRFLVM(ConvexMaxBoundaryTVRFLVM):
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
         self.prior["rho_ar"] = Uniform(-1,1)
-        # self.prior["sigma_ar"] = InverseGamma(2, 1)
-        self.prior["sigma_ar"] = Type2Gumbel(alpha=.05, scale=.001)
+        self.prior["sigma_ar"] = InverseGamma(2, 1)
+        # self.prior["sigma_ar"] = Type2Gumbel(alpha=.05, scale=.001)
         self.prior["beta_ar"] = Normal()
         self.prior["AR_0"] = Normal()
         self.prior["X_free"] = Normal()
@@ -745,11 +754,11 @@ class ConvexMaxBoundaryARTVRFLVM(ConvexMaxBoundaryTVRFLVM):
             weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.m * 2, M_time, num_metrics))
         weights *= spd
 
-        # sigma_ar = self.prior["sigma_ar"] if not isinstance(self.prior["sigma_ar"], Distribution) else sample("sigma_ar", self.prior["sigma_ar"], sample_shape=(num_metrics,1))
+        sigma_ar = self.prior["sigma_ar"] if not isinstance(self.prior["sigma_ar"], Distribution) else sample("sigma_ar", self.prior["sigma_ar"], sample_shape=(num_metrics,1))
         
-        # rho_ar = self.prior["rho_ar"] if not isinstance(self.prior["rho_ar"], Distribution) else sample("rho_ar", self.prior["rho_ar"], sample_shape=(num_metrics,1))
-        sigma_ar = offsets["avg_sd"][..., None]
-        rho_ar = offsets["rho"][..., None]
+        rho_ar = self.prior["rho_ar"] if not isinstance(self.prior["rho_ar"], Distribution) else sample("rho_ar", self.prior["rho_ar"], sample_shape=(num_metrics,1))
+        # sigma_ar = offsets["avg_sd"][..., None]
+        # rho_ar = offsets["rho"][..., None]
         # Standard normals: shape (K, N, T)
         z = self.prior["beta_ar"] if not isinstance(self.prior["beta_ar"], Distribution) else sample("beta_ar", self.prior["beta_ar"], sample_shape=(self.j, num_metrics, self.n))
         AR_0_raw = self.prior["AR_0"] if not isinstance(self.prior["AR_0"], Distribution) else sample("AR_0", self.prior["AR_0"], sample_shape=(num_metrics, self.n))
@@ -800,6 +809,14 @@ class ConvexMaxBoundaryARTVRFLVM(ConvexMaxBoundaryTVRFLVM):
         value = (mu[..., 0] - mu[..., -1]) - jnp.transpose(boundary_diff)
         logp = Normal(0, 0.1).log_prob(value)
         numpyro.factor(f"boundary_conditions", logp.sum())   
+
+        value = (boundary_r - jnp.transpose(mu[..., -1]))
+        logp = Normal(0, .1).log_prob(value)
+        numpyro.factor(f"boundary_conditions_r", logp.sum()) 
+
+        value = (boundary_l - jnp.transpose(mu[..., 0]))
+        logp = Normal(0, .1).log_prob(value)
+        numpyro.factor(f"boundary_conditions_l", logp.sum()) 
 
 
     def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args, initial_values={}, thinning=1):

@@ -10,7 +10,6 @@ import jax.numpy as jnp
 from model.inference_utils import posterior_X_to_df
 
 
-
 numpyro.set_platform("cpu")
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Description of your program')
@@ -53,13 +52,13 @@ if __name__ == "__main__":
                     player_indices.append(names.index(item))
     else:
         player_indices = []
-    print(len(player_indices))
     svi_paths = ["model_output/latent_max_boundary_convex_tvrflvm_map_negbin_cohort_2021_val_2022.pkl", "model_output/latent_max_boundary_convex_tvrflvm_map_negbin_cohort_2021_val_2023.pkl",
                  "model_output/latent_max_boundary_convex_tvrflvm_map_negbin_cohort_2021_val_2025.pkl"]
     mcmc_paths = ["model_output/latent_max_boundary_convex_tvrflvm_mcmc_negbin_cohort_2021_val_2022.pkl", "model_output/latent_max_boundary_convex_tvrflvm_mcmc_negbin_cohort_2021_val_2023.pkl",
                  "model_output/latent_max_boundary_convex_tvrflvm_mcmc_negbin_cohort_2021_val_2025.pkl"]
 
     X_dict = {}
+    mu_dict = {}
     for svi_path, mcmc_path in zip(svi_paths, mcmc_paths):
         val_year = mcmc_path.split(".")[0][-4:]
         with open(svi_path, "rb") as f:
@@ -80,11 +79,21 @@ if __name__ == "__main__":
                 # print("item to set", results_mcmc["X_free"][0,0])
                 # print("after", X_new[0,0 , jnp.array(player_indices), :])
                 X_dict[val_year] = X_new
+                results_collated["X"] = X_new
+        
+        
+    
     dfs = []
+    mu_dfs = []
     for val_year in X_dict:
         df = posterior_X_to_df(X_dict[val_year], id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], player_indices)
         df["val_year"] = val_year
         dfs.append(df)
+        mu_df = pd.read_csv(f"posterior_mu_ar_{val_year}.csv")
+        mu_df["val_year"] = val_year
+        mu_dfs.append(mu_df)
     pd.concat(dfs).to_csv("latent_X_cohort_2022_2023_2025.csv", index = False)
+    pd.concat(mu_dfs).to_csv("latent_mu_cohort_2022_2023_2025.csv", index = False)
+
 
 

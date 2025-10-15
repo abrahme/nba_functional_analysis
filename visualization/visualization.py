@@ -3,6 +3,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import jax.numpy as jnp
 import plotly.express as px
+import matplotlib.pyplot as plt
 import numpy as np
 import arviz as az
 from model.inference_utils import create_metric_trajectory, create_metric_trajectory_map, create_metric_trajectory_prior, create_metric_trajectory_mu
@@ -116,36 +117,78 @@ def plot_prior_predictive_career_trajectory(metrics: list[str], metric_outputs: 
     return fig
 
 
-def plot_posterior_predictive_career_trajectory_map( player_index, metrics: list[str], metric_outputs: list[str], posterior_map, observations, exposures):
-    """
-    plots the posterior predictive career trajectory 
-    """
-    fig = make_subplots(rows = 4, cols=4,  subplot_titles=metrics)
+# def plot_posterior_predictive_career_trajectory_map( player_index, metrics: list[str], metric_outputs: list[str], posterior_map, observations, exposures):
+#     """
+#     plots the posterior predictive career trajectory 
+#     """
+#     fig = make_subplots(rows = 4, cols=4,  subplot_titles=metrics)
     
-    observation_dict, posterior_dict = create_metric_trajectory_map(posterior_map, player_index,  observations, exposures, 
-                                                                metric_outputs=metric_outputs, metrics = metrics,)
+#     observation_dict, posterior_dict = create_metric_trajectory_map(posterior_map, player_index,  observations, exposures, 
+#                                                                 metric_outputs=metric_outputs, metrics = metrics,)
 
  
+#     obs = observation_dict["y"]
+#     posterior = posterior_dict["y"]
+#     x = list(range(18,39))
+#     for index, metric in enumerate(metrics):
+#         row = int(np.floor(index / 4)) + 1 
+#         col = (index % 4) + 1
+#         metric_type = metric_outputs[index]
+#         metric = metric.upper()
+#         if metric_type == "poisson":
+#             metric += " per 36 min"
+#         fig.add_trace(go.Scatter(x = x, y = obs[..., index], mode = "lines", 
+#                                  name = "Observed", line_color = "blue", showlegend=False), row = row, col=col)
+#         fig.add_trace(go.Scatter(x = x, y = posterior[..., index], mode = "lines", name = "Posterior Mean", line_color = "red", showlegend=False), row = row, col = col)
+
+#     fig.update_layout({'width':650, 'height': 650,
+#                             'showlegend':False, 'hovermode': 'closest',
+#                             })
+    
+#     return fig
+
+
+def plot_posterior_predictive_career_trajectory_map(
+    player_index, metrics: list[str], metric_outputs: list[str], 
+    posterior_map, observations, exposures
+):
+    """
+    Plots the posterior predictive career trajectory using matplotlib instead of plotly.
+    """
+    # create 4x4 subplots
+    fig, axes = plt.subplots(4, 4, figsize=(12, 12))
+    axes = axes.flatten()  # flatten for easy indexing
+    
+    observation_dict, posterior_dict = create_metric_trajectory_map(
+        posterior_map, player_index, observations, exposures,
+        metric_outputs=metric_outputs, metrics=metrics
+    )
+
     obs = observation_dict["y"]
     posterior = posterior_dict["y"]
-    x = list(range(18,39))
+    x = list(range(18, 39))  # ages 18–38
+
     for index, metric in enumerate(metrics):
-        row = int(np.floor(index / 4)) + 1 
-        col = (index % 4) + 1
+        ax = axes[index]
         metric_type = metric_outputs[index]
-        metric = metric.upper()
+        title = metric.upper()
         if metric_type == "poisson":
-            metric += " per 36 min"
-        fig.add_trace(go.Scatter(x = x, y = obs[..., index], mode = "lines", 
-                                 name = "Observed", line_color = "blue", showlegend=False), row = row, col=col)
-        fig.add_trace(go.Scatter(x = x, y = posterior[..., index], mode = "lines", name = "Posterior Mean", line_color = "red", showlegend=False), row = row, col = col)
-
-    fig.update_layout({'width':650, 'height': 650,
-                            'showlegend':False, 'hovermode': 'closest',
-                            })
+            title += " per 36 min"
+        
+        ax.plot(x, obs[..., index], label="Observed", color="blue")
+        ax.plot(x, posterior[..., index], label="Posterior Mean", color="red")
+        ax.set_title(title, fontsize=10)
     
+    # hide unused subplots if fewer than 16 metrics
+    for j in range(len(metrics), 16):
+        axes[j].axis("off")
+    
+    # global legend
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper right")
+    
+    fig.tight_layout()
     return fig
-
 
 def plot_mcmc_diagnostics(inference_data, variable_name, plot = "trace"):
     if plot == "trace":

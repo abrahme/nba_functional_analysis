@@ -6,13 +6,13 @@ library(ggplot2)
 library(HDInterval)
 library(purrr)
 library(glue)
-library(uwot)
 library(ggrepel)
 library(ggridges)
 library(pheatmap)
 library(gt)
 library(ggbeeswarm)
 library(ggdist)
+library(umap)
 
 data <- read.csv("data/injury_player_cleaned.csv")
 
@@ -387,7 +387,7 @@ print("joined the data with predictions")
 validation_coverage_df <- joined_data |> filter(year >= 2022 & year <= 2025) |> group_by(metric, player, age) |> summarize(lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
     upper = HDInterval::hdi(value, credMass = 0.95)["upper"], obs_value = first(obs_value), year = min(year), posterior_mean = mean(value, na.rm = TRUE) ) |> ungroup() |>
 
-    mutate(obs_value = if_else(year <= 2025 & metric %in% c("games") & is.na(obs_value), 0 , obs_value), 
+    mutate(obs_value = if_else(year <= 2025 & metric %in% c("games") & is.na(obs_value), 0 , obs_value),
     validation_coverage = between(obs_value, lower, upper)) |> filter(!is.na(obs_value)) |> 
     mutate(metric = toupper(metric),
            metric = case_when(metric == "GAMES" ~ "GP%",
@@ -409,8 +409,8 @@ in_sample_coverage_df <- joined_data |> filter(year <= 2021) |> group_by(metric,
                               metric == "PCT_MINUTES" ~ "MPG",
                               .default = metric))
 
-coverage_plt_basic <- validation_coverage_df |> group_by(metric) |> summarize(validation_coverage = mean(validation_coverage)) |> ungroup() |>
-                      inner_join(in_sample_coverage_df |> group_by(metric) |> summarize(in_sample_coverage = mean(in_sample_coverage))) |> 
+coverage_plt_basic <- validation_coverage_df |> group_by(metric) |> summarize(validation_coverage = mean(validation_coverage, na.rm = TRUE)) |> ungroup() |>
+                      inner_join(in_sample_coverage_df |> group_by(metric) |> summarize(in_sample_coverage = mean(in_sample_coverage, na.rm = TRUE))) |> 
                       pivot_longer(cols = c(in_sample_coverage,validation_coverage),  names_to = "coverage_type", values_to = "Coverage") |>
                       mutate(coverage_type = case_when(coverage_type == "in_sample_coverage" ~ "In-Sample Coverage",
                                                         coverage_type == "validation_coverage" ~ "Validation Coverage")) |>
@@ -419,8 +419,8 @@ coverage_plt_basic <- validation_coverage_df |> group_by(metric) |> summarize(va
                       theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Coverage (In-Sample vs. Validation)") + labs(x = NULL, fill = "Coverage Type") + theme(axis.text.x = element_blank())
 ggsave("model_output/model_plots/coverage/nba_convex_tvrflvm_max_boundary_ar.png", coverage_plt_basic)
 
-latex_code <- validation_coverage_df |> group_by(metric) |> summarize(validation_coverage = mean(validation_coverage)) |> ungroup() |>
-                      inner_join(in_sample_coverage_df |> group_by(metric) |> summarize(in_sample_coverage = mean(in_sample_coverage))) |> 
+latex_code <- validation_coverage_df |> group_by(metric) |> summarize(validation_coverage = mean(validation_coverage, na.rm = TRUE)) |> ungroup() |>
+                      inner_join(in_sample_coverage_df |> group_by(metric) |> summarize(in_sample_coverage = mean(in_sample_coverage, na.rm = TRUE))) |> 
                       mutate(
                           in_sample_coverage = paste0(round(in_sample_coverage * 100, 1), "%"),
                           validation_coverage = paste0(round(validation_coverage * 100, 1), "%")) |> gt() |>
@@ -433,11 +433,11 @@ latex_code <- validation_coverage_df |> group_by(metric) |> summarize(validation
                         as_latex()
 writeLines(latex_code, "model_output/model_plots/coverage/nba_convex_tvrflvm_max_boundary_ar.tex")
 
-coverage_plt_yearly <- validation_coverage_df |> group_by(metric, year) |> summarize(Coverage = mean(validation_coverage)) |> ungroup() |> ggplot(aes(x = year, y = Coverage)) + 
+coverage_plt_yearly <- validation_coverage_df |> group_by(metric, year) |> summarize(Coverage = mean(validation_coverage, na.rm = TRUE)) |> ungroup() |> ggplot(aes(x = year, y = Coverage)) + 
                         geom_col() + facet_wrap(~metric, scales = "free_y") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
                         theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Validation Coverage by Time Horizon") +xlab("Year")
 ggsave("model_output/model_plots/coverage/nba_convex_tvrflvm_max_boundary_ar_validation_yearly.png", coverage_plt_yearly)
-coverage_plt_minutes <- validation_coverage_df |> inner_join(data |> filter(year <= 2021) |> group_by(id) |> summarize(years_played = n()) |> ungroup(), by = c("player" = "id")) |> group_by(metric, years_played) |> summarize(Coverage = mean(validation_coverage)) |> ungroup() |>
+coverage_plt_minutes <- validation_coverage_df |> inner_join(data |> filter(year <= 2021) |> group_by(id) |> summarize(years_played = n()) |> ungroup(), by = c("player" = "id")) |> group_by(metric, years_played) |> summarize(Coverage = mean(validation_coverage, na.rm = TRUE)) |> ungroup() |>
                         ggplot(aes(x = years_played, y = Coverage)) + 
                         geom_point() + facet_wrap(~metric, scales = "free_y") +
                         theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Validation Coverage by Years of Training Data Available") + xlab("Years Played")
@@ -450,20 +450,52 @@ posterior_plot_names <-  c("Stephen Curry", "Kevin Durant", "LeBron James", "Kob
 
 
 
-latent_space_umap <- latent_space |> select(starts_with("Dim")) |> umap() |> as.tibble(.name_repair = "unique") |> cbind(latent_space |> select(-starts_with("Dim"))) |> rename(UMAP1 = `...1`, UMAP2 = `...2`)
+latent_space_umap <- latent_space %>% select(starts_with("Dim")) %>% umap(n_neighbors = 50, min_dist = 0.001, verbose = TRUE) %>% .$layout %>% as.tibble(.name_repair = "unique") %>% cbind(latent_space %>% select(-starts_with("Dim"))) %>% rename(UMAP1 = `...1`, UMAP2 = `...2`)
 
 latent_space_plot  <- latent_space_umap |> ggplot(aes(x = UMAP1, y = UMAP2)) + geom_point(aes(alpha = minutes, color = position_group)) + scale_alpha(range = c(0,1)) +
                       geom_text_repel(
                       data = filter(latent_space_umap, name %in% posterior_plot_names),
-                      aes(label = name),
+                      aes(label = name, x = UMAP1, y = UMAP2),
                       size = 4,
                       fontface = "bold",
-                      max.overlaps = 5) +
+                      max.overlaps = 5,
+                      inherit.aes = FALSE) +
   theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("UMAP Visualization of Learned Latent Embedding") + labs(x = "UMAP 1", y = "UMAP 2", alpha = "Minutes", color = "Position Group")
 
 ggsave("model_output/model_plots/latent_space/map/nba_convex_tvrflvm_max_boundary.png", latent_space_plot)
 
+functional_pca_result <-  posterior_mu_data %>% group_by(age, player, metric) %>% summarize(value = mean(value, na.rm = TRUE)) %>% ungroup() %>% pivot_wider(
+  names_from = c(metric, age),
+    values_from = value,
+    names_sep = "_"
+) 
+ids <- functional_pca_result$player 
 
+# functional_umap_embedding <- functional_umap_result %>% select(-player) %>% umap(n_neighbors = 50, min_dist = 0.001, verbose = TRUE) %>% 
+#       .$layout %>% as.tibble(.name_repair = "unique")  %>% 
+#       rename(UMAP1 = `...1`, UMAP2 = `...2`)
+
+functional_pca_embedding <- functional_umap_result %>% 
+  select(-player) %>% 
+  prcomp(center = TRUE, scale. = TRUE) %>%       # perform PCA
+  .$x %>%                                       # extract principal component scores
+  as.data.frame() %>%                            # convert to data frame
+  as_tibble(.name_repair = "unique") %>%        # repair names
+  rename(PCA1 = `PC1`, PCA2 = `PC2`)            # rename first two components
+
+functional_pca_embedding$player = ids 
+functional_pca_embedding <- functional_pca_embedding %>% inner_join( latent_space %>% select(id, name, position_group, minutes), by = c("player" = "id"))
+functional_pca_plt <- functional_pca_embedding %>% filter(PCA1 <= 20 & PCA2 <=20) %>%
+                       ggplot(aes(x = PCA1, y = PCA2)) + geom_point(aes(alpha = minutes, color = position_group)) + scale_alpha(range = c(0,1)) +
+                      geom_text_repel(
+                      data = filter(functional_pca_embedding, name %in% posterior_plot_names),
+                      aes(label = name, x = PCA1, y = PCA2),
+                      size = 2,
+                      fontface = "bold",
+                      max.overlaps = 20,
+                      inherit.aes = FALSE) +
+  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("PCA Visualization of Learned Metric Functionals") + labs(x = "PC 1", y = "PC 2", alpha = "Minutes", color = "Position Group")
+ggsave("model_output/model_plots/latent_space/map/nba_convex_tvrflvm_max_boundary_functional.png", functional_pca_plt)
 
 
 

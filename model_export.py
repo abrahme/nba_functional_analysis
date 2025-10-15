@@ -122,7 +122,7 @@ if __name__ == "__main__":
     hsgp_params = {}
     x_time = basis - basis.mean()
     L_time = 2.0 * np.max(np.abs(x_time), 0, keepdims=True)
-    M_time = 15 
+    M_time = 20
     phi_time = vmap_make_convex_phi(np.squeeze(x_time), np.squeeze(L_time), M_time)
     hsgp_params["phi_x_time"] = phi_time
     hsgp_params["M_time"] = M_time
@@ -205,11 +205,11 @@ if __name__ == "__main__":
     wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv, first_deriv = make_mu_mcmc_AR(results_mcmc["X"], results_mcmc["lengthscale_deriv"], results_mcmc["alpha"],
                         results_mcmc["beta"], results_mcmc["W"], results_mcmc["lengthscale"], results_mcmc["c_max"],
                         results_mcmc["t_max_raw"], results_mcmc["sigma_t"], results_mcmc["sigma_c"], L_time, M_time, x_time + L_time, offset_dict,
-                        # sigma_ar = results_mcmc["sigma_ar"],
-                        sigma_ar = avg_sd[..., None][None, None],
+                        sigma_ar = results_mcmc["sigma_ar"],
+                        # sigma_ar = avg_sd[..., None][None, None],
                         beta_ar = results_mcmc["beta_ar"], 
-                        # rho_ar=results_mcmc["rho_ar"],
-                        rho_ar = autocorr[..., None][None, None],
+                        rho_ar=results_mcmc["rho_ar"],
+                        # rho_ar = autocorr[..., None][None, None],
                         AR_0_raw=results_mcmc["AR_0"],
                         # AR_0_raw = jnp.zeros((len(metrics), covariate_X.shape[0])),
                           phi_time=phi_time, orthogonalize=False)
@@ -235,38 +235,38 @@ if __name__ == "__main__":
 
     posterior_df = posterior_to_df(pos, id_df["id"], metrics, range(18,39))
     
-    posterior_df.to_csv("posterior_ar.csv", index = False)
+    posterior_df.to_csv("posterior_ar_2025.csv", index = False)
     
     posterior_peaks = posterior_peaks_to_df(peaks, id_df["id"], metrics)
-    posterior_peaks.to_csv("posterior_peaks_ar.csv", index = False)
+    posterior_peaks.to_csv("posterior_peaks_ar_2025.csv", index = False)
     if not injury:
 
         posterior_df_no_ar = posterior_to_df(pos_no_ar, id_df["id"], metrics, range(18,39))
-        posterior_df_no_ar.to_csv("posterior_no_ar.csv", index = False)
+        posterior_df_no_ar.to_csv("posterior_no_ar_2025.csv", index = False)
         
 
     
         posterior_mu_df = posterior_to_df(jnp.transpose(mu_mcmc, (0, 1, 3, 4, 2)), id_df["id"], metrics, range(18,39))
-        posterior_mu_df.to_csv("posterior_mu_ar.csv", index = False)
+        posterior_mu_df.to_csv("posterior_mu_ar_2025.csv", index = False)
 
         posterior_third_deriv = posterior_peaks_to_df(third_deriv, id_df["id"], metrics)
-        posterior_third_deriv.to_csv("posterior_third_deriv_ar.csv", index = False)
+        posterior_third_deriv.to_csv("posterior_third_deriv_ar_2025.csv", index = False)
 
         posterior_first_deriv = posterior_to_df(jnp.transpose(first_deriv, (0, 1, 3, 4, 2)), id_df["id"], metrics, range(18,39))
-        posterior_first_deriv.to_csv("posterior_first_deriv_ar.csv", index = False)
+        posterior_first_deriv.to_csv("posterior_first_deriv_ar_2025.csv", index = False)
 
         posterior_peak_vals = posterior_peaks_to_df(peak_val, id_df["id"], metrics)
-        posterior_peak_vals.to_csv("posterior_peak_vals_ar.csv", index = False)
+        posterior_peak_vals.to_csv("posterior_peak_vals_ar_2025.csv", index = False)
 
 
     latent_space_df = pd.DataFrame(results_map["X"], columns = [f"Dim {i+1}" for i in range(results_map["X"].shape[1])])
     latent_space_df = pd.concat([latent_space_df, id_df], axis = 1)
-    latent_space_df.to_csv("latent_space.csv", index = False)
+    latent_space_df.to_csv("latent_space_2025.csv", index = False)
 
     wTx = jnp.einsum("nr,mr -> nm", results_map["X"], results_map["W"]  * jnp.sqrt(results_map["lengthscale"]))
     phi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(rff_dim))   
     phi_X_df = pd.DataFrame(phi_x, columns = [f"Dim {i+1}" for i in range(phi_x.shape[1])])
     phi_X_df = pd.concat([phi_X_df, id_df], axis = 1)
-    phi_X_df.to_csv("phi_X.csv", index = False)
+    phi_X_df.to_csv("phi_X_2025.csv", index = False)
 
 
