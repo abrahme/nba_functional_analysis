@@ -330,7 +330,7 @@ third_deriv_plt <- ggplot(third_deriv |> inner_join(data |> group_by(id) |> summ
                aes(x = metric, y = posterior_mean, color = metric_group)) + 
                 stat_pointinterval() + 
   ggtitle("Posterior Mean of Third Derivative by Metric") +labs(y = "Posterior Mean of Third Derivative", x = "Metric", color = "Metric Group") + 
-  theme_bw() + scale_fill_brewer(palette = "Set1") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) + scale_y_discrete(expand = expansion(mult = c(0.2, 0.2)))
+  theme_bw() + scale_fill_brewer(palette = "Set1") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) 
 
 
 ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_third_deriv.png", third_deriv_plt)
