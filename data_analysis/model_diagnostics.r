@@ -584,7 +584,7 @@ pheatmap(mat_subset,
          labels_row = labels_subset,
          labels_col = labels_subset,
          main = "Clustered Covariance of the Learned Latent Embedding",
-         filename =  "model_output/model_plots/latent_space/nba_injury_tvrflvm_max_boundary_K_X.png")
+         filename =  "model_output/model_plots/latent_space/nba_tvrflvm_max_boundary_K_X.png")
 
 
 
