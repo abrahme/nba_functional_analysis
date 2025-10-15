@@ -78,7 +78,7 @@ plt_pca <- function(pca_samples_df, pca_fixed_df){
   }
 
 plt_functional_pca <- function(pca_mu_samples_df, pca_mu_fixed_df){
-  group_name <- unique(pca_samples_df$name)
+  group_name <- unique(pca_mu_samples_df$name)
   plt <- ggplot() +
   # Fixed points (all players)
   geom_point(data = pca_mu_fixed_df, aes(x = PC1, y = PC2, alpha= minutes)) +
