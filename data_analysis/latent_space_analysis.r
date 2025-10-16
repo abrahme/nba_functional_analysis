@@ -5,30 +5,31 @@ library(lubridate)
 library(ggplot2)
 library(HDInterval)
 library(glue)
+library(patchwork)
 
 data <- read.csv("data/injury_player_cleaned.csv")
 
 
-latent_space <- read.csv("latent_X_cohort_2022_2023_2025.csv")
+latent_space <- read.csv("latent_X_cohort_2022_2023_2025.csv") %>% mutate(val_year = factor(val_year))
 X_fixed <- latent_space %>% filter(label == "fixed") %>% group_by(id) %>%  summarise(across(starts_with("Dim"), mean, na.rm = TRUE)) %>% ungroup() %>%  select(starts_with("Dim")) %>% data.matrix()
 
 pca_latent_space_fixed <- prcomp(X_fixed, center = TRUE, scale. = TRUE)
 
 
 
-pca_fixed_df <- tibble(PC1 = pca_latent_space_fixed$x[,1], PC2 = pca_latent_space_fixed$x[,2]) |> cbind(latent_space %>% filter(label == "fixed") %>% group_by(id) %>% summarise(across(!starts_with("Dim"), first)))
+pca_fixed_df <- tibble(PC1 = pca_latent_space_fixed$x[,1], PC2 = pca_latent_space_fixed$x[,2], PC3 = pca_latent_space_fixed$x[,3], PC4 = pca_latent_space_fixed$x[,4]) |> cbind(latent_space %>% filter(label == "fixed") %>% group_by(id) %>% summarise(across(!starts_with("Dim"), first)))
 
 pca_samples_df <- latent_space %>% filter(label != "fixed") %>%
   group_by(chain, sample, val_year) %>%
   group_modify(~ {
     X <- as.matrix(.x %>% select(starts_with("Dim")))
     pc_res <- predict(pca_latent_space_fixed, X)
-    tibble(row = .x$row, id = .x$id, PC1 = pc_res[,1], PC2 = pc_res[,2], name = .x$name, minutes = .x$minutes, position_group = .x$position_group)
+    tibble(row = .x$row, id = .x$id, PC1 = pc_res[,1], PC2 = pc_res[,2],PC3 = pc_res[,3], PC4 = pc_res[,4], name = .x$name, minutes = .x$minutes, position_group = .x$position_group)
   }) %>%
   ungroup()
 
 
-latent_mu_space <- read.csv("latent_mu_cohort_2022_2023_2025.csv")
+latent_mu_space <- read.csv("latent_mu_cohort_2022_2023_2025.csv") %>% mutate(val_year = factor(val_year))
 
 
 player_info <- latent_space  %>% select(-starts_with("Dim")) %>% group_by(id, val_year) %>% slice_head(n = 1) %>% ungroup() %>% select(-c(chain, sample))
@@ -43,7 +44,7 @@ latent_mu_fixed <- full_latent_mu_space %>% filter(label == "fixed") %>% group_b
 
 pca_latent_space_mu_fixed <- prcomp(latent_mu_fixed, center = TRUE, scale. = TRUE)
 
-pca_mu_fixed_df <- tibble(PC1 = pca_latent_space_mu_fixed$x[,1], PC2 = pca_latent_space_mu_fixed$x[,2]) |> cbind(full_latent_mu_space %>% filter(label == "fixed") %>% group_by(age, player, metric) %>% summarize(value = mean(value, na.rm = TRUE), minutes = first(minutes), position_group = first(position_group), name = first(name)) %>% ungroup() %>% pivot_wider(
+pca_mu_fixed_df <- tibble(PC1 = pca_latent_space_mu_fixed$x[,1], PC2 = pca_latent_space_mu_fixed$x[,2], PC3 = pca_latent_space_mu_fixed$x[,3], PC4 = pca_latent_space_mu_fixed$x[,4]) |> cbind(full_latent_mu_space %>% filter(label == "fixed") %>% group_by(age, player, metric) %>% summarize(value = mean(value, na.rm = TRUE), minutes = first(minutes), position_group = first(position_group), name = first(name)) %>% ungroup() %>% pivot_wider(
   names_from = c(metric, age),
     values_from = value,
     names_sep = "_"
@@ -57,7 +58,7 @@ pca_mu_samples_df <- full_latent_mu_space %>% filter(label != "fixed") %>%
       pivot_wider(names_from = c(metric, age), values_from = value)
     X <- as.matrix(df_wide %>% dplyr::select(-c(label, player,name,minutes,position_group)))
     pc_res <- predict(pca_latent_space_mu_fixed, X)
-    tibble( id = df_wide$player, PC1 = pc_res[,1], PC2 = pc_res[,2], name = df_wide$name, minutes = df_wide$minutes, position_group = df_wide$position_group)
+    tibble( id = df_wide$player, PC1 = pc_res[,1], PC2 = pc_res[,2],PC3 = pc_res[,3], PC4 = pc_res[,4], name = df_wide$name, minutes = df_wide$minutes, position_group = df_wide$position_group)
   }) %>%
   ungroup()
 
@@ -69,13 +70,25 @@ plt_pca <- function(pca_samples_df, pca_fixed_df){
   geom_point(data = pca_fixed_df, aes(x = PC1, y = PC2, alpha= minutes)) +
 
   # Posterior 2D density per player
-  geom_polygon(stat = "ellipse", data = pca_samples_df , aes(x = PC1, y = PC2, fill = factor(val_year)), alpha = 0.4,
+  geom_polygon(stat = "ellipse", data = pca_samples_df , aes(x = PC1, y = PC2, fill = val_year), alpha = 0.4,
   level = .95
   ) +
-  theme_bw() +
-  labs(title = glue("Yearly PCA Projection of {group_name}"), fill = "Year")
-  return(plt)
-  }
+  theme_bw() 
+  plt34 <- ggplot() +
+  # Fixed points (all players)
+  geom_point(data = pca_fixed_df, aes(x = PC3, y = PC4, alpha= minutes)) +
+
+  # Posterior 2D density per player
+  geom_polygon(stat = "ellipse", data = pca_samples_df , aes(x = PC3, y = PC4, fill = val_year), alpha = 0.4,
+  level = .95
+  ) +
+  theme_bw() 
+
+
+  return(plt + plt34 + plot_layout(guides = "collect") + plot_annotation(
+      title = glue("Yearly PCA  Projection of {group_name}")
+    ))
+}
 
 plt_functional_pca <- function(pca_mu_samples_df, pca_mu_fixed_df){
   group_name <- unique(pca_mu_samples_df$name)
@@ -84,12 +97,25 @@ plt_functional_pca <- function(pca_mu_samples_df, pca_mu_fixed_df){
   geom_point(data = pca_mu_fixed_df, aes(x = PC1, y = PC2, alpha= minutes)) +
 
   # Posterior 2D density per player
-  geom_polygon(stat = "ellipse", data = pca_mu_samples_df , aes(x = PC1, y = PC2, fill = factor(val_year)), alpha = 0.4,
+  geom_polygon(stat = "ellipse", data = pca_mu_samples_df , aes(x = PC1, y = PC2, fill = val_year), alpha = 0.4,
   level = .95
   ) +
-  theme_bw() +
-  labs(title = glue("Yearly PCA Functional Projection of {group_name}"), fill = "Year")
-  return(plt)
+  theme_bw() 
+
+  plt34 <- ggplot() +
+  # Fixed points (all players)
+  geom_point(data = pca_mu_fixed_df, aes(x = PC3, y = PC4, alpha= minutes)) +
+
+  # Posterior 2D density per player
+  geom_polygon(stat = "ellipse", data = pca_mu_samples_df , aes(x = PC3, y = PC4, fill = val_year), alpha = 0.4,
+  level = .95
+  ) +
+  theme_bw() 
+
+
+  return(plt + plt34 + plot_layout(guides = "collect") + plot_annotation(
+      title = glue("Yearly PCA Functional Projection of {group_name}")
+    ))
 }
 
 
@@ -103,6 +129,7 @@ plots_list <- pca_mu_samples_df %>%
     ggsave(
       filename = glue("model_output/model_plots/latent_space/evolution_functional_pca_{name}.png"),
       plot = plt,
+      width = 14
     )
     })
 
@@ -116,5 +143,6 @@ plots_list <- pca_samples_df %>%
     ggsave(
       filename = glue("model_output/model_plots/latent_space/evolution_pca_{name}.png"),
       plot = plt,
+      width = 14
     )
     })

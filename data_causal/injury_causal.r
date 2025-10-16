@@ -13,8 +13,7 @@ library(patchwork)
 library(umap)
 
 
-injury_data <- read.csv("data/injury_player_cleaned.csv") |> 
-    mutate( pct_games = games / pmax(games, total_games, na.rm = TRUE),
+data <- read.csv("data/injury_player_cleaned.csv") |>     mutate( pct_games = games / pmax(games, total_games, na.rm = TRUE),
             mpg = minutes / games,
             blk_rate = 36 * (blk / minutes),
             ast_rate = 36 * (ast / minutes),
@@ -27,7 +26,8 @@ injury_data <- read.csv("data/injury_player_cleaned.csv") |>
             fta_rate = 36 * (fta / minutes), 
             ft_pct =  (ftm / fta), 
             fg2_pct =  (fg2m / fg2a), 
-            fg3_pct =  (fg3m / fg3a)) |>
+            fg3_pct =  (fg3m / fg3a))
+injury_data <- data |> 
     group_by(id) |>
     filter(!any(is.na(first_major_injury))) |> 
     ungroup() |> 
@@ -152,7 +152,6 @@ value = if_else(is.finite(value), value, NA_real_)) |>
 filter(!is.na(obs_value) & is.finite(obs_value)) |> 
 mutate(injury_change =  obs_value - value) |> ungroup() |> group_by(metric, player, first_major_injury, injury_type) |> 
 summarize(mean_itt = mean(injury_change, na.rm = TRUE)) |> ungroup()
-
 
 
 metrics <- na.omit(unique(itt_df$metric))
