@@ -73,7 +73,7 @@ plt_pca <- function(pca_samples_df, pca_fixed_df){
   geom_polygon(stat = "ellipse", data = pca_samples_df , aes(x = PC1, y = PC2, fill = val_year), alpha = 0.4,
   level = .95
   ) +
-  theme_bw() 
+  theme_bw() + labs(fill = "Year", alpha = "Minutes")
   plt34 <- ggplot() +
   # Fixed points (all players)
   geom_point(data = pca_fixed_df, aes(x = PC3, y = PC4, alpha= minutes)) +
@@ -82,11 +82,11 @@ plt_pca <- function(pca_samples_df, pca_fixed_df){
   geom_polygon(stat = "ellipse", data = pca_samples_df , aes(x = PC3, y = PC4, fill = val_year), alpha = 0.4,
   level = .95
   ) +
-  theme_bw() 
+  theme_bw() + labs(fill = "Year", alpha = "Minutes")
 
 
   return(plt + plt34 + plot_layout(guides = "collect") + plot_annotation(
-      title = glue("Yearly PCA  Projection of {group_name}")
+      title = glue("Yearly PCA  Projection of {group_name}") 
     ))
 }
 
@@ -100,7 +100,7 @@ plt_functional_pca <- function(pca_mu_samples_df, pca_mu_fixed_df){
   geom_polygon(stat = "ellipse", data = pca_mu_samples_df , aes(x = PC1, y = PC2, fill = val_year), alpha = 0.4,
   level = .95
   ) +
-  theme_bw() 
+  theme_bw() +  labs(fill = "Year", alpha = "Minutes")
 
   plt34 <- ggplot() +
   # Fixed points (all players)
@@ -110,11 +110,11 @@ plt_functional_pca <- function(pca_mu_samples_df, pca_mu_fixed_df){
   geom_polygon(stat = "ellipse", data = pca_mu_samples_df , aes(x = PC3, y = PC4, fill = val_year), alpha = 0.4,
   level = .95
   ) +
-  theme_bw() 
+  theme_bw() + labs(fill = "Year", alpha = "Minutes")
 
 
   return(plt + plt34 + plot_layout(guides = "collect") + plot_annotation(
-      title = glue("Yearly PCA Functional Projection of {group_name}")
+      title = glue("Yearly PCA Functional Projection of {group_name}") 
     ))
 }
 
