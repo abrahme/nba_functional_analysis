@@ -78,7 +78,10 @@ empirical_player_plt <- injury_data |> filter(name %in% c("Kobe Bryant", "Dwight
                               metric == "PCT_MINUTES" ~ "MPG",
                               .default = metric)) |> ggplot(aes(x = age, y = obs_value, color = name, group = name)) +  
                               geom_smooth(method = "loess", se = FALSE) + facet_wrap(~metric, scales = "free_y") + theme_bw() + scale_colour_brewer(palette = "Set1") + 
-                              ggtitle("An Empirical Production Curve Comparison by Metric") +xlab("Age") + ylab("Metric Value")
+                              ggtitle("An Empirical Production Curve Comparison by Metric") +xlab("Age") + ylab("Metric Value") +theme(legend.position = "bottom",
+                              legend.justification = "center",
+                              legend.title = element_blank())
+
 ggsave("model_output/model_plots/empirical_production_player.png", empirical_player_plt)    
 
 empirical_plt <- injury_data  |> mutate(metric = toupper(metric),
@@ -313,6 +316,8 @@ peaks_plt <- ggplot(peaks_plt_df |> group_by(metric, player) |> summarize(minute
 ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary.png", peaks_plt)
 
 
+
+
 third_deriv_plt <- ggplot(third_deriv |> inner_join(data |> group_by(id) |> summarize(name = first(name), position_group = first(position_group), minutes = sum(minutes)) |> ungroup(),
                     by = c("player" = "id")) |>
                     mutate(metric = toupper(metric),
@@ -449,6 +454,44 @@ posterior_plot_names <-  c("Stephen Curry", "Kevin Durant", "LeBron James", "Kob
                  "LaMelo Ball", "Carmelo Anthony", "Dwyane Wade", "Derrick Rose", "Chris Bosh", "Karl-Anthony Towns", "Kristaps Porzingis", "Giannis Antetokounmpo", "Jrue Holiday")
 
 
+
+
+peaks_players <- peaks_plt_df %>% group_by(metric, player) %>% summarize(value = mean(value)) %>% ungroup() %>% pivot_wider(names_from = metric, values_from = value) %>% inner_join(latent_space %>% filter(minutes >= quantile(minutes, .75)) %>% select(id), by = c("player" = "id"))
+
+peaks_pca <- prcomp(peaks_players  %>% select(-player) %>% data.matrix() , scale. = TRUE, center = TRUE)
+
+peaks_pca_df <- tibble(PC1 = peaks_pca$x[,1], PC2 = peaks_pca$x[,2], id = peaks_players$player) %>% inner_join(latent_space %>% select(id, name, position_group, minutes))
+
+peaks_pca_plot  <- peaks_pca_df |> ggplot(aes(x = PC1, y = PC2)) + geom_point(aes(alpha = minutes, color = position_group)) + scale_alpha(range = c(0,1)) +
+                      geom_text_repel(
+                      data = filter(peaks_pca_df, name %in% posterior_plot_names),
+                      aes(label = name, x = PC1, y = PC2),
+                      size = 4,
+                      fontface = "bold",
+                      max.overlaps = 5,
+                      inherit.aes = FALSE) +
+  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("PCA Visualization of Learned Metric Peaks") + labs(x = "PC 1", y = "PC 2", alpha = "Minutes", color = "Position Group")
+
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_pca.png", peaks_pca_plot)
+
+
+# Extract loadings
+loadings <- as.data.frame(peaks_pca$rotation[, 1:2])
+loadings$metric <- rownames(loadings)
+loadings <- loadings %>% mutate(metric_group = case_when( metric %in% c("AST", "TOV", "OBPM", "GP%", "DBPM", "MPG", "DREB") ~ "Composite",
+                                                     metric %in% c("BLK", "STL", "OREB", "FG2A", "FTA", "FG2%") ~ "Athleticism",
+                                                     metric %in% c("FT%", "FG3%", "FG3A") ~ "Skill"))
+
+peaks_pca_loadings_plt <- ggplot(loadings, aes(x = PC1, y = PC2, label = metric)) +
+  geom_point(aes(color = metric_group)) +
+  geom_text(size = 4,
+                      fontface = "bold",
+                      max.overlaps = 5) +
+  coord_equal() +
+  theme_bw() +
+  scale_colour_brewer(palette = "Set1") + 
+  ggtitle("PCA Visualization of Learned Metric Peaks Factor Loadings") + labs(x = "PC 1", y = "PC 2", color = "Metric Group")
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_pca_loadings.png", peaks_pca_loadings_plt)
 
 latent_space_umap <- latent_space %>% select(starts_with("Dim")) %>% umap(n_neighbors = 50, min_dist = 0.001, verbose = TRUE) %>% .$layout %>% as.tibble(.name_repair = "unique") %>% cbind(latent_space %>% select(-starts_with("Dim"))) %>% rename(UMAP1 = `...1`, UMAP2 = `...2`)
 
