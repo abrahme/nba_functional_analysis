@@ -13,6 +13,15 @@ library(gt)
 library(ggbeeswarm)
 library(ggdist)
 library(umap)
+library(dbscan)
+
+
+posterior_plot_names <-  c("Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash", 
+                "Chris Paul", "Shaquille O'Neal","Anthony Edwards", "Jamal Murray", "Donovan Mitchell", "Ray Allen", "Klay Thompson",
+                "Scottie Pippen", "Amar'e Stoudemire", "Shawn Marion", "Dirk Nowitzki", "Jason Kidd","Marcus Camby", "Rudy Gobert", "Tim Duncan",
+                 "Manu Ginobili", "James Harden", "Russell Westbrook", "Luka Doncic", "Devin Booker", "Paul Pierce", "Allen Iverson", "Tyrese Haliburton", 
+                 "LaMelo Ball", "Carmelo Anthony", "Dwyane Wade", "Derrick Rose", "Chris Bosh", "Karl-Anthony Towns", "Kristaps Porzingis", "Giannis Antetokounmpo", "Jrue Holiday")
+
 
 data <- read.csv("data/injury_player_cleaned.csv")
 
@@ -76,7 +85,14 @@ empirical_player_plt <- injury_data |> filter(name %in% c("Kobe Bryant", "Dwight
                               metric == "FG3M" ~ "FG3%",
                               metric == "FTM" ~ "FT%",
                               metric == "PCT_MINUTES" ~ "MPG",
-                              .default = metric)) |> ggplot(aes(x = age, y = obs_value, color = name, group = name)) +  
+                              .default = metric), 
+                              
+          metric = case_when(metric %in% c("OBPM", "DBPM") ~ paste0(metric, " (𝓖)"),
+                              metric %in% c("FG2%", "FT%", "FG3%") ~ paste0(metric, " (𝓑)"),
+                              metric %in% c("MPG", "GP%") ~ metric,
+                              .default =  paste0(metric, " (𝓡)")
+                    )) |>
+                              ggplot(aes(x = age, y = obs_value, color = name, group = name)) +  
                               geom_smooth(method = "loess", se = FALSE) + facet_wrap(~metric, scales = "free_y") + theme_bw() + scale_colour_brewer(palette = "Set1") + 
                               ggtitle("An Empirical Production Curve Comparison by Metric") +xlab("Age") + ylab("Metric Value") +theme(legend.position = "bottom",
                               legend.justification = "center",
@@ -90,7 +106,11 @@ empirical_plt <- injury_data  |> mutate(metric = toupper(metric),
                               metric == "FG3M" ~ "FG3%",
                               metric == "FTM" ~ "FT%",
                               metric == "PCT_MINUTES" ~ "MPG",
-                              .default = metric)) |> ggplot(aes(x = age, y = obs_value)) + 
+                              .default = metric),
+          metric = case_when(metric %in% c("OBPM", "DBPM") ~ paste0(metric, " (𝓖)"),
+                              metric %in% c("FG2%", "FT%", "FG3%") ~ paste0(metric, " (𝓑)"),
+                              metric %in% c("MPG", "GP%") ~ metric,
+                              .default =  paste0(metric, " (𝓡)"))) |> ggplot(aes(x = age, y = obs_value)) + 
                               geom_smooth(method = "loess", se = TRUE) + facet_wrap(~metric, scales = "free_y") + theme_bw() + scale_colour_brewer(palette = "Set1") + 
                               ggtitle("Empirical Production Curves by Metric") +xlab("Age") + ylab("Metric Value")
 ggsave("model_output/model_plots/empirical_production.png", empirical_plt) 
@@ -137,48 +157,6 @@ ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_clus
 
 
 
-skew_plt_df <- posterior_peaks |> inner_join(
-    data |>
-      group_by(id) |>
-      summarize(name = first(name), position_group = first(position_group), minutes = sum(minutes)) |>
-      ungroup(),
-    by = c("player" = "id")
-  ) |> rename(peak_age = value) |> inner_join(posterior_mu_data |> rename(mu = value)) |>
-  mutate(peak_int = ceiling(peak_age)) |> group_by(metric, chain, sample, player) |> arrange(age) |> 
-  summarize(first_deriv_pre = (mu[age==peak_int] - first(mu))/(peak_int - 18),
-  first_deriv_post = (last(mu) - mu[age == peak_int]) / (38 - peak_int), minutes = first(minutes)) |> ungroup() |>
-  mutate(
-      metric = toupper(metric),
-      metric = case_when(
-        metric == "GAMES" ~ "GP%",
-        metric == "FG2M" ~ "FG2%",
-        metric == "FG3M" ~ "FG3%",
-        metric == "FTM" ~ "FT%",
-        metric == "PCT_MINUTES" ~ "MPG",
-        .default = metric
-      ),
-      metric_group = case_when(
-        metric %in% c("AST", "TOV", "OBPM", "GP%", "DBPM", "MPG", "DREB") ~ "Composite",
-        metric %in% c("BLK", "STL", "OREB", "FG2A", "FTA", "FG2%") ~ "Athleticism",
-        metric %in% c("FT%", "FG3%", "FG3A") ~ "Skill"
-      )
-    ) |> group_by(metric, player) |> summarize(first_deriv_pre = mean(first_deriv_pre), first_deriv_post = mean(first_deriv_post), minutes = first(minutes),
-    metric_group = first(metric_group)) |> ungroup()
-
-
-skew_plt <- ggplot(skew_plt_df, aes( x = first_deriv_pre / first_deriv_post, color = metric_group, y = metric, )) +
-      stat_pointinterval() + 
-  scale_color_brewer(palette = "Set1") + scale_y_discrete(expand = expansion(mult = c(0.2, 0.2))) + 
-  theme_bw() +
-  labs(
-    title = "Posterior Mean of Pre vs. Post Peak First Deriv. by Metric",
-    x = "Ratio of Pre-Peak to Post-Peak First Derivative",
-    color = "Metric Group"
-  ) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) 
-
-
-ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_skew.png", skew_plt)
-
 peaks_plt_df <- posterior_peaks |>
   inner_join(
     data |>
@@ -196,13 +174,7 @@ peaks_plt_df <- posterior_peaks |>
       metric == "FTM" ~ "FT%",
       metric == "PCT_MINUTES" ~ "MPG",
       .default = metric
-    ),
-    metric_group = case_when(
-      metric %in% c("AST", "TOV", "OBPM", "GP%", "DBPM", "MPG", "DREB") ~ "Composite",
-      metric %in% c("BLK", "STL", "OREB", "FG2A", "FTA", "FG2%") ~ "Athleticism",
-      metric %in% c("FT%", "FG3%", "FG3A") ~ "Skill"
-    )
-  ) |>
+    )) |>
   mutate(
     metric = fct_reorder(metric, value, .fun = median, .desc = TRUE)
   )
@@ -224,13 +196,7 @@ peak_vals_plt_df <- posterior_peak_vals |>
       metric == "FTM" ~ "FT%",
       metric == "PCT_MINUTES" ~ "MPG",
       .default = metric
-    ),
-    metric_group = case_when(
-      metric %in% c("AST", "TOV", "OBPM", "GP%", "DBPM", "MPG", "DREB") ~ "Composite",
-      metric %in% c("BLK", "STL", "OREB", "FG2A", "FTA", "FG2%") ~ "Athleticism",
-      metric %in% c("FT%", "FG3%", "FG3A") ~ "Skill"
-    )
-  ) |>
+    )) |>
   mutate(
     metric = fct_reorder(metric, value, .fun = median, .desc = TRUE)
   )
@@ -296,7 +262,92 @@ writeLines(latex_code, "model_output/model_plots/peaks/mcmc/obpm_peak_table.tex"
 
 
 
-peaks_plt <- ggplot(peaks_plt_df |> group_by(metric, player) |> summarize(minutes = first(minutes), metric_group = first(metric_group), value = mean(value)), 
+
+peaks_players <- peaks_plt_df %>% group_by(metric, player) %>% summarize(value = mean(value)) %>% ungroup() %>% pivot_wider(names_from = metric, values_from = value) %>% inner_join(latent_space %>% filter(minutes >= quantile(minutes, .75)) %>% select(id), by = c("player" = "id"))
+
+peaks_pca <- prcomp(peaks_players  %>% select(-player) %>% data.matrix() , scale. = TRUE, center = TRUE)
+
+peaks_pca_df <- tibble(PC1 = peaks_pca$x[,1], PC2 = peaks_pca$x[,2], id = peaks_players$player) %>% inner_join(latent_space %>% select(id, name, position_group, minutes))
+
+tops <- c(peaks_pca_df %>% arrange(desc(PC1)) %>% pull(name) %>% head(10), peaks_pca_df %>% arrange(desc(PC2)) %>% pull(name) %>% head(10))
+bottoms <- c(peaks_pca_df %>% arrange(PC1) %>% pull(name) %>% head(10), peaks_pca_df %>% arrange(PC2) %>% pull(name) %>% head(10))
+
+pca_outlier_names <- unique(c(tops,bottoms))
+
+peaks_pca_plot  <- peaks_pca_df |> ggplot(aes(x = PC1, y = PC2)) + geom_point(aes(alpha = minutes, color = position_group)) + scale_alpha(range = c(0,1)) +
+                      geom_text_repel(
+                      data = filter(peaks_pca_df, name %in% pca_outlier_names),
+                      aes(label = name, x = PC1, y = PC2),
+                      size = 4,
+                      fontface = "bold",
+                      max.overlaps = 5,
+                      inherit.aes = FALSE) +
+  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("PCA Visualization of Learned Metric Peaks") + labs(x = "PC 1", y = "PC 2", alpha = "Minutes", color = "Position Group")
+
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_pca.png", peaks_pca_plot)
+
+
+# Extract loadings
+loadings <- as.data.frame(peaks_pca$rotation[, 1:2])
+loadings$metric <- rownames(loadings)
+db <- dbscan(loadings %>% select(-c(metric)), eps = .2, minPts = 2)
+loadings$metric_group <- as.factor(db$cluster) 
+peaks_pca_loadings_plt <- ggplot(loadings, aes(x = PC1, y = PC2)) +
+  geom_text(aes(label = metric, color = metric_group), size = 4,
+                      fontface = "bold") +
+  theme_bw() +
+  scale_colour_brewer(palette = "Set1") + 
+  geom_hline(yintercept = 0, color = "black", linewidth = 0.5) +
+  geom_vline(xintercept = 0, color = "black", linewidth = 0.5) +
+  # Make equal scaling so 0,0 is visually centered
+  coord_cartesian(xlim = c(min(loadings$PC1), max(loadings$PC1)), 
+                  ylim = c(min(loadings$PC2), max(loadings$PC2))) +
+  ggtitle("PCA Visualization of Learned Metric Peaks Factor Loadings") + labs(x = "PC 1", y = "PC 2", color = "Metric Group")
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_pca_loadings.png", peaks_pca_loadings_plt)
+
+
+skew_plt_df <- posterior_peaks |> inner_join(
+    data |>
+      group_by(id) |>
+      summarize(name = first(name), position_group = first(position_group), minutes = sum(minutes)) |>
+      ungroup(),
+    by = c("player" = "id")
+  ) |> rename(peak_age = value) |> inner_join(posterior_mu_data |> rename(mu = value)) |>
+  mutate(peak_int = ceiling(peak_age)) |> group_by(metric, chain, sample, player) |> arrange(age) |> 
+  summarize(first_deriv_pre = (mu[age==peak_int] - first(mu))/(peak_int - 18),
+  first_deriv_post = (last(mu) - mu[age == peak_int]) / (38 - peak_int), minutes = first(minutes)) |> ungroup() |>
+  mutate(
+      metric = toupper(metric),
+      metric = case_when(
+        metric == "GAMES" ~ "GP%",
+        metric == "FG2M" ~ "FG2%",
+        metric == "FG3M" ~ "FG3%",
+        metric == "FTM" ~ "FT%",
+        metric == "PCT_MINUTES" ~ "MPG",
+        .default = metric
+      )) |>
+      inner_join(loadings, by = "metric") |> 
+       group_by(metric, player) |> summarize(first_deriv_pre = mean(first_deriv_pre), first_deriv_post = mean(first_deriv_post), minutes = first(minutes),
+    metric_group = first(metric_group)) |> ungroup()
+
+
+skew_plt <- ggplot(skew_plt_df, aes( x = first_deriv_pre / first_deriv_post, color = metric_group, y = metric, )) +
+      stat_pointinterval() + 
+  scale_color_brewer(palette = "Set1") + scale_y_discrete(expand = expansion(mult = c(0.2, 0.2))) + 
+  theme_bw() +
+  labs(
+    title = "Posterior Mean of Pre vs. Post Peak First Deriv. by Metric",
+    x = "Ratio of Pre-Peak to Post-Peak First Derivative",
+    color = "Metric Group"
+  ) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) 
+
+
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_skew.png", skew_plt)
+
+
+peaks_plt <- ggplot(peaks_plt_df |> inner_join(loadings, by = "metric") |> group_by(metric, player) |> summarize(minutes = first(minutes), metric_group = first(metric_group), value = mean(value)) |> ungroup() |>   mutate(
+    metric = fct_reorder(metric, value, .fun = median, .desc = TRUE)
+  ), 
 
   aes(y = metric, x = value, fill = metric_group, color = metric_group)) +
   stat_pointinterval() + 
@@ -327,15 +378,14 @@ third_deriv_plt <- ggplot(third_deriv |> inner_join(data |> group_by(id) |> summ
                     metric == "FTM" ~ "FT%",
                     metric == "PCT_MINUTES" ~ "MPG",
                     .default = metric)) |> 
-                    mutate(metric_group = case_when( metric %in% c("AST", "TOV", "OBPM", "GP%", "DBPM", "MPG", "DREB") ~ "Composite",
-                                                     metric %in% c("BLK", "STL", "OREB", "FG2A", "FTA", "FG2%") ~ "Athleticism",
-                                                     metric %in% c("FT%", "FG3%", "FG3A") ~ "Skill")) |>
+                    inner_join(loadings, by = "metric") |>
+                    
                     group_by(metric, player) |> summarize(posterior_mean = mean(value), metric_group = first(metric_group), minutes = first(minutes)) |> ungroup() 
                      ,
                aes(x = metric, y = posterior_mean, color = metric_group)) + 
                 stat_pointinterval() + 
   ggtitle("Posterior Mean of Third Derivative by Metric") +labs(y = "Posterior Mean of Third Derivative", x = "Metric", color = "Metric Group") + 
-  theme_bw() + scale_fill_brewer(palette = "Set1") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) 
+  theme_bw() + scale_fill_brewer(palette = "Set1") + scale_color_brewer(palette = "Set1") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) 
 
 
 ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_third_deriv.png", third_deriv_plt)
@@ -447,51 +497,11 @@ coverage_plt_minutes <- validation_coverage_df |> inner_join(data |> filter(year
                         geom_point() + facet_wrap(~metric, scales = "free_y") +
                         theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Validation Coverage by Years of Training Data Available") + xlab("Years Played")
 ggsave("model_output/model_plots/coverage/nba_convex_tvrflvm_max_boundary_ar_validation_minutes.png", coverage_plt_minutes)
-posterior_plot_names <-  c("Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash", 
-                "Chris Paul", "Shaquille O'Neal","Anthony Edwards", "Jamal Murray", "Donovan Mitchell", "Ray Allen", "Klay Thompson",
-                "Scottie Pippen", "Amar'e Stoudemire", "Shawn Marion", "Dirk Nowitzki", "Jason Kidd","Marcus Camby", "Rudy Gobert", "Tim Duncan",
-                 "Manu Ginobili", "James Harden", "Russell Westbrook", "Luka Doncic", "Devin Booker", "Paul Pierce", "Allen Iverson", "Tyrese Haliburton", 
-                 "LaMelo Ball", "Carmelo Anthony", "Dwyane Wade", "Derrick Rose", "Chris Bosh", "Karl-Anthony Towns", "Kristaps Porzingis", "Giannis Antetokounmpo", "Jrue Holiday")
 
 
 
 
-peaks_players <- peaks_plt_df %>% group_by(metric, player) %>% summarize(value = mean(value)) %>% ungroup() %>% pivot_wider(names_from = metric, values_from = value) %>% inner_join(latent_space %>% filter(minutes >= quantile(minutes, .75)) %>% select(id), by = c("player" = "id"))
 
-peaks_pca <- prcomp(peaks_players  %>% select(-player) %>% data.matrix() , scale. = TRUE, center = TRUE)
-
-peaks_pca_df <- tibble(PC1 = peaks_pca$x[,1], PC2 = peaks_pca$x[,2], id = peaks_players$player) %>% inner_join(latent_space %>% select(id, name, position_group, minutes))
-
-peaks_pca_plot  <- peaks_pca_df |> ggplot(aes(x = PC1, y = PC2)) + geom_point(aes(alpha = minutes, color = position_group)) + scale_alpha(range = c(0,1)) +
-                      geom_text_repel(
-                      data = filter(peaks_pca_df, name %in% posterior_plot_names),
-                      aes(label = name, x = PC1, y = PC2),
-                      size = 4,
-                      fontface = "bold",
-                      max.overlaps = 5,
-                      inherit.aes = FALSE) +
-  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("PCA Visualization of Learned Metric Peaks") + labs(x = "PC 1", y = "PC 2", alpha = "Minutes", color = "Position Group")
-
-ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_pca.png", peaks_pca_plot)
-
-
-# Extract loadings
-loadings <- as.data.frame(peaks_pca$rotation[, 1:2])
-loadings$metric <- rownames(loadings)
-loadings <- loadings %>% mutate(metric_group = case_when( metric %in% c("AST", "TOV", "OBPM", "GP%", "DBPM", "MPG", "DREB") ~ "Composite",
-                                                     metric %in% c("BLK", "STL", "OREB", "FG2A", "FTA", "FG2%") ~ "Athleticism",
-                                                     metric %in% c("FT%", "FG3%", "FG3A") ~ "Skill"))
-
-peaks_pca_loadings_plt <- ggplot(loadings, aes(x = PC1, y = PC2, label = metric)) +
-  geom_point(aes(color = metric_group)) +
-  geom_text(size = 4,
-                      fontface = "bold",
-                      max.overlaps = 5) +
-  coord_equal() +
-  theme_bw() +
-  scale_colour_brewer(palette = "Set1") + 
-  ggtitle("PCA Visualization of Learned Metric Peaks Factor Loadings") + labs(x = "PC 1", y = "PC 2", color = "Metric Group")
-ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_pca_loadings.png", peaks_pca_loadings_plt)
 
 latent_space_umap <- latent_space %>% select(starts_with("Dim")) %>% umap(n_neighbors = 50, min_dist = 0.001, verbose = TRUE) %>% .$layout %>% as.tibble(.name_repair = "unique") %>% cbind(latent_space %>% select(-starts_with("Dim"))) %>% rename(UMAP1 = `...1`, UMAP2 = `...2`)
 
@@ -514,11 +524,9 @@ functional_pca_result <-  posterior_mu_data %>% group_by(age, player, metric) %>
 ) 
 ids <- functional_pca_result$player 
 
-# functional_umap_embedding <- functional_umap_result %>% select(-player) %>% umap(n_neighbors = 50, min_dist = 0.001, verbose = TRUE) %>% 
-#       .$layout %>% as.tibble(.name_repair = "unique")  %>% 
-#       rename(UMAP1 = `...1`, UMAP2 = `...2`)
 
-functional_pca_embedding <- functional_umap_result %>% 
+
+functional_pca_embedding <- functional_pca_result %>% 
   select(-player) %>% 
   prcomp(center = TRUE, scale. = TRUE) %>%       # perform PCA
   .$x %>%                                       # extract principal component scores
@@ -555,10 +563,10 @@ plot_posterior <- function(grouped_data_set, hold_out_year, plot_obs = TRUE) {
   
   plt <- raw_plt |>
     ggplot(aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
-                                       fill = "blue",
-                                       alpha = 0.2) +
+                                       fill = "gray",
+                                       alpha = 0.4) +
     geom_line(aes(x = age, y = posterior_mean)) +
-    geom_line(aes(x = age, y = mu),  color = "green") + 
+    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF") + 
     
     geom_vline(aes(xintercept = age_of_holdout),
                linetype = "dashed",
