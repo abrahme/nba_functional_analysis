@@ -380,7 +380,8 @@ third_deriv_plt <- ggplot(third_deriv |> inner_join(data |> group_by(id) |> summ
                     .default = metric)) |> 
                     inner_join(loadings, by = "metric") |>
                     
-                    group_by(metric, player) |> summarize(posterior_mean = mean(value), metric_group = first(metric_group), minutes = first(minutes)) |> ungroup() 
+                    group_by(metric, player) |> summarize(posterior_mean = mean(value), metric_group = first(metric_group), minutes = first(minutes)) |> ungroup() |>
+                     mutate(metric = fct_reorder(metric, posterior_mean, .fun = median, .desc = TRUE))
                      ,
                aes(x = metric, y = posterior_mean, color = metric_group)) + 
                 stat_pointinterval() + 
