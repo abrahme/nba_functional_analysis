@@ -4,8 +4,15 @@ library(stringr)
 library(lubridate)
 library(ggplot2)
 library(HDInterval)
+library(purrr)
 library(glue)
+library(ggrepel)
+library(ggnewscale)
+library(ggdist)
 library(patchwork)
+library(umap)
+library(ggridges)
+
 
 data <- read.csv("data/injury_player_cleaned.csv")
 
@@ -146,3 +153,26 @@ plots_list <- pca_samples_df %>%
       width = 14
     )
     })
+
+
+latent_peaks_space <- read.csv("latent_peaks_cohort_2022_2023_2025.csv") %>% mutate(val_year = factor(val_year))
+
+full_latent_peaks_space <-  latent_peaks_space %>% inner_join(player_info, by = c("player" = "id", "val_year" = "val_year"))
+latent_peaks_samples_obpm <- full_latent_peaks_space %>% filter(metric  == "obpm" & label != "fixed")
+
+
+peaks_plt <- ggplot(latent_peaks_samples_obpm, aes(x = value, y = name, fill = val_year)) +
+  geom_density_ridges(
+    position = "identity",
+    scale = 0.9,
+    alpha = 0.5
+  ) +
+  labs(x = "Peak Age", y = "Player", fill = "Year", title = "Projected Peak Age of OBPM by Year") + scale_colour_brewer(palette = "Set1") +
+  theme_bw()
+
+ggsave(
+      filename = glue("model_output/model_plots/peaks/mcmc/cohort_2021.png"),
+      plot = peaks_plt,
+      height = 14,
+      width = 7
+    )

@@ -85,6 +85,7 @@ if __name__ == "__main__":
     
     dfs = []
     mu_dfs = []
+    peak_dfs = []
     for val_year in X_dict:
         df = posterior_X_to_df(X_dict[val_year], id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], player_indices)
         df["val_year"] = val_year
@@ -92,8 +93,11 @@ if __name__ == "__main__":
         mu_df = pd.read_csv(f"posterior_mu_ar_{val_year}.csv")
         mu_df["val_year"] = val_year
         mu_dfs.append(mu_df)
+        peak_df = pd.read_csv(f"posterior_peaks_ar_{val_year}.csv")
+        peak_df["val_year"] = val_year
+        peak_dfs.append(peak_df)
     pd.concat(dfs).to_csv("latent_X_cohort_2022_2023_2025.csv", index = False)
     pd.concat(mu_dfs).to_csv("latent_mu_cohort_2022_2023_2025.csv", index = False)
-
+    pd.concat(peak_dfs).to_csv("latent_peaks_cohort_2022_2023_2025.csv", index = False)
 
 
