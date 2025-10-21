@@ -272,17 +272,16 @@ peaks_pca_df <- tibble(PC1 = peaks_pca$x[,1], PC2 = peaks_pca$x[,2], id = peaks_
 tops <- c(peaks_pca_df %>% arrange(desc(PC1)) %>% pull(name) %>% head(10), peaks_pca_df %>% arrange(desc(PC2)) %>% pull(name) %>% head(10))
 bottoms <- c(peaks_pca_df %>% arrange(PC1) %>% pull(name) %>% head(10), peaks_pca_df %>% arrange(PC2) %>% pull(name) %>% head(10))
 
-pca_outlier_names <- unique(c(tops,bottoms))
+pca_outlier_names <- unique(c(tops,bottoms, posterior_plot_names))
 
-peaks_pca_plot  <- peaks_pca_df |> ggplot(aes(x = PC1, y = PC2)) + geom_point(aes(alpha = minutes, color = position_group)) + scale_alpha(range = c(0,1)) +
+peaks_pca_plot  <-filter(peaks_pca_df, name %in% pca_outlier_names) %>% ggplot(aes(x = PC1, y = PC2)) +
                       geom_text_repel(
-                      data = filter(peaks_pca_df, name %in% pca_outlier_names),
                       aes(label = name, x = PC1, y = PC2),
-                      size = 4,
+                      size = 3,
                       fontface = "bold",
-                      max.overlaps = 5,
+                      max.overlaps = 20,
                       inherit.aes = FALSE) +
-  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("PCA Visualization of Learned Metric Peaks") + labs(x = "PC 1", y = "PC 2", alpha = "Minutes", color = "Position Group")
+  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("PCA Visualization of Learned Metric Peaks") + labs(x = "PC 1", y = "PC 2")
 
 ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_pca.png", peaks_pca_plot)
 
@@ -294,8 +293,10 @@ db <- dbscan(loadings %>% select(-c(metric)), eps = .2, minPts = 2)
 loadings$metric_group <- as.factor(db$cluster) 
 peaks_pca_loadings_plt <- ggplot(loadings, aes(x = PC1, y = PC2)) +
   geom_text(aes(label = metric, color = metric_group), size = 4,
-                      fontface = "bold") +
-  theme_bw() +
+                      fontface = "bold", show.legend = FALSE) +
+  geom_point(aes(color = metric_group), alpha = 0) + 
+  theme_bw() + 
+  guides(color = guide_legend(override.aes = list(shape = 16, alpha = 1))) + 
   scale_colour_brewer(palette = "Set1") + 
   geom_hline(yintercept = 0, color = "black", linewidth = 0.5) +
   geom_vline(xintercept = 0, color = "black", linewidth = 0.5) +

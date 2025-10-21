@@ -150,8 +150,9 @@ mutate(injury_type = if_else(min(age) > peak_age, "post-peak", "pre-peak")) |> u
 mutate(obs_value = if_else(year <= 2026 & metric %in% c("games") & is.na(obs_value), 0, obs_value),
 value = if_else(is.finite(value), value, NA_real_)) |>
 filter(!is.na(obs_value) & is.finite(obs_value)) |> 
-mutate(injury_change =  obs_value - value) |> ungroup() |> group_by(metric, player, first_major_injury, injury_type) |> 
-summarize(mean_itt = mean(injury_change, na.rm = TRUE)) |> ungroup()
+mutate(injury_change =  obs_value - value) |> ungroup() |> group_by(metric, player, first_major_injury, injury_type, age) |> 
+summarize(mean_itt = mean(injury_change, na.rm = TRUE), lower = HDInterval::hdi(injury_change, credMass = 0.95)["lower"],
+    upper = HDInterval::hdi(injury_change, credMass = 0.95)["upper"]) |> ungroup()
 
 
 metrics <- na.omit(unique(itt_df$metric))
@@ -258,29 +259,32 @@ plot_counterfactual_metrics <- function(grouped_data_set) {
       label = case_when(metric == "GP%" ~ glue("Observed Total: {round(total_obs_value)}"),
                         .default = glue("Observed: {round(total_obs_value, 2)}"))
     )
-  plt_gp <- ggplot(raw_df |> filter(metric == "GP%"), aes(x = counterfactual_value)) + 
-    geom_density(adjust=3, from = 0, to = max(raw_df |> filter(metric == "GP%") |> select(counterfactual_value))*1.5) + 
-    geom_vline(data = obs_df |> filter(metric == "GP%"),
-             aes(xintercept = total_obs_value),
-             color = "blue", size = 1, linetype = "dashed") +
-    geom_text(data = label_df |> filter(metric == "GP%"),
-            aes(x = total_obs_value, y = y, label = label),
-            inherit.aes = FALSE, vjust = -0.5, color = "black", angle = 270) + scale_x_continuous(limits = c(0, NA)) + coord_cartesian(clip = "off") +
-    labs(y = "Posterior Predictive Density", x = "Total Games Played (Post-Inury)") +  theme_classic() # start at 0, no extra padding 
+  # plt_gp <- ggplot(raw_df |> filter(metric == "GP%"), aes(x = counterfactual_value)) + 
+  #   geom_density(adjust=3, from = 0, to = max(raw_df |> filter(metric == "GP%") |> select(counterfactual_value))*1.5) + 
+  #   geom_vline(data = obs_df |> filter(metric == "GP%"),
+  #            aes(xintercept = total_obs_value),
+  #            color = "blue", size = 1, linetype = "dashed") +
+  #   geom_text(data = label_df |> filter(metric == "GP%"),
+  #           aes(x = total_obs_value, y = y, label = label),
+  #           inherit.aes = FALSE, vjust = -0.5, color = "black", angle = 270) + scale_x_continuous(limits = c(0, NA)) + coord_cartesian(clip = "off") +
+  #   labs(y = "Posterior Predictive Density", x = "Total Games Played (Post-Inury)") +  theme_classic() # start at 0, no extra padding 
   
-  plt_fta <- ggplot(raw_df |> filter(metric == "FTA"), aes(x = counterfactual_value)) + 
-    geom_density(adjust=3, from = 0, to = max(raw_df |> filter(metric == "FTA") |> select(counterfactual_value))*1.5) + 
-    geom_vline(data = obs_df |> filter(metric == "FTA"),
-             aes(xintercept = total_obs_value),
-             color = "blue", size = 1, linetype = "dashed") +
-    geom_text(data = label_df |> filter(metric == "FTA"),
-            aes(x = total_obs_value, y = y, label = label),
-            inherit.aes = FALSE, vjust = -0.5, color = "black", angle = 270) + 
-    labs(y = "", x = "Avg. FTA Per 36 (Post-Injury)") +  theme_classic() + scale_x_continuous(limits = c(0, NA)) + coord_cartesian(clip = "off") 
+  # plt_fta <- ggplot(raw_df |> filter(metric == "FTA"), aes(x = counterfactual_value)) + 
+  #   geom_density(adjust=3, from = 0, to = max(raw_df |> filter(metric == "FTA") |> select(counterfactual_value))*1.5) + 
+  #   geom_vline(data = obs_df |> filter(metric == "FTA"),
+  #            aes(xintercept = total_obs_value),
+  #            color = "blue", size = 1, linetype = "dashed") +
+  #   geom_text(data = label_df |> filter(metric == "FTA"),
+  #           aes(x = total_obs_value, y = y, label = label),
+  #           inherit.aes = FALSE, vjust = -0.5, color = "black", angle = 270) + 
+  #   labs(y = "", x = "Avg. FTA Per 36 (Post-Injury)") +  theme_classic() + scale_x_continuous(limits = c(0, NA)) + coord_cartesian(clip = "off") 
 
-  plt <- plt_gp + plt_fta + plot_annotation(title = glue("Counterfactual Posterior Distribution Post {injury_type} Injury: {group_name}"))
+  # plt <- plt_gp + plt_fta + plot_annotation(title = glue("Counterfactual Posterior Distribution Post {injury_type} Injury: {group_name}"))
 
-
+  plt <- raw_df %>% ggplot(aes(x = counterfactual_value)) + geom_density() + 
+         geom_vline(data = obs_df, aes(xintercept = total_obs_value), color = "blue", size = 1, linetype = "dashed") + geom_text(data = label_df, aes(x = total_obs_value, y = y, label = label), 
+         inherit.aes = FALSE, vjust = -0.5, color = "black", angle = 270) + facet_wrap(~ metric, scales = "free") + scale_x_continuous(limits = c(0, NA)) + coord_cartesian(clip = "off") +
+    labs(y = "Posterior Predictive Density", x = "Counterfactual Value", title = glue("Counterfactual Posterior Distribution Post {injury_type} Injury: {group_name}")) +  theme_classic() # start at 0, no extra padding 
   return(plt)
 }
 
@@ -317,8 +321,8 @@ plot_counterfactual <- function(grouped_data_set) {
       name = first(name)
     ) |> ungroup() |>
     ggplot(aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
-                                       fill = "blue",
-                                       alpha = 0.2) +
+                                       fill = "gray",
+                                       alpha = 0.3) +
     geom_line(aes(x = age, y = posterior_mean)) +
     geom_point(aes(x = age, y = obs_value), color = "black") +
     geom_vline(aes(xintercept = age_of_injury),
@@ -337,7 +341,7 @@ plot_counterfactual <- function(grouped_data_set) {
 }
 
 
-plots_list <- joined_data %>% 
+plots_list <- joined_data %>% filter(metric %in% c("MPG", "FG2A", "FTA", "STL")) %>% 
   mutate(value = if_else(is.finite(value), value, NA_real_)) %>% 
   group_by(player) %>%
   group_split() %>%               # splits into a list of grouped tibbles
@@ -352,7 +356,7 @@ plots_list <- joined_data %>%
     })
 
 plots_list <- joined_data %>%
-filter(injury_period == "post-injury" & year <= 2026 & metric %in% c("GP%", "FTA")) %>%
+filter(injury_period == "post-injury" & year <= 2026 & metric %in% c("MPG", "FTA", "FG2A", "STL")) %>%
   group_by(player) %>%
   group_split() %>%               # splits into a list of grouped tibbles
   map(~ {
