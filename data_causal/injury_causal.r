@@ -522,7 +522,7 @@ minutes_lost_player <- joined_data %>% filter(metric %in% c("GP%", "MPG") & !is.
                            pivot_wider(names_from = metric, values_from = c(value, obs_value, peak_age)) %>% mutate(minutes_played_sample = 82 * value_MPG * `value_GP%`) %>% group_by(player, chain, sample) %>% mutate(
                           age_of_injury = if_else(injury_period == "post-injury", age, Inf),
                           age_of_injury = min(age_of_injury)) %>% ungroup () %>% left_join(min_data, by = c("age" = "age", "player" = "id")) %>% filter(age >= age_of_injury) %>% group_by(first_major_injury, chain, sample, player) %>%
-                          summarize(total_pred_min = sum(minutes_played_sample), total_min_obs = sum(replace_na(normalized_min_played,0)), ratio = total_min_obs / total_pred_min, diff = total_pred_min - total_min_obs, age_of_injury = min(age_of_injury)) %>% ungroup()
+                          summarize(total_pred_min = sum(minutes_played_sample), total_min_obs = sum(replace_na(normalized_min_played,0)), ratio = (total_min_obs + 1) / (total_pred_min + 1), diff = total_pred_min - total_min_obs, age_of_injury = min(age_of_injury)) %>% ungroup()
 
 
 
@@ -556,7 +556,7 @@ ggsave("model_output/model_plots/causal/minutes_lost.png", test_plt)
 
 
 
-latent_injuries <- latent_space %>% left_join(minutes_lost_player %>% group_by(player) %>% summarize(avg_diff = mean(diff)/1000, first_major_injury = first(first_major_injury), age_of_injury = mean(age_of_injury)), 
+latent_injuries <- latent_space %>% left_join(minutes_lost_player %>% group_by(player) %>% summarize(avg_log_ratio = log(mean(ratio)), first_major_injury = first(first_major_injury), age_of_injury = mean(age_of_injury)), 
                                               by = c("id" = "player")) %>% mutate(first_major_injury = if_else(is.na(first_major_injury), "No Injury", first_major_injury))
 
 latent_injuries_pca <- latent_injuries %>% select(starts_with("Dim.")) %>%  prcomp(center = TRUE, scale. = TRUE) %>%       # perform PCA
@@ -565,22 +565,22 @@ latent_injuries_pca <- latent_injuries %>% select(starts_with("Dim.")) %>%  prco
   as_tibble(.name_repair = "unique") 
 
 latent_injuries_pca$id =  latent_injuries$id
-latent_injuries_pca <- latent_injuries_pca %>% inner_join(latent_injuries %>% select(id, first_major_injury, age_of_injury, position_group, avg_diff, minutes, name))
+latent_injuries_pca <- latent_injuries_pca %>% inner_join(latent_injuries %>% select(id, first_major_injury, age_of_injury, position_group, avg_log_ratio, minutes, name))
 
 injury_plot <- latent_injuries_pca %>% ggplot(aes(x = PC1, y = PC2, alpha = if_else(first_major_injury == "No Injury", .1, 1))) + geom_point( aes(color = first_major_injury,)) + theme_classic() + scale_color_brewer(palette = "Set1") +
 labs(alpha = NULL, color = "First Major Injury", title = "PCA of Latent Embedding") + guides(alpha = "none") + coord_cartesian(xlim = c(-max(abs(latent_injuries_pca$PC1)), max(abs(latent_injuries_pca$PC1))), 
                   ylim = c(-max(abs(latent_injuries_pca$PC2)), max(abs(latent_injuries_pca$PC2)))) 
 
 
-injury_plot_2 <- latent_injuries_pca %>% filter(first_major_injury %in% c("ACL")) %>% ggplot(aes(x = PC1, y = PC2)) + geom_point( aes(color = avg_diff)) + theme_classic() + scale_color_gradient(low = "blue", high = "green") +
+injury_plot_2 <- latent_injuries_pca %>% filter(first_major_injury %in% c("ACL")) %>% ggplot(aes(x = PC1, y = PC2)) + geom_point( aes(color = avg_log_ratio)) + theme_classic() + scale_color_gradient(low = "blue", high = "green") +
 geom_text_repel(aes(label = name), size = 3, max.overlaps = 20) + 
-labs(alpha = NULL, color = "Avg. Difference (Pred Min. Played vs. Obs)", title = "PCA of Latent Embedding (ACL Injuries)") + coord_cartesian(xlim = c(-max(abs(latent_injuries_pca$PC1)), max(abs(latent_injuries_pca$PC1))), 
+labs(alpha = NULL, color = "Avg. Log Ratio (Observed / Predicted)", title = "PCA of Latent Embedding (ACL Injuries)") + coord_cartesian(xlim = c(-max(abs(latent_injuries_pca$PC1)), max(abs(latent_injuries_pca$PC1))), 
                   ylim = c(-max(abs(latent_injuries_pca$PC2)), max(abs(latent_injuries_pca$PC2)))) 
 
 
 
-injury_plot_3 <- latent_injuries_pca %>% filter(first_major_injury %in% c("ACL")) %>% ggplot() + geom_boxplot(aes(x = factor(age_of_injury), y = avg_diff)) + theme_classic() +
-labs(x = "Age of ACL Injury", y = "Avg. Difference (Pred Min. Played vs. Obs)", title = "Difference in Predicted vs. Observed Minutes (in 1000s) ")
+injury_plot_3 <- latent_injuries_pca %>% filter(first_major_injury %in% c("ACL")) %>% ggplot() + geom_boxplot(aes(x = factor(age_of_injury), y = avg_log_ratio)) + geom_hline(aes(yintercept = log(.8)), linetype = "dashed", color = "red") + theme_classic() + 
+labs(x = "Age of ACL Injury", y = "Avg. Log Ratio (Observed / Predicted)", title = "Log (Observed / Predicted) Minutes vs. Age of Injury")
 
 
 ggsave("model_output/model_plots/causal/minutes_lost_latent_space.png", (injury_plot + injury_plot_2) , width = 14)
