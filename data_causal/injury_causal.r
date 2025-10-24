@@ -40,6 +40,18 @@ injury_data <- data |>
     values_to = "obs_value")
 print("pivoted the original data")
 
+non_injury_data <- data |> 
+    group_by(id) |>
+    filter(any(is.na(first_major_injury))) |> 
+    ungroup() |> 
+    select(name, id, obpm, dbpm, pct_games, mpg, blk_rate, ast_rate, tov_rate, oreb_rate, dreb_rate, stl_rate, fg3a_rate, fg2a_rate, fta_rate, ft_pct, fg2_pct, fg3_pct, age, first_major_injury, injury_period, year) |>
+    rename(pct_minutes = mpg, games = pct_games, blk = blk_rate, ast = ast_rate, tov = tov_rate, oreb = oreb_rate, dreb = dreb_rate, stl = stl_rate, fg3a = fg3a_rate, fg2a = fg2a_rate, fta = fta_rate, ftm = ft_pct, fg2m = fg2_pct, fg3m = fg3_pct) |>
+    pivot_longer( cols = c(obpm, dbpm, games, pct_minutes, blk, ast, tov,
+             oreb, dreb, stl, fg3a, fg2a,
+             fta, ftm, fg2m, fg3m),
+    names_to = "metric",
+    values_to = "obs_value")
+
 causal_empirical <- ggplot(injury_data |> group_by(id, injury_period, metric, first_major_injury) |> summarize(max_val = mean(obs_value)) |> ungroup() |> pivot_wider(
     names_from = injury_period,   # the values in this column become column names
     values_from = max_val           # the values to fill in those new columns
@@ -70,6 +82,26 @@ posterior_data <- posterior_data |> mutate(value = case_when(metric == "pct_minu
                                     rename(peak_age = value), by = c("player", "chain", "sample", "metric"))
 joined_data <- posterior_data |> 
                 left_join(injury_data, by = c("player" = "id", "metric", "age")) |> 
+                group_by(player, chain, sample, metric) |> 
+                arrange(age) |> fill(name, first_major_injury, .direction  = "downup") |> 
+                fill(injury_period, .direction = "up") |> mutate(injury_period = replace_na(injury_period, "post-injury")) |> 
+                mutate(
+                  base_age = if_else(!is.na(year), age, NA_integer_),
+                  base_year = if_else(!is.na(year), year, NA_integer_)) |>
+                
+                fill(base_age, base_year, .direction = "downup") |>
+                mutate(
+                  year = if_else(is.na(year), base_year + (age - base_age), year)) |> 
+                select(-base_age, -base_year) |> ungroup() |> 
+                mutate(metric = toupper(metric),
+                              metric = case_when(metric == "GAMES" ~ "GP%",
+                              metric == "FG2M" ~ "FG2%",
+                              metric == "FG3M" ~ "FG3%",
+                              metric == "FTM" ~ "FT%",
+                              metric == "PCT_MINUTES" ~ "MPG",
+                              .default = metric))
+joined_data_uninjured <- posterior_data |> 
+                left_join(non_injury_data, by = c("player" = "id", "metric", "age")) |> 
                 group_by(player, chain, sample, metric) |> 
                 arrange(age) |> fill(name, first_major_injury, .direction  = "downup") |> 
                 fill(injury_period, .direction = "up") |> mutate(injury_period = replace_na(injury_period, "post-injury")) |> 
@@ -281,7 +313,7 @@ plot_counterfactual_metrics <- function(grouped_data_set) {
 
   # plt <- plt_gp + plt_fta + plot_annotation(title = glue("Counterfactual Posterior Distribution Post {injury_type} Injury: {group_name}"))
 
-  plt <- raw_df %>% ggplot(aes(x = counterfactual_value)) + geom_density() + 
+  plt <- raw_df %>% ggplot(aes(x = counterfactual_value)) + geom_density(adjust = 3) + 
          geom_vline(data = obs_df, aes(xintercept = total_obs_value), color = "blue", size = 1, linetype = "dashed") + geom_text(data = label_df, aes(x = total_obs_value, y = y, label = label), 
          inherit.aes = FALSE, vjust = -0.5, color = "black", angle = 270) + facet_wrap(~ metric, scales = "free") + scale_x_continuous(limits = c(0, NA)) + coord_cartesian(clip = "off") +
     labs(y = "Posterior Predictive Density", x = "Counterfactual Value", title = glue("Counterfactual Posterior Distribution Post {injury_type} Injury: {group_name}")) +  theme_classic() # start at 0, no extra padding 
@@ -382,3 +414,174 @@ plots_list <- joined_itt_df %>%
       plot = plt,
     )
     })
+
+
+
+
+
+#### ACTUAL PLOTS FOR PAPER 
+
+min_data <- data  %>% mutate(normalized_min_played = replace_na(82 * pct_games * mpg,0))  %>% select(age, id, normalized_min_played, year)
+
+isaiah_thomas_metrics <- plot_counterfactual_metrics(joined_data %>%
+filter(injury_period == "post-injury" & year <= 2026 & metric %in% c("FTA", "FG2A") & name == "Isaiah Thomas"))
+
+derrick_rose_metrics <- plot_counterfactual_metrics(joined_data %>%
+filter(injury_period == "post-injury" & year <= 2026 & metric %in% c("FTA", "FG2A") & name == "Derrick Rose"))
+
+isaiah_thomas_mpg_since <- joined_data %>% filter(metric %in% c("GP%", "MPG") & name == "Isaiah Thomas") %>% 
+                           pivot_wider(names_from = metric, values_from = c(value, obs_value, peak_age)) %>% mutate(minutes_played_sample = 82 * value_MPG * `value_GP%`,
+                          age_of_injury = if_else(injury_period == "post-injury", age, Inf),
+                          age_of_injury = min(age_of_injury))  %>% left_join(min_data, by = c("age" = "age", "player" = "id")) %>% filter(age >= age_of_injury) %>% group_by(chain, sample) %>%  arrange(age) %>% mutate(cum_min_played_sample = cumsum(replace_na(minutes_played_sample,0)),
+                          cum_min_played_obs = cumsum(replace_na(normalized_min_played,0)))  %>% group_by(age) %>% 
+                          summarize(posterior_mean = mean(cum_min_played_sample, na.rm = TRUE),
+                                      upper = HDInterval::hdi(cum_min_played_sample, credMass = 0.95)["upper"],
+                                      max_upper = max(upper),
+                                      lower = HDInterval::hdi(cum_min_played_sample, credMass = 0.95)["lower"],
+                                      obs_value = first(cum_min_played_obs),
+                                      first_major_injury = first(first_major_injury),
+                                      injury_period = first(injury_period),
+                                      age_of_injury = first(age_of_injury),
+                                      player = first(player),
+                                      name = first(name)) %>% ungroup()
+derrick_rose_mpg_since <- joined_data %>% filter(metric %in% c("GP%", "MPG") & name == "Derrick Rose") %>% 
+                           pivot_wider(names_from = metric, values_from = c(value, obs_value, peak_age)) %>% mutate(minutes_played_sample = 82 * value_MPG * `value_GP%`,
+                          age_of_injury = if_else(injury_period == "post-injury", age, Inf),
+                          age_of_injury = min(age_of_injury)) %>% left_join(min_data, by = c("age" = "age", "player" = "id")) %>% filter(age >= age_of_injury) %>% group_by(chain, sample) %>%  arrange(age) %>% mutate(cum_min_played_sample = cumsum(replace_na(minutes_played_sample,0)),
+                          cum_min_played_obs = cumsum(replace_na(normalized_min_played,0)))  %>% group_by(age) %>% 
+                          summarize(posterior_mean = mean(cum_min_played_sample, na.rm = TRUE),
+                                      upper = HDInterval::hdi(cum_min_played_sample, credMass = 0.95)["upper"],
+                                      max_upper = max(upper),
+                                      lower = HDInterval::hdi(cum_min_played_sample, credMass = 0.95)["lower"],
+                                      obs_value = first(cum_min_played_obs),
+                                      first_major_injury = first(first_major_injury),
+                                      injury_period = first(injury_period),
+                                      age_of_injury = first(age_of_injury),
+                                      player = first(player),
+                                      name = first(name)) %>% ungroup()
+
+derrick_rose_mpg <- ggplot(derrick_rose_mpg_since, aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
+                                       fill = "gray",
+                                       alpha = 0.3) +
+              geom_line(aes(x = age, y = posterior_mean)) +
+              geom_line(aes(x = age, y = obs_value), color = "blue", linetype = "dashed") +
+              geom_vline(aes(xintercept = age_of_injury),
+               linetype = "dashed",
+               color = "red") +
+                geom_text(
+                  size = 4,
+                  aes(x = age_of_injury, y = mean(max_upper), label = unique(first_major_injury)),
+                  
+                  color = "black"
+                ) + 
+              annotate("text", x = mean(derrick_rose_mpg_since$age), y = tail(derrick_rose_mpg_since$posterior_mean, 1),
+                            label = "Counterfactual Posterior Mean", hjust = -0.1, vjust = 0.5) +
+              annotate("text", x = mean(derrick_rose_mpg_since$age), y = tail(derrick_rose_mpg_since$obs_value, 1),
+                      label = "Observed", hjust = -0.1, vjust = 0.5, color = "blue") +
+
+              labs(x = "Age", y = "Cumulative Minutes Played Since Injury") + theme_classic() + ggtitle("Counterfactual Cumulative Minutes Played: Derrick Rose")
+
+isaiah_thomas_mpg <- ggplot(isaiah_thomas_mpg_since, aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
+                                       fill = "gray",
+                                       alpha = 0.3) +
+              geom_line(aes(x = age, y = posterior_mean)) +
+              geom_line(aes(x = age, y = obs_value), color = "blue", linetype = "dashed") +
+              geom_vline(aes(xintercept = age_of_injury),
+               linetype = "dashed",
+               color = "red") +
+                geom_text(
+                  size = 4,
+                  aes(x = age_of_injury, y = mean(max_upper), label = unique(first_major_injury)),
+                  
+                  color = "black"
+                ) + 
+              annotate("text", x = mean(isaiah_thomas_mpg_since$age), y = tail(isaiah_thomas_mpg_since$posterior_mean, 1),
+                            label = "Counterfactual Posterior Mean", hjust = -0.1, vjust = 0.5) +
+              annotate("text", x = mean(isaiah_thomas_mpg_since$age), y = tail(isaiah_thomas_mpg_since$obs_value, 1),
+                      label = "Observed", hjust = -0.1, vjust = 0.5, color = "blue") +
+
+              labs(x = "Age", y = "Cumulative Minutes Played Since Injury") + theme_classic() + ggtitle("Counterfactual Cumulative Minutes Played: Isaiah Thomas")
+
+
+derrick_rose <- derrick_rose_mpg + derrick_rose_metrics
+isaiah_thomas <- isaiah_thomas_mpg + isaiah_thomas_metrics 
+
+total_plot <- (derrick_rose / isaiah_thomas) 
+ggsave("model_output/model_plots/causal/player_comparison.png", total_plot, width = 21, height = 14)
+
+
+
+
+minutes_lost <- joined_data %>% filter(metric %in% c("GP%", "MPG") & !is.na(first_major_injury) & year <= 2026) %>% 
+                           pivot_wider(names_from = metric, values_from = c(value, obs_value, peak_age)) %>% mutate(minutes_played_sample = 82 * value_MPG * `value_GP%`) %>% group_by(player, chain, sample) %>% mutate(
+                          age_of_injury = if_else(injury_period == "post-injury", age, Inf),
+                          age_of_injury = min(age_of_injury)) %>% ungroup () %>% left_join(min_data, by = c("age" = "age", "player" = "id")) %>% filter(age >= age_of_injury) %>% group_by(first_major_injury, chain, sample) %>%
+                          summarize(total_pred_min = sum(minutes_played_sample), total_min_obs = sum(replace_na(normalized_min_played,0)), ratio = total_min_obs / total_pred_min) %>% ungroup() 
+
+minutes_lost_player <- joined_data %>% filter(metric %in% c("GP%", "MPG") & !is.na(first_major_injury) & year <= 2026) %>% 
+                           pivot_wider(names_from = metric, values_from = c(value, obs_value, peak_age)) %>% mutate(minutes_played_sample = 82 * value_MPG * `value_GP%`) %>% group_by(player, chain, sample) %>% mutate(
+                          age_of_injury = if_else(injury_period == "post-injury", age, Inf),
+                          age_of_injury = min(age_of_injury)) %>% ungroup () %>% left_join(min_data, by = c("age" = "age", "player" = "id")) %>% filter(age >= age_of_injury) %>% group_by(first_major_injury, chain, sample, player) %>%
+                          summarize(total_pred_min = sum(minutes_played_sample), total_min_obs = sum(replace_na(normalized_min_played,0)), ratio = total_min_obs / total_pred_min, diff = total_pred_min - total_min_obs, age_of_injury = min(age_of_injury)) %>% ungroup()
+
+
+
+uninjured <- joined_data_uninjured %>% filter(metric %in% c("GP%", "MPG")  & year <= 2026 ) %>% 
+                           pivot_wider(names_from = metric, values_from = c(value, obs_value, peak_age)) %>% mutate(minutes_played_sample = 82 * value_MPG * `value_GP%`) %>% left_join(min_data, by = c("age" = "age", "player" = "id", "year")) %>% filter(is.na(first_major_injury))
+
+n_uninjured <- min_data %>% group_by(id) %>% summarize(enter_age = min(age), exit_age = if_else(max(year) == 2025, max(age), 38), range = exit_age - enter_age) %>% ungroup() %>% filter(range >= 1) %>% rowwise() %>%
+  mutate(randomized_age_of_injury = sample(seq(enter_age, exit_age), 1)) %>% ungroup()
+uninjured_randomized <- uninjured %>% inner_join(n_uninjured, by = c("player" = "id"))
+minutes_lost_contrast <- uninjured_randomized %>% filter(age >= randomized_age_of_injury) %>% group_by(chain, sample) %>% 
+                          summarize(first_major_injury = "Contrast", total_pred_min = sum(minutes_played_sample), total_min_obs = sum(replace_na(normalized_min_played,0)), ratio = total_min_obs / total_pred_min) %>% ungroup() 
+
+minutes_lost_total <- minutes_lost %>% bind_rows(minutes_lost %>% filter(!is.na(first_major_injury)) %>% group_by(chain, sample) %>%
+      summarize(
+        first_major_injury = "All Injuries",
+        total_pred_min = sum(total_pred_min, na.rm = TRUE),
+        total_min_obs = sum(total_min_obs, na.rm = TRUE),
+        ratio = total_min_obs / total_pred_min,
+        .groups = "drop"
+      ), minutes_lost_contrast ) 
+
+
+injury_summary <- injury_data |> group_by(id) |> summarize(first_major_injury = first(first_major_injury)) |> ungroup() |> group_by(first_major_injury) |> summarize(n = n()) |> ungroup() %>% bind_rows(summarize(., across(where(is.numeric), sum, na.rm = TRUE)) %>%
+      mutate(first_major_injury = "All Injuries"), n_uninjured %>% count() %>% mutate(first_major_injury = "Contrast"))
+test_plt <- minutes_lost_total %>% inner_join(injury_summary, by = "first_major_injury") %>% filter(n >= 20) %>% mutate(first_major_injury = fct_reorder(first_major_injury, ratio, .fun = mean, .desc = TRUE))  %>% 
+  ggplot(aes(x = ratio, y = first_major_injury, )) + stat_pointinterval() + 
+
+ geom_text(data = injury_summary %>% filter(n >= 20), aes(x = .35, y = first_major_injury, label = glue("N = {n}")))  + xlim(c(.3, 1.5)) +
+theme_classic()  + labs(x = "Ratio of Observed Minutes Played to Predicted Minutes Played", y = "First Major Injury", title = "Injury Impact on Reduction in Minutes Played") 
+ggsave("model_output/model_plots/causal/minutes_lost.png", test_plt)
+
+
+
+latent_injuries <- latent_space %>% left_join(minutes_lost_player %>% group_by(player) %>% summarize(avg_diff = mean(diff)/1000, first_major_injury = first(first_major_injury), age_of_injury = mean(age_of_injury)), 
+                                              by = c("id" = "player")) %>% mutate(first_major_injury = if_else(is.na(first_major_injury), "No Injury", first_major_injury))
+
+latent_injuries_pca <- latent_injuries %>% select(starts_with("Dim.")) %>%  prcomp(center = TRUE, scale. = TRUE) %>%       # perform PCA
+  .$x %>%                                       # extract principal component scores
+  as.data.frame() %>%                            # convert to data frame
+  as_tibble(.name_repair = "unique") 
+
+latent_injuries_pca$id =  latent_injuries$id
+latent_injuries_pca <- latent_injuries_pca %>% inner_join(latent_injuries %>% select(id, first_major_injury, age_of_injury, position_group, avg_diff, minutes, name))
+
+injury_plot <- latent_injuries_pca %>% ggplot(aes(x = PC1, y = PC2, alpha = if_else(first_major_injury == "No Injury", .1, 1))) + geom_point( aes(color = first_major_injury,)) + theme_classic() + scale_color_brewer(palette = "Set1") +
+labs(alpha = NULL, color = "First Major Injury", title = "PCA of Latent Embedding") + guides(alpha = "none") + coord_cartesian(xlim = c(-max(abs(latent_injuries_pca$PC1)), max(abs(latent_injuries_pca$PC1))), 
+                  ylim = c(-max(abs(latent_injuries_pca$PC2)), max(abs(latent_injuries_pca$PC2)))) 
+
+
+injury_plot_2 <- latent_injuries_pca %>% filter(first_major_injury %in% c("ACL")) %>% ggplot(aes(x = PC1, y = PC2)) + geom_point( aes(color = avg_diff)) + theme_classic() + scale_color_gradient(low = "blue", high = "green") +
+geom_text_repel(aes(label = name), size = 3, max.overlaps = 20) + 
+labs(alpha = NULL, color = "Avg. Difference (Pred Min. Played vs. Obs)", title = "PCA of Latent Embedding (ACL Injuries)") + coord_cartesian(xlim = c(-max(abs(latent_injuries_pca$PC1)), max(abs(latent_injuries_pca$PC1))), 
+                  ylim = c(-max(abs(latent_injuries_pca$PC2)), max(abs(latent_injuries_pca$PC2)))) 
+
+
+
+injury_plot_3 <- latent_injuries_pca %>% filter(first_major_injury %in% c("ACL")) %>% ggplot() + geom_boxplot(aes(x = factor(age_of_injury), y = avg_diff)) + theme_classic() +
+labs(x = "Age of ACL Injury", y = "Avg. Difference (Pred Min. Played vs. Obs)", title = "Difference in Predicted vs. Observed Minutes (in 1000s) ")
+
+
+ggsave("model_output/model_plots/causal/minutes_lost_latent_space.png", (injury_plot + injury_plot_2) , width = 14)
+ggsave("model_output/model_plots/causal/acl_vs_age.png", injury_plot_3)

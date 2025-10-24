@@ -14,6 +14,7 @@ library(ggbeeswarm)
 library(ggdist)
 library(umap)
 library(dbscan)
+library(ggforce)
 
 
 posterior_plot_names <-  c("Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash", 
@@ -269,22 +270,29 @@ peaks_pca <- prcomp(peaks_players  %>% select(-player) %>% data.matrix() , scale
 
 peaks_pca_df <- tibble(PC1 = peaks_pca$x[,1], PC2 = peaks_pca$x[,2], id = peaks_players$player) %>% inner_join(latent_space %>% select(id, name, position_group, minutes))
 
+max_range <- max(abs(range(peaks_pca_df$PC1)),
+                 abs(range(peaks_pca_df$PC2 )))
+
+
+
 tops <- c(peaks_pca_df %>% arrange(desc(PC1)) %>% pull(name) %>% head(10), peaks_pca_df %>% arrange(desc(PC2)) %>% pull(name) %>% head(10))
 bottoms <- c(peaks_pca_df %>% arrange(PC1) %>% pull(name) %>% head(10), peaks_pca_df %>% arrange(PC2) %>% pull(name) %>% head(10))
 
 pca_outlier_names <- unique(c(tops,bottoms, posterior_plot_names))
 
-peaks_pca_plot  <-filter(peaks_pca_df, name %in% pca_outlier_names) %>% ggplot(aes(x = PC1, y = PC2)) +
+peaks_pca_plot  <-filter(peaks_pca_df, name %in% pca_outlier_names) %>% ggplot(aes(x = PC1, y = PC2)) + 
                       geom_text_repel(
                       aes(label = name, x = PC1, y = PC2),
                       size = 3,
                       fontface = "bold",
                       max.overlaps = 20,
-                      inherit.aes = FALSE) +
+                      inherit.aes = FALSE) + 
+  coord_fixed() +
+  xlim(-max_range, max_range) +
+  ylim(-max_range, max_range) + 
   theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("PCA Visualization of Learned Metric Peaks") + labs(x = "PC 1", y = "PC 2")
 
 ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_pca.png", peaks_pca_plot)
-
 
 # Extract loadings
 loadings <- as.data.frame(peaks_pca$rotation[, 1:2])
@@ -301,10 +309,52 @@ peaks_pca_loadings_plt <- ggplot(loadings, aes(x = PC1, y = PC2)) +
   geom_hline(yintercept = 0, color = "black", linewidth = 0.5) +
   geom_vline(xintercept = 0, color = "black", linewidth = 0.5) +
   # Make equal scaling so 0,0 is visually centered
-  coord_cartesian(xlim = c(min(loadings$PC1), max(loadings$PC1)), 
-                  ylim = c(min(loadings$PC2), max(loadings$PC2))) +
+  coord_cartesian(xlim = c(-max(abs(loadings$PC1)), max(abs(loadings$PC1))), 
+                  ylim = c(-max(abs(loadings$PC2)), max(abs(loadings$PC2)))) +
   ggtitle("PCA Visualization of Learned Metric Peaks Factor Loadings") + labs(x = "PC 1", y = "PC 2", color = "Metric Group")
 ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_pca_loadings.png", peaks_pca_loadings_plt)
+
+
+peak_vals_players <- peak_vals_plt_df %>% group_by(metric, player) %>% summarize(value = mean(value)) %>% ungroup() %>% pivot_wider(names_from = metric, values_from = value) %>% inner_join(latent_space %>% filter(minutes >= quantile(minutes, .75)) %>% select(id), by = c("player" = "id"))
+
+peak_vals_pca <- prcomp(peak_vals_players  %>% select(-player) %>% data.matrix() , scale. = TRUE, center = TRUE)
+
+peak_vals_pca_df <- tibble(PC1 = peak_vals_pca$x[,1], PC2 = peak_vals_pca$x[,2], id = peak_vals_players$player) %>% inner_join(latent_space %>% select(id, name, position_group, minutes))
+
+tops <- c(peak_vals_pca_df %>% arrange(desc(PC1)) %>% pull(name) %>% head(10), peak_vals_pca_df %>% arrange(desc(PC2)) %>% pull(name) %>% head(10))
+bottoms <- c(peak_vals_pca_df %>% arrange(PC1) %>% pull(name) %>% head(10), peak_vals_pca_df %>% arrange(PC2) %>% pull(name) %>% head(10))
+
+pca_outlier_names <- unique(c(tops,bottoms, posterior_plot_names))
+
+peak_vals_pca_plot  <-  peak_vals_pca_df %>% ggplot(aes(x = PC1, y = PC2)) +  geom_point(aes(alpha = minutes, color = position_group)) + scale_alpha(range = c(0,1)) +
+                      geom_text_repel(data = filter(peak_vals_pca_df, name %in% posterior_plot_names), 
+                      aes(label = name, x = PC1, y = PC2),
+                      size = 3,
+                      fontface = "bold",
+                      max.overlaps = 20,
+                      inherit.aes = FALSE) + 
+  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("PCA Visualization of Learned Metric Peak Values") + labs(x = "PC 1", y = "PC 2", color = "Position Group", alpha = "Minutes")
+
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_pca_vals.png", peak_vals_pca_plot)
+
+# Extract loadings
+loadings <- as.data.frame(peak_vals_pca$rotation[, 1:2])
+loadings$metric <- rownames(loadings)
+# db <- dbscan(loadings %>% select(-c(metric)), eps = .2, minPts = 2)
+# loadings$metric_group <- as.factor(db$cluster) 
+peak_vals_pca_loadings_plt <- ggplot(loadings, aes(x = PC1, y = PC2)) +
+  geom_text_repel(aes(label = metric), size = 4,
+                      fontface = "bold", show.legend = FALSE) +
+  theme_bw() + 
+  guides(color = guide_legend(override.aes = list(shape = 16, alpha = 1))) + 
+  scale_colour_brewer(palette = "Set1") + 
+  geom_hline(yintercept = 0, color = "black", linewidth = 0.5) +
+  geom_vline(xintercept = 0, color = "black", linewidth = 0.5) +
+  # Make equal scaling so 0,0 is visually centered
+  coord_cartesian(xlim = c(-max(abs(loadings$PC1)), max(abs(loadings$PC1))), 
+                  ylim = c(-max(abs(loadings$PC2)), max(abs(loadings$PC2)))) +
+  ggtitle("PCA Visualization of Learned Metric Peak Values Factor Loadings") + labs(x = "PC 1", y = "PC 2")
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvrflvm_max_boundary_pca_vals_loadings.png", peak_vals_pca_loadings_plt)
 
 
 skew_plt_df <- posterior_peaks |> inner_join(
@@ -414,7 +464,8 @@ joined_data <- posterior_data |>
                                  by = c("player" = "id", "metric", "age")
                                  ) |> 
                 group_by(player, chain, sample, metric) |> 
-                arrange(age) |> fill(name, .direction  = "downup") |> 
+                arrange(age) |> fill(name, first_major_injury, .direction  = "downup") |> 
+                fill(injury_period, .direction = "up") |> mutate(injury_period = replace_na(injury_period, "post-injury")) |>
                 mutate(
                   base_age = if_else(!is.na(year), age, NA_integer_),
                   base_year = if_else(!is.na(year), year, NA_integer_)) |>
@@ -568,7 +619,7 @@ plot_posterior <- function(grouped_data_set, hold_out_year, plot_obs = TRUE) {
                                        fill = "gray",
                                        alpha = 0.4) +
     geom_line(aes(x = age, y = posterior_mean)) +
-    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF") + 
+    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF", linewidth = 1) + 
     
     geom_vline(aes(xintercept = age_of_holdout),
                linetype = "dashed",
@@ -643,3 +694,105 @@ pheatmap(mat_subset,
 
 
 
+
+
+##### ACTUAL PLOTS FOR THE PAPER 
+### PLAYER PLOT
+injury_summary <- joined_data |>  group_by(player) |> mutate(age_of_holdout = if_else(year ==  2021, age, Inf),
+                    age_of_holdout = min(age_of_holdout),
+                  age_of_injury = if_else(injury_period == "post-injury", age, Inf),
+                  age_of_injury = min(age_of_injury)) |> ungroup() |> group_by(player) |> 
+                  summarize(first_major_injury = first(first_major_injury), 
+                            age_of_injury = first(age_of_injury), 
+                            age_of_holdout = first(age_of_holdout), 
+                            name = first(name)) |> filter(name %in% c("Kevin Durant", "Stephen Curry", "Derrick Rose")) |>
+                  mutate(age_of_injury = if_else(is.na(first_major_injury), NA_real_, age_of_injury))
+player_plot_df <- joined_data |> 
+              group_by(metric, player, age)  |> 
+              summarize(lower = HDInterval::hdi(if_else(is.finite(value), value, NA_real_), credMass = 0.95)["lower"],
+              upper = HDInterval::hdi(if_else(is.finite(value), value, NA_real_), credMass = 0.95)["upper"], 
+              obs_value = first(obs_value), 
+              year = min(year), 
+              posterior_mean = mean(if_else(is.finite(value), value, NA_real_), na.rm = TRUE)) |> ungroup() |> inner_join(posterior_mu_data |> group_by(metric, player, age) |> summarize(mu = mean(if_else(is.finite(value), value, NA_real_), na.rm = TRUE)) |> ungroup() |> 
+              mutate(mu = case_when(metric %in% c("fg2m", "ftm", "games", "fg3m") ~ plogis(mu),
+                                                                                 metric %in% c("obpm", "dbpm") ~ mu, 
+                                                                                 metric %in% c("pct_minutes") ~ plogis(mu) * 48,
+                                                                                 .default = exp(mu) * 36)) ) |>
+            mutate(metric = toupper(metric),
+                    metric = case_when(metric == "GAMES" ~ "GP%",
+                    metric == "FG2M" ~ "FG2%",
+                    metric == "FG3M" ~ "FG3%",
+                    metric == "FTM" ~ "FT%",
+                    metric == "PCT_MINUTES" ~ "MPG",
+                    .default = metric)) |> filter(metric %in% c("GP%", "FTA", "OBPM")) |> inner_join(latent_space |> filter(name %in% c("Stephen Curry", "Kevin Durant", "Derrick Rose")) |> select(name,id), by = c("player" = "id"))  |>
+            inner_join(injury_summary)        
+
+
+
+
+label_df <- player_plot_df |> group_by(metric, player) |> summarize(max_upper = max(upper), min_lower = min(lower), first_major_injury = first(first_major_injury), age_of_holdout = first(age_of_holdout),
+                                                                    age_of_injury = first(age_of_injury), name = first(name)) |> ungroup()
+derrick_rose <- player_plot_df |> filter(name == "Derrick Rose") |> ggplot(aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
+                                       fill = "gray",
+                                       alpha = 0.4) +
+    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF", linewidth = 1) + 
+    
+    geom_vline(aes(xintercept = age_of_holdout),
+               linetype = "dashed",
+               color = "red") +
+    geom_vline(aes(xintercept = age_of_injury), linetype = "dashed", color = "blue") +  
+    geom_point(aes(x = age, y = obs_value), color = "black") + 
+    geom_text(data = label_df |> filter(name == "Derrick Rose"),
+      size = 3,
+      aes(x = age_of_injury, y = .65*max_upper, label = first_major_injury)) + 
+    geom_text( 
+      data = label_df |> filter(name == "Derrick Rose"),
+      size = 3,
+      aes(x = age_of_holdout, y = .65*min_lower, label = "Hold-Out Year")) + 
+    facet_wrap(~ metric, scales = "free") + theme_bw() +
+    labs(x = "Age", y = "") 
+
+kevin_durant <- player_plot_df |> filter(name == "Kevin Durant") |> ggplot(aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
+                                       fill = "gray",
+                                       alpha = 0.4) +
+    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF", linewidth = 1) + 
+    
+    geom_vline(aes(xintercept = age_of_holdout),
+               linetype = "dashed",
+               color = "red") +
+    geom_vline(aes(xintercept = age_of_injury), linetype = "dashed", color = "blue") +  
+    geom_point(aes(x = age, y = obs_value), color = "black") + 
+    geom_text(data = label_df |> filter(name == "Kevin Durant"),
+      size = 3,
+      aes(x = age_of_injury, y = .65*max_upper, label = first_major_injury)) + 
+    geom_text( 
+      data = label_df |> filter(name == "Kevin Durant"),
+      size = 3,
+      aes(x = age_of_holdout, y = .65*min_lower, label = "Hold-Out Year")) + 
+    facet_wrap(~ metric, scales = "free") + theme_bw() +
+    labs(x = "Age", y = "")  
+
+stephen_curry <- player_plot_df |> filter(name == "Stephen Curry") |> ggplot(aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
+                                       fill = "gray",
+                                       alpha = 0.4) +
+    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF", linewidth = 1) + 
+    
+    geom_vline(aes(xintercept = age_of_holdout),
+               linetype = "dashed",
+               color = "red") +
+    geom_vline(aes(xintercept = age_of_injury), linetype = "dashed", color = "blue") +  
+    geom_point(aes(x = age, y = obs_value), color = "black") + 
+    geom_text(data = label_df |> filter(name == "Stephen Curry"),
+      size = 3,
+      aes(x = age_of_injury, y = .65*max_upper, label = first_major_injury)) + 
+    geom_text( 
+      data = label_df |> filter(name == "Stephen Curry"),
+      size = 3,
+      aes(x = age_of_holdout, y = .65*min_lower, label = "Hold-Out Year")) + 
+    facet_wrap(~ metric, scales = "free") + theme_bw() +
+    labs(x = "Age", y = "") 
+
+player_plots <- (derrick_rose / kevin_durant / stephen_curry) + plot_annotation(title = "Posterior Predictive Production Curves", tag_levels = list(c("Derrick Rose", "Kevin Durant", "Stephen Curry"))) 
+
+
+ggsave("test_plot.png", player_plots)

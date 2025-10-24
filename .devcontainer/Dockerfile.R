@@ -1,5 +1,5 @@
 FROM docker.io/rocker/tidyverse:latest
-RUN install2.r --error --deps TRUE uwot HDInterval ggrepel ggridges ggnewscale pheatmap gt ggdist nnTensor ggbeeswarm umap
+RUN install2.r --error --deps TRUE uwot HDInterval ggrepel ggridges ggnewscale pheatmap gt ggdist nnTensor ggbeeswarm umap ggforce dbscan
 
 ### Environment variables
 ENV GITHUB_CLI_VERSION 2.30.0
