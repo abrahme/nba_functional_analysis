@@ -3,11 +3,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import jax.numpy as jnp
 import plotly.express as px
+import matplotlib.pyplot as plt
 import numpy as np
 import arviz as az
-from model.inference_utils import create_metric_trajectory, create_metric_trajectory_map
+from model.inference_utils import create_metric_trajectory, create_metric_trajectory_map, create_metric_trajectory_prior, create_metric_trajectory_mu
 
-def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str], metric_outputs: list[str], exposure_names: list[str],  posterior_mean_samples, observations, exposures, posterior_variance_samples):
+def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str], metric_outputs: list[str], exposure_names: list[str],  posterior_mean_samples, observations, exposures, posterior_variance_samples, posterior_dispersion_samples, posterior_kappa_samples):
     """
     plots the posterior predictive career trajectory 
     """
@@ -15,13 +16,14 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
     
     observation_dict, posterior_dict = create_metric_trajectory(posterior_mean_samples, player_index,  observations, exposures, 
                                                                 exposure_names=exposure_names,
-                                                                metric_outputs=metric_outputs, metrics = metrics, posterior_variance_samples=posterior_variance_samples)
+                                                                metric_outputs=metric_outputs, metrics = metrics, posterior_variance_samples=posterior_variance_samples, posterior_dispersion_samples=posterior_dispersion_samples, posterior_kappa_samples=posterior_kappa_samples)
 
- 
     obs = observation_dict["y"]
     posterior = posterior_dict["y"]
     x = list(range(18,39))
+    scale = 1.5
     for index, metric in enumerate(metrics):
+        
         row = int(np.floor(index / 4)) + 1 
         col = (index % 4) + 1
         metric_type = metric_outputs[index]
@@ -30,10 +32,11 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
             metric += " per 36 min"
         fig.add_trace(go.Scatter(x = x, y = obs[..., index], mode = "lines", 
                                  name = "Observed", line_color = "blue", showlegend=False), row = row, col=col)
-        fig.add_trace(go.Scatter(x = x, y = jnp.mean(posterior[..., index], axis = (0,1)), mode = "lines", name = "Posterior Mean", line_color = "red", showlegend=False), row = row, col = col)
-        hdi =  az.hdi(np.array(posterior[..., index]), hdi_prob = .95)
+        fig.add_trace(go.Scatter(x = x, y = jnp.mean(posterior[..., index], axis = (0,1)), mode = "lines", name = "Posterior Mean", line_color = "red", showlegend=False, line = dict(width = 1) ), row = row, col = col)
+
+        hdi =  az.hdi(np.array(posterior[..., index]), hdi_prob = .95, skipna=False)
         fig.add_trace(go.Scatter(
-        name='Upper Bound',
+        name='Posterior Predictive 95% CI',
         x=x,
         y=hdi[:,1],
         mode='lines',
@@ -53,43 +56,139 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
             showlegend=False,
         ), row = row, col=col)
 
-    fig.update_layout({'width':650, 'height': 650,
-                            'showlegend':False, 'hovermode': 'closest',
-                            })
+    fig.update_layout({'width':700, 'height': 700,
+                            'showlegend':True, 'hovermode': 'closest',
+                            'legend': {
+        'font': dict(size=round(12 * scale))  # usually ~12
+    }})
     
     return fig
 
 
-def plot_posterior_predictive_career_trajectory_map( player_index, metrics: list[str], metric_outputs: list[str], posterior_map, observations, exposures):
+
+def plot_prior_mean_trajectory(prior_mean_samples, thin = .1):
+    scale = 1.5
+    prior_mean_samples -= prior_mean_samples[..., 0][..., None]
+    num_samples = prior_mean_samples.shape[0]
+    num_samples_thin = int(thin * num_samples)
+    all_indices = np.arange(num_samples)
+    sampled_indices = np.random.choice(all_indices, size=num_samples_thin, replace=False)
+    fig = make_subplots(rows = 1, cols=1)
+    x = list(range(18,39))
+    for sample_index in sampled_indices:
+        fig.add_trace(go.Scatter(x = x, y = prior_mean_samples[sample_index], mode = "lines", line_color = "grey", opacity=.3, showlegend=False),
+                            row = 1, col = 1)
+    fig.update_layout({'width':650, 'height': 650,
+                            'showlegend':False, 'hovermode': 'closest',
+                            'legend': {
+        'font': dict(size=round(12 * scale))  # usually ~12
+    }
+                            })
+  
+    
+    return fig
+
+def plot_prior_predictive_career_trajectory(metrics: list[str], metric_outputs: list[str], exposure_names: list[str],  prior_mean_samples, prior_variance_samples, prior_dispersion_samples, prior_kappa_samples, thin = .1):
     """
-    plots the posterior predictive career trajectory 
+    plots the prior predictive career trajectory 
     """
     fig = make_subplots(rows = 4, cols=4,  subplot_titles=metrics)
     
-    observation_dict, posterior_dict = create_metric_trajectory_map(posterior_map, player_index,  observations, exposures, 
-                                                                metric_outputs=metric_outputs, metrics = metrics,)
+    prior_dict = create_metric_trajectory_prior(prior_mean_samples, metric_outputs, metrics, exposure_names, prior_variance_samples, prior_dispersion_samples, prior_kappa_samples)
 
+    
  
-    obs = observation_dict["y"]
-    posterior = posterior_dict["y"]
+    prior = prior_dict["y"]
+    num_samples = prior.shape[0]
+    thin_val = int(thin * num_samples)
+    indices = np.random.choice(num_samples, size=thin_val, replace=False)
+
     x = list(range(18,39))
     for index, metric in enumerate(metrics):
         row = int(np.floor(index / 4)) + 1 
         col = (index % 4) + 1
-        metric_type = metric_outputs[index]
-        metric = metric.upper()
-        if metric_type == "poisson":
-            metric += " per 36 min"
-        fig.add_trace(go.Scatter(x = x, y = obs[..., index], mode = "lines", 
-                                 name = "Observed", line_color = "blue", showlegend=False), row = row, col=col)
-        fig.add_trace(go.Scatter(x = x, y = posterior[..., index], mode = "lines", name = "Posterior Mean", line_color = "red", showlegend=False), row = row, col = col)
-
+        for sample_index in indices:
+            fig.add_trace(go.Scatter(x = x, y = prior[sample_index, :, index], mode = "lines", line_color = "grey", opacity=.2, showlegend=False),
+                        row = row, col = col)
     fig.update_layout({'width':650, 'height': 650,
                             'showlegend':False, 'hovermode': 'closest',
                             })
     
     return fig
 
+
+# def plot_posterior_predictive_career_trajectory_map( player_index, metrics: list[str], metric_outputs: list[str], posterior_map, observations, exposures):
+#     """
+#     plots the posterior predictive career trajectory 
+#     """
+#     fig = make_subplots(rows = 4, cols=4,  subplot_titles=metrics)
+    
+#     observation_dict, posterior_dict = create_metric_trajectory_map(posterior_map, player_index,  observations, exposures, 
+#                                                                 metric_outputs=metric_outputs, metrics = metrics,)
+
+ 
+#     obs = observation_dict["y"]
+#     posterior = posterior_dict["y"]
+#     x = list(range(18,39))
+#     for index, metric in enumerate(metrics):
+#         row = int(np.floor(index / 4)) + 1 
+#         col = (index % 4) + 1
+#         metric_type = metric_outputs[index]
+#         metric = metric.upper()
+#         if metric_type == "poisson":
+#             metric += " per 36 min"
+#         fig.add_trace(go.Scatter(x = x, y = obs[..., index], mode = "lines", 
+#                                  name = "Observed", line_color = "blue", showlegend=False), row = row, col=col)
+#         fig.add_trace(go.Scatter(x = x, y = posterior[..., index], mode = "lines", name = "Posterior Mean", line_color = "red", showlegend=False), row = row, col = col)
+
+#     fig.update_layout({'width':650, 'height': 650,
+#                             'showlegend':False, 'hovermode': 'closest',
+#                             })
+    
+#     return fig
+
+
+def plot_posterior_predictive_career_trajectory_map(
+    player_index, metrics: list[str], metric_outputs: list[str], 
+    posterior_map, observations, exposures
+):
+    """
+    Plots the posterior predictive career trajectory using matplotlib instead of plotly.
+    """
+    # create 4x4 subplots
+    fig, axes = plt.subplots(4, 4, figsize=(12, 12))
+    axes = axes.flatten()  # flatten for easy indexing
+    
+    observation_dict, posterior_dict = create_metric_trajectory_map(
+        posterior_map, player_index, observations, exposures,
+        metric_outputs=metric_outputs, metrics=metrics
+    )
+
+    obs = observation_dict["y"]
+    posterior = posterior_dict["y"]
+    x = list(range(18, 39))  # ages 18–38
+
+    for index, metric in enumerate(metrics):
+        ax = axes[index]
+        metric_type = metric_outputs[index]
+        title = metric.upper()
+        if metric_type == "poisson":
+            title += " per 36 min"
+        
+        ax.plot(x, obs[..., index], label="Observed", color="blue")
+        ax.plot(x, posterior[..., index], label="Posterior Mean", color="red")
+        ax.set_title(title, fontsize=10)
+    
+    # hide unused subplots if fewer than 16 metrics
+    for j in range(len(metrics), 16):
+        axes[j].axis("off")
+    
+    # global legend
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper right")
+    
+    fig.tight_layout()
+    return fig
 
 def plot_mcmc_diagnostics(inference_data, variable_name, plot = "trace"):
     if plot == "trace":

@@ -24,7 +24,7 @@ def create_convex_data(num_samples, noise_level = .01, exposure = 1, data_range 
 
     return samples, intercept, multiplier, noise, y_vals
 
-def process_data(df, output_metric, exposure, model, input_metrics, player_indices:list = [], normalize = False):
+def process_data(df, output_metric, exposure, model, input_metrics, player_indices:list = [], normalize = False, validation_year = 2021, injury = False):
 
     agg_dict = {input_metric:"max" for input_metric in input_metrics}
     df = df.sort_values(by=["id","year"])
@@ -35,39 +35,60 @@ def process_data(df, output_metric, exposure, model, input_metrics, player_indic
         X = df[input_metrics + ["id"]].groupby("id").agg(agg_dict).reset_index()[input_metrics]
     else:
         X = None
+    de_trend_array = df[[f"{output_metric}_league_avg", "id", "age"]].pivot(columns="age", index="id", values=f"{output_metric}_league_avg").reindex(columns = range(18,39)).to_numpy()
     metric_df = df[[output_metric, "id", "age"]]
     exposure_df = df[["id", "age", exposure]]
-    metric_df  = metric_df.pivot(columns="age",values=output_metric,index="id")
+    metric_df  = metric_df.pivot(columns="age",values=output_metric,index="id").reindex(columns=range(18,39))
+    exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).reindex(columns = range(18,39)).to_numpy()
     if model == "poisson":
         metric_array = metric_df.to_numpy()
-        exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
         if normalize:
             metric_array_obs = metric_array / exposure_array
             metric_array = (metric_array_obs - np.nanmean(metric_array_obs))/np.nanstd(metric_array_obs)
         adj_exp_array = jnp.log(exposure_array) if not normalize else jnp.sqrt(exposure_array)
-    elif model == "exponential":
-        metric_array = metric_df.to_numpy() 
-        exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
-        if exposure == "simple_exposure":
-            season_array = df[["id", "age", "season"]].pivot(columns="age",values="season",index="id").to_numpy()
-            retirement_array = np.where((season_array == "2020-21").sum(axis = 1) == 0)[0] 
-            entrance_array = np.where((season_array == "1996-97").sum(axis = 1) == 0)[0]
+        de_trend_array = jnp.log(de_trend_array)
+    elif model == "negative-binomial":
+        metric_array = metric_df.to_numpy()
+        if normalize:
+            metric_array_obs = metric_array / exposure_array
+            metric_array = (metric_array_obs - np.nanmean(metric_array_obs))/np.nanstd(metric_array_obs)
+        adj_exp_array = jnp.log(exposure_array) if not normalize else jnp.sqrt(exposure_array)
+        de_trend_array = jnp.log(de_trend_array)
+    elif model == "beta":
+        metric_array = metric_df.to_numpy()
+        if normalize:
+            metric_array_obs = metric_array
+            metric_array = (metric_array_obs - np.nanmean(metric_array_obs))/np.nanstd(metric_array_obs)
+        adj_exp_array = jnp.sqrt(exposure_array + 1) if not normalize else jnp.sqrt(exposure_array)
+        de_trend_array = jnp.log(de_trend_array / (1 - de_trend_array))
+    elif model == "beta-binomial":
+        metric_array = metric_df.to_numpy()
+        if exposure == "games_exposure":
+            season_array = df[["id", "age", "year"]].pivot(columns="age",values="year",index="id").to_numpy()
+            retirement_array = np.where((season_array == validation_year).sum(axis = 1) == 0)[0] 
+            entrance_array = np.where((season_array == 1997).sum(axis = 1) == 0)[0] 
             max_season_array = (21 - np.argmax(np.flip(~np.isnan(metric_array), axis = 1), axis = 1))
             min_season_array = np.argmax(~np.isnan(metric_array), axis = 1)
             for player_index, ret_index in zip(retirement_array, max_season_array[retirement_array]):
                 metric_array[player_index, ret_index:] = 0
-                exposure_array[player_index, ret_index:] = 1
+                exposure_array[player_index, ret_index:] = 82
             for player_index, ent_index in zip (entrance_array, min_season_array[entrance_array]):
-                exposure_array[player_index, 0:ent_index] = 1 
+                exposure_array[player_index, 0:ent_index] = 82 
                 metric_array[player_index, 0:ent_index] = 0
-        adj_exp_array = jnp.log(exposure_array) 
+
+        metric_array[~np.isnan(metric_array)] = np.int32(metric_array[~np.isnan(metric_array)])
+        exposure_array[~np.isnan(metric_array)] = np.int32(exposure_array[~np.isnan(exposure_array)])
+        if normalize:
+            metric_array_obs = metric_array / exposure_array
+            metric_array = (metric_array_obs - np.nanmean(metric_array_obs)) / np.nanstd(metric_array_obs)
+        adj_exp_array = jnp.array(exposure_array) if not normalize else jnp.sqrt(exposure_array)
+        de_trend_array = jnp.log(de_trend_array / (1 - de_trend_array))
     elif model == "binomial":
         metric_array = metric_df.to_numpy()
-        exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
         if exposure == "simple_exposure":
-            season_array = df[["id", "age", "season"]].pivot(columns="age",values="season",index="id").to_numpy()
-            retirement_array = np.where((season_array == "2020-21").sum(axis = 1) == 0)[0] 
-            entrance_array = np.where((season_array == "1996-97").sum(axis = 1) == 0)[0]
+            season_array = df[["id", "age", "year"]].pivot(columns="age",values="year",index="id").reindex(columns = range(18,39)).to_numpy()
+            retirement_array = np.where((season_array == validation_year).sum(axis = 1) == 0)[0] 
+            entrance_array = np.where((season_array == 1997).sum(axis = 1) == 0)[0] 
             max_season_array = (21 - np.argmax(np.flip(~np.isnan(metric_array), axis = 1), axis = 1))
             min_season_array = np.argmax(~np.isnan(metric_array), axis = 1)
             for player_index, ret_index in zip(retirement_array, max_season_array[retirement_array]):
@@ -77,200 +98,58 @@ def process_data(df, output_metric, exposure, model, input_metrics, player_indic
                 exposure_array[player_index, 0:ent_index] = 1 
                 metric_array[player_index, 0:ent_index] = 0
         elif exposure == "games_exposure":
-            season_array = df[["id", "age", "season"]].pivot(columns="age",values="season",index="id").to_numpy()
-            retirement_array = np.where((season_array == "2020-21").sum(axis = 1) == 0)[0] 
-            entrance_array = np.where((season_array == "1996-97").sum(axis = 1) == 0)[0]
+            season_array = df[["id", "age", "year"]].pivot(columns="age",values="year",index="id").to_numpy()
+            retirement_array = np.where((season_array == validation_year).sum(axis = 1) == 0)[0] 
+            entrance_array = np.where((season_array == 1997).sum(axis = 1) == 0)[0] 
             max_season_array = (21 - np.argmax(np.flip(~np.isnan(metric_array), axis = 1), axis = 1))
             min_season_array = np.argmax(~np.isnan(metric_array), axis = 1)
             for player_index, ret_index in zip(retirement_array, max_season_array[retirement_array]):
                 metric_array[player_index, ret_index:] = 0
                 exposure_array[player_index, ret_index:] = 82
+
             for player_index, ent_index in zip (entrance_array, min_season_array[entrance_array]):
                 exposure_array[player_index, 0:ent_index] = 82 
                 metric_array[player_index, 0:ent_index] = 0
-            exposure_array[np.isnan(exposure_array)] = 82 ### all seasons have 82 games
+
+        metric_array[~np.isnan(metric_array)] = np.int32(metric_array[~np.isnan(metric_array)])
+        exposure_array[~np.isnan(metric_array)] = np.int32(exposure_array[~np.isnan(exposure_array)])
         if normalize:
             metric_array_obs = metric_array / exposure_array
             metric_array = (metric_array_obs - np.nanmean(metric_array_obs)) / np.nanstd(metric_array_obs)
         adj_exp_array = jnp.array(exposure_array) if not normalize else jnp.sqrt(exposure_array)
+        de_trend_array = jnp.log(de_trend_array / (1 - de_trend_array))
     elif model == "gaussian":
         metric_array = metric_df.to_numpy()
         if normalize:
             metric_array = (metric_array - np.nanmean(metric_array)) / (np.nanstd(metric_array))
-        exposure_array = exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy()
         adj_exp_array = jnp.sqrt(exposure_array)
+        de_trend_array = jnp.log(de_trend_array / (1 - de_trend_array))
+    if injury:  
+        injury_array = df[["injury_period", "id", "age"]].pivot(columns = "age", values = "injury_period", index = "id").reindex(columns=range(18,39)).to_numpy()
+        injury_mask = (injury_array == "pre-injury")
 
-    if player_indices:
-        array_indices = jnp.array(player_indices)
-        return adj_exp_array[array_indices], jnp.array(metric_array)[array_indices], X
+        injury_type_array = df[["first_major_injury", "id", "age"]].pivot(columns = "age", values = "first_major_injury", index = "id").reindex(columns=range(18,39)).to_numpy() ### gives me per player, if they have an injury
+        has_injury = (~pd.isnull(injury_type_array) & (injury_type_array != "None")).any(axis=1)
+        _, T = metric_array.shape
+        time_idx = np.arange(T)
+        last_pre_idx = np.maximum.reduce(np.where(injury_mask, time_idx, -1), -1) ### gives me per player, where their last pre-injury period is
+        last_pre_idx = np.where(has_injury, last_pre_idx, T + 1)
+        mask = time_idx[None, :] > last_pre_idx[:, None]
+        metric_array = jnp.where(mask, jnp.nan, metric_array)
+        adj_exp_array = jnp.where(mask, jnp.nan, adj_exp_array)
+        de_trend_array = jnp.where(mask, jnp.nan, de_trend_array)
     else:
-        return adj_exp_array, jnp.array(metric_array), X
+        mask = jnp.ones_like(metric_array, dtype= bool)
 
-def process_data_time(df, output_metric, exposure, model):
-    df = df.sort_values(by=["id","year"])
-    df["ft_pct"] = df["ftm"] / df["fta"]
-    df["three_pct"] = df["fg3m"] / df["fg3a"]
-    df["two_pct"] = df["fg2m"] / df["fg2a"]
-
-    df["year"] = pd.Categorical(df.year).codes.astype(int)
-
-    metric_df = df[[output_metric, "id", "age"]]
-    exposure_df = df[["id", "age", exposure]]
-    year_df = df[["id", "age", "year"]].pivot(columns = "age", values = "year", index = "id")
-    metric_df  = metric_df.pivot(columns="age",values=output_metric,index="id")
-    if model == "poisson":
-        offset = jnp.log(exposure_df.pivot(columns="age", values=exposure,index="id").to_numpy())
-        return offset, jnp.array(metric_df.to_numpy()), jnp.array(year_df.to_numpy(dtype="int"))
-    elif model == "binomial":
-        trials = jnp.array(exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy())
-        return trials, jnp.array(metric_df.to_numpy()), jnp.array(year_df.to_numpy(dtype="int"))
-    elif model == "gaussian":
-        variance_scale = jnp.sqrt(exposure_df.pivot(columns="age", index="id", values=exposure).to_numpy())
-        return variance_scale, jnp.array(metric_df.to_numpy()), jnp.array(year_df.to_numpy(dtype="int"))
-    return ValueError
+    return adj_exp_array, jnp.array(metric_array), X, mask, de_trend_array
 
 
-def process_data_multi_way(df, output_metric, exposure, model):
-    n_players = len(df["id"].unique())
-    n_years = len(df["year"].unique())
-    n_age = len(df["age"].unique())
-
-    interaction_tensor = np.full((n_players, n_years, n_age), np.nan)
-    exposure_tensor = np.full((n_players, n_years, n_age), np.nan)
-    df = df.sort_values(by=["id","year"])
-    df["ft_pct"] = df["ftm"] / df["fta"]
-    df["three_pct"] = df["fg3m"] / df["fg3a"]
-    df["two_pct"] = df["fg2m"] / df["fg2a"]
-
-    df["id"] = pd.Categorical(df.id).codes.astype(int)
-    df["year"] = pd.Categorical(df.year).codes.astype(int)
-    df["age"] = pd.Categorical(df.age).codes.astype(int) 
-
-    metric_df = df[[output_metric, "id", "age", "year"]]
-    exposure_df = df[["id", "age", "year", exposure]]
-
-    for _, row in metric_df.iterrows():
-
-        interaction_tensor[int(row.id), int(row.year), int(row.age)] = row[output_metric]
-    for _, row in exposure_df.iterrows():
-        exposure_tensor[int(row.id), int(row.year), int(row.age)] = row[exposure]
-    if model == "poisson":
-        offset = jnp.log(exposure_tensor)
-        return offset, jnp.array(interaction_tensor)
-    elif model == "binomial":
-        trials = jnp.array(exposure_tensor)
-        return trials, jnp.array(interaction_tensor)
-    elif model == "gaussian":
-        variance_scale = jnp.sqrt(exposure_tensor)
-        return variance_scale, jnp.array(interaction_tensor)
-    return ValueError
-
-
-def create_pca_data(df, metric_output, exposure_list, metrics):
-    """
-    metric_output: list of [poisson, gaussian, binomial]
-    exposure_list: list indicating which column to use as an exposure
-    metrics: list of metric names 
-    """
-    exposures = []
-    masks = []
-    data = []
-    outputs = []
-    for output, metric, exposure_val in zip(metric_output, metrics, exposure_list):
-        exposure, Y, _ = process_data(df, metric, exposure_val, output, [])
-        data.append(Y)
-        masks.append(jnp.isfinite(exposure))
-        exposures.append(exposure)
-        if output == "gaussian":
-            outputs.append(jnp.ones_like(Y, dtype=int))
-        elif output == "poisson":
-            outputs.append(2 * jnp.ones_like(Y, dtype=int))
-        elif output == "binomial":
-            outputs.append(3 * jnp.ones_like(Y, dtype=int))
-
-    return jnp.hstack(exposures), jnp.hstack(masks), jnp.hstack(data), jnp.hstack(outputs)
-
-def create_cp_data(df, metric_output, exposure_list, metrics, player_indices:list = [], normalize = False):
-    """
-    metric_output: list of [poisson, gaussian, binomial]
-    exposure_list: list indicating which column to use as an exposure
-    metrics: list of metric names 
-    """
-    exposures = []
-    masks = []
-    data = []
-    outputs = []
-    for output, metric, exposure_val in zip(metric_output, metrics, exposure_list):
-        exposure, Y, _ = process_data(df, metric, exposure_val, output, [], player_indices, normalize)
-        data.append(Y)
-        masks.append(jnp.isfinite(Y))
-        exposures.append(exposure)
-        if output == "gaussian":
-            outputs.append(jnp.ones_like(Y, dtype=int))
-        elif output == "poisson":
-            outputs.append(2 * jnp.ones_like(Y, dtype=int))
-        elif output == "binomial":
-            outputs.append(3 * jnp.ones_like(Y, dtype=int))
-        elif output == "exponential":
-            outputs.append(4 * jnp.ones_like(Y, dtype=int))
-
-    return jnp.stack(exposures, axis = -1), jnp.stack(masks, axis = -1), jnp.stack(data, axis = -1), jnp.stack(outputs, axis = -1)
-
-def create_cp_data_time(df, metric_output, exposure_list, metrics):
-    """
-    metric_output: list of [poisson, gaussian, binomial]
-    exposure_list: list indicating which column to use as an exposure
-    metrics: list of metric names 
-    """
-    exposures = []
-    times = []
-    masks = []
-    data = []
-    outputs = []
-    for output, metric, exposure_val in zip(metric_output, metrics, exposure_list):
-        exposure, Y, time = process_data_time(df, metric, exposure_val, output)
-        data.append(Y)
-        times.append(time)
-        masks.append(jnp.isfinite(exposure))
-        exposures.append(exposure)
-        if output == "gaussian":
-            outputs.append(jnp.ones_like(Y, dtype=int))
-        elif output == "poisson":
-            outputs.append(2 * jnp.ones_like(Y, dtype=int))
-        elif output == "binomial":
-            outputs.append(3 * jnp.ones_like(Y, dtype=int))
-
-    return jnp.stack(exposures, axis = -1), jnp.stack(masks, axis = -1), jnp.stack(data, axis = -1), jnp.stack(outputs, axis = -1), jnp.stack(times, axis = -1)
-
-def create_cp_data_multi_way(df, metric_output, exposure_list, metrics):
-    """
-    metric_output: list of [poisson, gaussian, binomial]
-    exposure_list: list indicating which column to use as an exposure
-    metrics: list of metric names 
-    """
-    exposures = []
-    masks = []
-    data = []
-    outputs = []
-    for output, metric, exposure_val in zip(metric_output, metrics, exposure_list):
-        exposure, Y  = process_data_multi_way(df, metric, exposure_val, output)
-        data.append(Y)
-        masks.append(jnp.isfinite(exposure))
-        exposures.append(exposure)
-        if output == "gaussian":
-            outputs.append(jnp.ones_like(Y, dtype=int))
-        elif output == "poisson":
-            outputs.append(2 * jnp.ones_like(Y, dtype=int))
-        elif output == "binomial":
-            outputs.append(3 * jnp.ones_like(Y, dtype=int))
-    return jnp.stack(exposures, axis = -1), jnp.stack(masks, axis = -1), jnp.stack(data, axis = -1), jnp.stack(outputs, axis = -1)
 
 
 def create_basis(data, dims):
-    agg_dict = {"obpm":"mean", "dbpm":"mean", "bpm":"mean", 
+    agg_dict = {"obpm":"mean", "dbpm":"mean", 
             "minutes":"sum", "dreb": "sum", "fta":"sum", "ftm":"sum", "oreb":"sum",
             "ast":"sum", "tov":"sum", "fg2m":"sum", "fg3m":"sum", "fg3a":"sum", "fg2a":"sum", "blk":"sum", "stl":"sum"}
-    data["total_minutes"] = data["median_minutes_per_game"] * data["games"] 
     agged_data = data.groupby("id").agg(agg_dict).reset_index()
     agged_data["ft_pct"] = agged_data["ftm"] / agged_data["fta"]
     agged_data["fg2_pct"] = agged_data["fg2m"] / agged_data["fg2a"]
@@ -291,30 +170,48 @@ def create_basis(data, dims):
     return covariate_X
 
 
-def create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_index: list[int] = []):
+def create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, player_index: list[int] = [], validation_year:int = 2021, injury: bool = False):
     covariate_X = create_basis(data, basis_dims)
     if player_index:
         covariate_X = covariate_X[jnp.array(player_index)]
     data_set = []
     for output,metric,exposure_val in zip(metric_output, metrics, exposure_list):
-        exposure, Y, _ = process_data(data, metric, exposure_val, output, ["position_group"])
+        exposure, Y, _, injury_mask, de_trend = process_data(data, metric, exposure_val, output, ["position_group"], validation_year=validation_year, injury=injury)
         if player_index:
             exposure = exposure[jnp.array(player_index)]
             Y = Y[jnp.array(player_index)]
-        data_dict = {"metric":metric, "output": output, "exposure_data": exposure, "output_data": Y, "mask": jnp.isfinite(Y)}
+            injury_mask = injury_mask[jnp.array(player_index)]
+            de_trend = de_trend[jnp.array(player_index)]
+
+        data_dict = {"metric":metric, "output": output, "exposure_data": exposure, "output_data": Y, "mask": jnp.isfinite(Y), "injury_mask": injury_mask,
+                    "de_trend": de_trend}
         data_set.append(data_dict)
     basis = jnp.arange(18,39)
 
     return covariate_X, data_set, basis
 
-def create_fda_data_time(data, basis_dims, metric_output, metrics, exposure_list):
-    covariate_X = create_basis(data, basis_dims)
-    data_set = []
-    time_basis = jnp.arange(data["year"].min(), data["year"].max() + 1)
-    for output,metric,exposure_val in zip(metric_output, metrics, exposure_list):
-        exposure, Y, time = process_data_time(data, metric, exposure_val, output)
-        data_dict = {"metric":metric, "output": output, "exposure_data": exposure, "output_data": Y, "mask": jnp.isfinite(exposure), "time": time}
-        data_set.append(data_dict)
 
-    basis = jnp.arange(18,39)
-    return covariate_X, data_set, basis, time_basis
+def average_peak_differences(x):
+    mask = ~jnp.isnan(x)
+
+    first_idx = jnp.argmax(mask, axis=1)
+    last_idx = x.shape[1] - 1 - jnp.argmax(jnp.flip(mask, axis=1), axis=1)
+
+    peak_vals = jnp.nanmax(x, axis=1)
+    left_vals = x[jnp.arange(x.shape[0]), first_idx]
+    right_vals = x[jnp.arange(x.shape[0]), last_idx]
+    left_diffs = peak_vals - left_vals
+    right_diffs = peak_vals - right_vals
+
+    avg_left = jnp.nanmean(left_diffs)
+    avg_right = jnp.nanmean(right_diffs)
+
+    return avg_left, avg_right
+
+
+def average_range_differences(x):
+    peak_vals = jnp.nanmax(x, axis=1)
+    min_vals = jnp.nanmin(x, axis = 1)
+    pct_change = (peak_vals - min_vals)/peak_vals
+    mask = jnp.isfinite(pct_change)
+    return jnp.sum(jnp.where(mask, pct_change, 0.0)) / jnp.sum(mask)

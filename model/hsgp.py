@@ -1,5 +1,6 @@
 import jax.numpy as jnp 
 import jax
+from jax.scipy.stats import norm
 from jaxlib.xla_extension import ArrayImpl
 from typing import get_args
 
@@ -65,6 +66,46 @@ def eigenindices(m: list[int] | int, dim: int) -> ArrayImpl:
 
 
 
+# def safe_cos_term(divisor, x, L):
+#     denom = 2 * L * jnp.square(divisor)
+#     z = jnp.where(divisor == 0, 0, divisor * (x+L))
+#     numer = 1 - jnp.cos(z)
+#     return jnp.where(z == 0, jnp.square(x + L)/ (4 * L), numer / denom)
+
+# def safe_sin_term(divisor, x, L):
+#     denom = 2 * L * divisor
+#     z = jnp.where(divisor == 0, 0, divisor * (x+L))
+#     numer = jnp.sin(z)
+#     return jnp.where(z == 0, (x+L) / (2*L), numer / denom)
+
+
+@jax.jit
+def safe_cos_term(divisor, x, L, eps=1e-5):
+    divisor_safe = jnp.where(jnp.abs(divisor) < eps, eps, divisor)
+    z = divisor_safe * (x + L)
+    denom = 2 * L * jnp.square(divisor_safe)
+    numer = 1 - jnp.cos(z)
+    
+    base = numer / denom
+    limit = jnp.square(x + L) / (4 * L)
+
+    blend_weight = jnp.exp(-jnp.square(z / eps))
+
+    return blend_weight * limit + (1 - blend_weight) * base
+
+@jax.jit
+def safe_sin_term(divisor, x, L, eps=1e-5):
+    divisor_safe = jnp.where(jnp.abs(divisor) < eps, eps, divisor)
+    z = divisor_safe * (x + L)
+    denom = 2 * L * divisor_safe
+    numer = jnp.sin(z)
+    
+    base = numer / denom
+    limit = (x + L) / (2 * L)
+
+    blend_weight = jnp.exp(-jnp.square(z / eps))
+
+    return blend_weight * limit + (1 - blend_weight) * base
 
 
 def sqrt_eigenvalues(
@@ -142,17 +183,66 @@ def eigenfunctions(
     :returns: An array of the first :math:`m^\\star \\times D` eigenfunctions evaluated at `x`.
     :rtype: ArrayImpl
     """
-    if x.ndim == 1:
-        x_ = x[..., None]
-    else:
-        x_ = x
-    dim = x_.shape[-1]  # others assumed batch dims
-    n_batch_dims = x_.ndim - 1
-    a = jnp.expand_dims(ell, tuple(range(n_batch_dims)))
-    b = jnp.expand_dims(sqrt_eigenvalues(ell, m, dim), tuple(range(n_batch_dims)))
-    return jnp.prod(jnp.sqrt(1 / a) * jnp.sin(b * (x_[..., None] + a)), axis=-2)
 
 
+    a = ell
+    b = sqrt_eigenvalues(ell, m, 1)
+    return jnp.sqrt(1 / a) * jnp.sin(b * (x[..., None] + a))
+
+
+def eigenfunctions_deriv(
+    x: ArrayImpl, ell: float | list[float], m: int | list[int]
+) -> ArrayImpl:
+    """
+    The first :math:`m^\\star` eigenfunctions of the laplacian operator in
+    :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`
+    evaluated at values of `x`. See Eq. (56) in [1].
+    If `x` is 1D, the problem is assumed unidimensional.
+    Otherwise, the dimension of the input space is inferred as the size of the last dimension of
+    `x`. Other dimensions are treated as batch dimensions.
+
+    **Example:**
+
+    .. code-block:: python
+
+        >>> import jax.numpy as jnp
+
+        >>> from numpyro.contrib.hsgp.laplacian import eigenfunctions
+
+        >>> n = 100
+        >>> m = 10
+
+        >>> x = jnp.linspace(-1, 1, n)
+
+        >>> basis = eigenfunctions(x=x, ell=1.2, m=m)
+
+        >>> assert basis.shape == (n, m)
+
+        >>> x = jnp.ones((n, 3))  # 2d input
+        >>> basis = eigenfunctions(x=x, ell=1.2, m=[2, 2, 3])
+        >>> assert basis.shape == (n, 12)
+
+
+    **References:**
+
+        1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
+           Stat Comput 30, 419-446 (2020)
+
+    :param ArrayImpl x: The points at which to evaluate the eigenfunctions.
+        If `x` is 1D the problem is assumed unidimensional.
+        Otherwise, the dimension of the input space is inferred as the last dimension of `x`.
+        Other dimensions are treated as batch dimensions.
+    :param float | list[float] ell: The length of the interval in each dimension divided by 2.
+        If a float, the same length is used in each dimension.
+    :param int | list[int] m: The number of eigenvalues to compute in each dimension.
+        If an integer, the same number of eigenvalues is computed in each dimension.
+    :returns: An array of the first :math:`m^\\star \\times D` eigenfunctions evaluated at `x`.
+    :rtype: ArrayImpl
+    """
+
+    a = ell
+    b = sqrt_eigenvalues(ell, m, 1)
+    return jnp.prod(b * jnp.sqrt(1/ a) * jnp.cos(b * (x[..., None] + a)), axis=-2)
 
 
 
@@ -220,47 +310,47 @@ def diag_spectral_density(
 
 
 def make_convex_phi(x, L, M= 1):
-    assert len(x.shape) == 1 ### only have capacity for single dimension concavity
     eig_vals = jnp.squeeze(sqrt_eigenvalues(L, M, 1))
-    broadcast_sub = jax.vmap(jax.vmap(jnp.subtract, (None, 0)), (0, None))
-    broadcast_add = jax.vmap(jax.vmap(jnp.add, (None, 0)), (0, None))
-    sum_eig_vals = broadcast_add(eig_vals, eig_vals)
-    diff_eig_vals = broadcast_sub(eig_vals, eig_vals)
-    diff_eig_vals_square = jnp.power( diff_eig_vals, 2)
-    sum_eig_vals_square = jnp.power(sum_eig_vals, 2)
-    x_shifted = x + L
-    cos_pos = (jnp.cos(jnp.einsum("t,m... -> tm...", x_shifted, sum_eig_vals)) - 1) / (2 * L * sum_eig_vals_square)
-    cos_neg = (jnp.cos(jnp.einsum("t,m... -> tm...", x_shifted, diff_eig_vals)) -1) / (2 * L * diff_eig_vals_square)
-    diagonal_elements = jnp.square(x[..., None] - L)/ (4 * L) - L +  jnp.diagonal(cos_pos, axis1=1, axis2=2)
-    other_elements = cos_pos - cos_neg 
-    broadcast_fill_diag = jax.vmap(lambda x, y: jnp.fill_diagonal(x,y, inplace=False), in_axes = 0)
-    phi = broadcast_fill_diag(other_elements, diagonal_elements)
-    return phi #should be t x m x m where t is the length of x and m is the number of eigen values (or M)
-
-def make_convex_gamma(x, L, M = 1):
-    assert len(x.shape) == 1 ### only have capacity for single dimension concavity
+    sum_eig_vals = eig_vals[None] + eig_vals[..., None]
+    diff_eig_vals = eig_vals[None] - eig_vals[..., None]
+    cos_pos  = safe_cos_term(sum_eig_vals, x, L)
+    cos_neg = safe_cos_term(diff_eig_vals, x, L)
+    phi = cos_neg - cos_pos
+    return phi
+    
+def make_convex_phi_prime(x, L, M = 1):
     eig_vals = jnp.squeeze(sqrt_eigenvalues(L, M, 1))
-    eig_vals_square = jnp.power(eig_vals, 2)
-    x_shifted = x + L
-    outer_eig_time = jnp.einsum("t,m... -> tm...", x_shifted, eig_vals)
-    return  2 * (outer_eig_time - jnp.sin(outer_eig_time))/ (jnp.sqrt(L) * eig_vals_square)
+    sum_eig_vals = eig_vals[None] + eig_vals[..., None]
+    diff_eig_vals = eig_vals[None] - eig_vals[..., None]
+    sin_pos = safe_sin_term(sum_eig_vals, x, L)
+    sin_neg = safe_sin_term(diff_eig_vals, x, L)
+    phi_prime = sin_neg - sin_pos
+    return phi_prime #should be t x m x m where t is the length of x and m is the number of eigen values (or M)
 
-def make_gamma_phi_gamma(phi, gamma):
-    right_result = jnp.einsum("njk,k... -> nj...", phi, gamma)
-    result = jnp.einsum("nj..., j... -> n...",right_result, gamma)
-     ## output is length of x and output size (mult by -1 to make sure we get concave functions)    
-    return result
+def make_convex_phi_double_prime(x, L, M = 1):
+    eigenfunction_vals = eigenfunctions(x, L, M)
+    phi_double_prime = jnp.outer(eigenfunction_vals, eigenfunction_vals)
+    return phi_double_prime #should be t x m x m where t is the length of x and m is the number of eigen values (or M)
 
+def make_convex_phi_triple_prime(x, L, M = 1):
 
-def make_gamma(weights, alpha, length, M, L, output_size, dim):
+    eigenfunction_vals = eigenfunctions(x, L, M)
+    deriv_eigenfunction_vals = eigenfunctions_deriv(x,L,M)
+    term = jnp.outer(eigenfunction_vals, deriv_eigenfunction_vals)
+    phi_triple_prime = term + term.T
+    return phi_triple_prime #should be t x m x m where t is the length of x and m is the number of eigen values (or M)
 
-    spd = jnp.sqrt(diag_spectral_density(dim, alpha, length, L, M))
-    if spd.shape[-1] != 1:
-        spd_ = jnp.expand_dims(spd, -1)
-    else:
-        spd_ = spd
-    gamma = spd_ * weights
-    return gamma
+def vmap_make_convex_phi_triple_prime(x, L, M):
+    return jax.vmap(lambda t: make_convex_phi_triple_prime(t, L, M))(x)
+
+def vmap_make_convex_phi_double_prime(x, L, M):
+    return jax.vmap(lambda t: make_convex_phi_double_prime(t, L, M))(x)
+
+def vmap_make_convex_phi_prime(x, L, M):
+    return jax.vmap(lambda t: make_convex_phi_prime(t, L, M))(x)
+
+def vmap_make_convex_phi(x, L, M):
+    return jax.vmap(lambda t: make_convex_phi(t, L, M))(x)
 
 def make_psi_gamma(psi, gamma):
     return jnp.einsum("nm, m... -> n...", psi,gamma)
@@ -270,3 +360,6 @@ def make_convex_f(gamma_phi_gamma_time, shifted_x_time, slope, intercept):
     ### slope should be n x k 
 
     return jnp.swapaxes(intercept + jnp.einsum("nk, t -> nkt", slope, shifted_x_time) - gamma_phi_gamma_time, 0,1)
+
+
+
