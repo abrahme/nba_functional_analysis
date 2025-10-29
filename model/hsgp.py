@@ -190,6 +190,63 @@ def eigenfunctions(
     return jnp.sqrt(1 / a) * jnp.sin(b * (x[..., None] + a))
 
 
+def eigenfunctions_multivariate(x: ArrayImpl, ell: float | list[float], m: int | list[int]) -> ArrayImpl:
+    """
+    The first :math:`m^\\star` eigenfunctions of the laplacian operator in
+    :math:`[-L_1, L_1] \\times ... \\times [-L_D, L_D]`
+    evaluated at values of `x`. See Eq. (56) in [1].
+    If `x` is 1D, the problem is assumed unidimensional.
+    Otherwise, the dimension of the input space is inferred as the size of the last dimension of
+    `x`. Other dimensions are treated as batch dimensions.
+
+    **Example:**
+
+    .. code-block:: python
+
+        >>> import jax.numpy as jnp
+
+        >>> from numpyro.contrib.hsgp.laplacian import eigenfunctions
+
+        >>> n = 100
+        >>> m = 10
+
+        >>> x = jnp.linspace(-1, 1, n)
+
+        >>> basis = eigenfunctions(x=x, ell=1.2, m=m)
+
+        >>> assert basis.shape == (n, m)
+
+        >>> x = jnp.ones((n, 3))  # 2d input
+        >>> basis = eigenfunctions(x=x, ell=1.2, m=[2, 2, 3])
+        >>> assert basis.shape == (n, 12)
+
+
+    **References:**
+
+        1. Solin, A., Särkkä, S. Hilbert space methods for reduced-rank Gaussian process regression.
+           Stat Comput 30, 419-446 (2020)
+
+    :param ArrayLike x: The points at which to evaluate the eigenfunctions.
+        If `x` is 1D the problem is assumed unidimensional.
+        Otherwise, the dimension of the input space is inferred as the last dimension of `x`.
+        Other dimensions are treated as batch dimensions.
+    :param float | list[float] ell: The length of the interval in each dimension divided by 2.
+        If a float, the same length is used in each dimension.
+    :param int | list[int] m: The number of eigenvalues to compute in each dimension.
+        If an integer, the same number of eigenvalues is computed in each dimension.
+    :returns: An array of the first :math:`m^\\star \\times D` eigenfunctions evaluated at `x`.
+    :rtype: Array
+    """
+
+    dim = x.shape[-1]  # others assumed batch dims
+    n_batch_dims = jnp.ndim(x) - 1
+   
+    a = jnp.expand_dims(ell, tuple(range(n_batch_dims)))
+    b = jnp.expand_dims(sqrt_eigenvalues(ell, m, dim), tuple(range(n_batch_dims)))
+    return jnp.prod(
+        jnp.sqrt(1 / a) * jnp.sin(b * (jnp.expand_dims(x, axis=-1) + a)), axis=-2
+    )
+
 def eigenfunctions_deriv(
     x: ArrayImpl, ell: float | list[float], m: int | list[int]
 ) -> ArrayImpl:
@@ -273,6 +330,7 @@ def spectral_density( w: ArrayImpl, alpha: float, length: float | ArrayImpl
     :return: spectral density value
     :rtype: float
     """
+    
     c = alpha * jnp.prod(jnp.sqrt(2 * jnp.pi) * length, axis=-1)
     e = jnp.exp(-0.5 * jnp.sum(w**2 * length**2, axis=-1))
     return c * e
@@ -306,6 +364,7 @@ def diag_spectral_density(
         )
 
     sqrt_eigenvalues_ = sqrt_eigenvalues(ell=ell, m=m, dim = dim)  # dim x m
+    
     return jax.vmap(_spectral_density, in_axes=-1)(sqrt_eigenvalues_)
 
 

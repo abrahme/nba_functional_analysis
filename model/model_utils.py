@@ -6,7 +6,7 @@ from numpyro.infer.hmc import HMC
 from numpyro.distributions import constraints
 from jax import random
 import jax
-from .hsgp import  diag_spectral_density, make_psi_gamma, make_convex_phi, make_convex_phi_prime, vmap_make_convex_phi, vmap_make_convex_phi_prime, vmap_make_convex_phi_double_prime, vmap_make_convex_phi_triple_prime
+from .hsgp import  diag_spectral_density, make_psi_gamma, make_convex_phi, make_convex_phi_prime, vmap_make_convex_phi, vmap_make_convex_phi_prime, vmap_make_convex_phi_double_prime, vmap_make_convex_phi_triple_prime, eigenfunctions, eigenfunctions_multivariate
 
 
 class Type2Gumbel(dist.Distribution):
@@ -242,6 +242,68 @@ def make_mu(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigma_t_m
     first_deriv = jnp.einsum("nm, mdk, nktdz, jzk, nj -> nk", psi_x, weights, phi_prime_t_max[:,:, None, ...] - phi_prime_t[ None, None], weights, psi_x)
     
     return mu, t_max, c_max, 0, second_deriv, third_deriv, first_deriv
+
+def make_mu_hsgp(X, ls_deriv, alpha_time, alpha_X, weights, ls, ls_c_max, ls_t_max, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, phi_time, shifted_x_time, offset_dict, rank, L_X, M_X ):
+    spd_time = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
+    spd_X = jax.vmap(lambda alpha: jnp.sqrt(diag_spectral_density(rank, alpha, ls, L_X, M_X)))(alpha_X)
+    spd = jnp.einsum("tk, km -> mtk", spd_time, spd_X)
+    spd_c_max = jax.vmap(lambda alpha: jnp.sqrt(diag_spectral_density(rank, alpha, ls_c_max, L_X, M_X)))(sigma_c_max)
+    spd_t_max = jax.vmap(lambda alpha: jnp.sqrt(diag_spectral_density(rank, alpha, ls_t_max, L_X, M_X)))(sigma_t_max)
+    weights = weights * spd  
+    psi_x = eigenfunctions_multivariate(X, L_X, M_X)
+    t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw * spd_t_max.T) ) * 5  + offset_dict["t_max"]
+    c_max = make_psi_gamma(psi_x, c_max * spd_c_max.T)  + offset_dict["c_max"]
+    phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
+    phi_double_prime_tmax = jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))(t_max)
+    phi_triple_prime_tmax = jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))(t_max)
+    phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
+    phi_prime_t =  vmap_make_convex_phi_prime(np.squeeze(shifted_x_time), np.squeeze(L_time), M_time)
+    intercept = jnp.transpose(c_max)[..., None]
+    gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
+    mu = intercept + gamma_phi_gamma_x
+    second_deriv = -1 * jnp.einsum("nm, mdk, nkdz, jzk, nj -> kn", psi_x, weights, phi_double_prime_tmax, weights, psi_x)
+    third_deriv = -1 * jnp.einsum("nm, mdk, nkdz, jzk, nj -> kn", psi_x, weights, phi_triple_prime_tmax, weights, psi_x)
+    first_deriv = jnp.einsum("nm, mdk, nktdz, jzk, nj -> nk", psi_x, weights, phi_prime_t_max[:,:, None, ...] - phi_prime_t[ None, None], weights, psi_x)
+    
+    return mu, t_max, c_max, 0, second_deriv, third_deriv, first_deriv
+
+
+
+def make_mu_hsgp_mcmc_AR(X, ls_deriv, alpha_time, alpha_X, weights, ls, ls_c_max, ls_t_max, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, phi_time, shifted_x_time, offset_dict, rank, L_X, M_X , beta_ar, sigma_ar, rho_ar, AR_0_raw, orthogonalize = False):
+
+    spd_time = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
+    spd_X = jax.vmap(lambda alpha: jnp.sqrt(diag_spectral_density(rank, alpha, ls, L_X, M_X)))(alpha_X)
+    spd = jnp.einsum("tk, km -> mtk", spd_time, spd_X)
+    spd_c_max = jax.vmap(lambda alpha: jnp.sqrt(diag_spectral_density(rank, alpha, ls_c_max, L_X, M_X)))(sigma_c_max)
+    spd_t_max = jax.vmap(lambda alpha: jnp.sqrt(diag_spectral_density(rank, alpha, ls_t_max, L_X, M_X)))(sigma_t_max)
+    weights *= spd
+    psi_x = jax.vmap(jax.vmap(lambda z: eigenfunctions_multivariate(z, L_X, M_X)))(X)
+
+    t_max = jnp.tanh(jnp.einsum("...nm, mk -> ...nk", psi_x, t_max_raw * spd_t_max.T, optimize = True) ) * 5  + offset_dict["t_max"]  
+    c_max = (jnp.einsum("...nm, mk -> ...nk", psi_x, c_max * spd_c_max.T, optimize = True))  + offset_dict["c_max"]
+    # intercept = jnp.transpose(c_max)[..., None]
+    phi_prime_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))))(t_max)
+    phi_double_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))))(t_max)
+    phi_triple_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))))(t_max)
+    phi_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))))(t_max)
+    phi_prime_t =  vmap_make_convex_phi_prime(np.squeeze(shifted_x_time), np.squeeze(L_time), M_time)
+    intercept = jnp.swapaxes(c_max, -2, -1)[..., None]
+    AR_0 = AR_0_raw * (sigma_ar / jnp.sqrt((1 - jnp.square(rho_ar))))
+    def transition_fn(prev, z_t):
+            next = prev * rho_ar + z_t * sigma_ar
+            return next, next
+        
+    _, AR = jax.lax.scan(f = transition_fn, init = AR_0, xs = jnp.transpose(beta_ar, (2, 0, 1, 3, 4)))
+    AR = jnp.transpose(AR, (1,2,3,4,0))
+    second_deriv = -1 * jnp.einsum("...nm, mdk, ...nkdz, jzk, ...nj -> ...nk", psi_x, weights, phi_double_prime_tmax, weights, psi_x)
+    third_deriv = -1 * jnp.einsum("...nm, mdk, ...nkdz, jzk, ...nj -> ...nk", psi_x, weights, phi_triple_prime_tmax, weights, psi_x)
+    first_deriv = jnp.einsum("...nm, mdk, ...nktdz, jzk, ...nj -> ...knt", psi_x, weights, phi_prime_t_max[:, :,:,:, None, ...] - phi_prime_t[None, None, None, None], weights, psi_x)
+    gamma_phi_gamma_x = jnp.einsum("...nm, mdk, ...nktdz, jzk, ...nj -> ...knt", psi_x, weights, phi_t_max[:,:,:,:,None,...] - phi_time[None, None, None, None] +  phi_prime_t_max[:, :,:,:, None, ...] * (((shifted_x_time - L_time)[None, None, None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
+    mu = (gamma_phi_gamma_x + intercept) 
+    if orthogonalize:
+        Q = jnp.stack([mu, jnp.ones_like(mu)], axis = -1)
+        AR = orthogonalize_ar(AR, Q)
+    return None, mu, t_max, c_max, AR, second_deriv, third_deriv, first_deriv
 
 def compute_residuals_map(map_values, obs_values, exposures, metric_output, gaussian_var = None, nb_variance = None, beta_binom_variance = None, beta_variance = None):
     residuals = []

@@ -9,9 +9,9 @@ config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, average_peak_differences, average_range_differences
 import numpyro
 import jax.numpy as jnp
-from model.model_utils import make_mu, make_mu_mcmc_AR, make_mu_mcmc, make_mu_mcmc_AR_fixed_X, transform_mu, compute_residuals_map, make_mu_mcmc_fixed_X
+from model.model_utils import make_mu, make_mu_hsgp, make_mu_mcmc_AR, make_mu_hsgp_mcmc_AR, make_mu_mcmc, make_mu_mcmc_AR_fixed_X,compute_residuals_map
 from model.inference_utils import posterior_peaks_to_df, posterior_to_df, loadings_to_df, time_factors_to_df
-from model.hsgp import vmap_make_convex_phi
+from model.hsgp import vmap_make_convex_phi, eigenfunctions_multivariate
 
 from model.inference_utils import create_metric_trajectory_all, create_metric_trajectory_map
 
@@ -21,7 +21,7 @@ if __name__ == "__main__":
     parser.add_argument('--model_name', help='which model to fit', required=True)
     parser.add_argument("--basis_dims", help="size of the basis", required=True, type=int)
     parser.add_argument("--injury", help="whether to mask out injury years", action="store_true")
-    parser.add_argument("--rff_dim", help="size of the rff approx", required=True, type=int)
+    parser.add_argument("--approx_x_dim", help="size of the X approx", required=True, type=int)
     parser.add_argument("--mcmc_path", help="where to get mcmc from", required = False, default="")
     parser.add_argument("--svi_path", help = "where to get svi from", required=False, default="")
     parser.add_argument("--position_group", help = "which position group to run the model for", required = True, choices=["G", "F", "C", "all"])
@@ -39,7 +39,7 @@ if __name__ == "__main__":
     basis_dims = args["basis_dims"]
     de_trend_metrics = args["de_trend_metrics"]
     injury = args["injury"]
-    rff_dim = args["rff_dim"]
+    approx_x_dim = args["approx_x_dim"]
     svi_path = args["svi_path"]
     position_group = args["position_group"]
     players = args["player_names"]
@@ -190,29 +190,59 @@ if __name__ == "__main__":
     results_mcmc = {**results_map, **results_mcmc}
     for item in results_mcmc:
         if item == "X":
-            X_new = jnp.tile(results_mcmc["X"][None, None], (1, 50, 1, 1))
-            X_new = X_new.at[..., jnp.array(player_indices), :].set(results_mcmc["X_free"])
-            results_mcmc["X"] = X_new
-    mu, *_ = make_mu(results_map["X"], results_map["lengthscale_deriv"], results_map["alpha"], results_map["beta"],
-                                            results_map["W"], results_map["lengthscale"], results_map["c_max"], results_map["t_max_raw"], results_map["sigma_t"],
-                                            results_map["sigma_c"], L_time, M_time, phi_time, x_time + L_time, offset_dict)
+            if "X_free" in results_mcmc:
+                X_new = jnp.tile(results_mcmc["X"][None, None], (1, 50, 1, 1))
+                X_new = X_new.at[..., jnp.array(player_indices), :].set(results_mcmc["X_free"])
+                results_mcmc["X"] = X_new
+            if "hsgp" in model_name:
+                results_mcmc["X"] = jnp.tanh(results_mcmc["X"])
+    
+    if "rflvm" in model_name:
+        mu, *_ = make_mu(results_map["X"], results_map["lengthscale_deriv"], results_map["alpha"], results_map["beta"],
+                                                results_map["W"], results_map["lengthscale"], results_map["c_max"], results_map["t_max_raw"], results_map["sigma_t"],
+                                                results_map["sigma_c"], L_time, M_time, phi_time, x_time + L_time, offset_dict)
+    elif "hsgplvm" in model_name: 
+        mu, *_ = make_mu_hsgp(results_map["X"], results_map["lengthscale_deriv"], results_map["alpha"], results_map["alpha_X"], results_map["beta"], results_map["lengthscale"],
+                              results_map["lengthscale_c_max"], results_map["lengthscale_t_max"],  
+                              results_map["c_max"], results_map["t_max_raw"], results_map["sigma_t"],
+                              results_map["sigma_c"], L_time, M_time, phi_time, x_time + L_time, offset_dict, basis_dims, 2 * jnp.ones(basis_dims)[..., None] ,approx_x_dim )
+
     obs, preds = create_metric_trajectory_map(mu, [], Y, exposures, metric_output, metrics)
                         
     avg_sd, autocorr = compute_residuals_map(preds["y"], obs["y"], exposures, metric_output, results_map["sigma"], results_map["sigma_negative_binomial"], 
                                                                 results_map["sigma_beta_binomial"], results_map["sigma_beta"])
     # avg_sd = jnp.ones((len(metrics))) * .01
     # autocorr = jnp.zeros_like(avg_sd)
-    wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv, first_deriv = make_mu_mcmc_AR(results_mcmc["X"], results_mcmc["lengthscale_deriv"], results_mcmc["alpha"],
-                        results_mcmc["beta"], results_mcmc["W"], results_mcmc["lengthscale"], results_mcmc["c_max"],
-                        results_mcmc["t_max_raw"], results_mcmc["sigma_t"], results_mcmc["sigma_c"], L_time, M_time, x_time + L_time, offset_dict,
-                        sigma_ar = results_mcmc["sigma_ar"],
-                        # sigma_ar = avg_sd[..., None][None, None],
-                        beta_ar = results_mcmc["beta_ar"], 
-                        rho_ar=results_mcmc["rho_ar"],
-                        # rho_ar = autocorr[..., None][None, None],
-                        AR_0_raw=results_mcmc["AR_0"],
-                        # AR_0_raw = jnp.zeros((len(metrics), covariate_X.shape[0])),
-                          phi_time=phi_time, orthogonalize=False)
+
+    if "rflvm" in model_name:
+        wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv, first_deriv = make_mu_mcmc_AR(results_mcmc["X"], results_mcmc["lengthscale_deriv"], results_mcmc["alpha"],
+                            results_mcmc["beta"], results_mcmc["W"], results_mcmc["lengthscale"], results_mcmc["c_max"],
+                            results_mcmc["t_max_raw"], results_mcmc["sigma_t"], results_mcmc["sigma_c"], L_time, M_time, x_time + L_time, offset_dict,
+                            
+                            sigma_ar = results_mcmc["sigma_ar"],
+                            # sigma_ar = avg_sd[..., None][None, None],
+                            beta_ar = results_mcmc["beta_ar"], 
+                            rho_ar=results_mcmc["rho_ar"],
+                            # rho_ar = autocorr[..., None][None, None],
+                            AR_0_raw=results_mcmc["AR_0"],
+                            # AR_0_raw = jnp.zeros((len(metrics), covariate_X.shape[0])),
+                            phi_time=phi_time, orthogonalize=False)
+    elif "hsgplvm" in model_name:
+        wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv, first_deriv = make_mu_hsgp_mcmc_AR(results_mcmc["X"], results_mcmc["lengthscale_deriv"], 
+                              results_mcmc["alpha"], results_mcmc["alpha_X"], results_mcmc["beta"], results_mcmc["lengthscale"],
+                              results_mcmc["lengthscale_c_max"], results_mcmc["lengthscale_t_max"],  
+                              results_mcmc["c_max"], results_mcmc["t_max_raw"], results_mcmc["sigma_t"],
+                              results_mcmc["sigma_c"], L_time, M_time, phi_time, x_time + L_time, offset_dict,
+                              basis_dims, 2 * jnp.ones(basis_dims)[..., None] ,approx_x_dim,
+                            sigma_ar = results_mcmc["sigma_ar"],
+                            # sigma_ar = avg_sd[..., None][None, None],
+                            beta_ar = results_mcmc["beta_ar"], 
+                            rho_ar=results_mcmc["rho_ar"],
+                            # rho_ar = autocorr[..., None][None, None],
+                            AR_0_raw=results_mcmc["AR_0"],
+                            # AR_0_raw = jnp.zeros((len(metrics), covariate_X.shape[0])),
+                             orthogonalize=False)
+
 
     peaks = tmax_mcmc + basis.mean()
     peak_val = cmax_mcmc 
@@ -235,38 +265,46 @@ if __name__ == "__main__":
 
     posterior_df = posterior_to_df(pos, id_df["id"], metrics, range(18,39))
     
-    posterior_df.to_csv("posterior_ar_2025.csv", index = False)
+    model_suffix = "_hsgp" if "hsgp" in model_name else ""
+    posterior_df.to_csv(f"posterior_ar{model_suffix}.csv", index = False)
     
     posterior_peaks = posterior_peaks_to_df(peaks, id_df["id"], metrics)
-    posterior_peaks.to_csv("posterior_peaks_ar_2025.csv", index = False)
+    posterior_peaks.to_csv(f"posterior_peaks_ar{model_suffix}.csv", index = False)
     if not injury:
 
         posterior_df_no_ar = posterior_to_df(pos_no_ar, id_df["id"], metrics, range(18,39))
-        posterior_df_no_ar.to_csv("posterior_no_ar_2025.csv", index = False)
+        posterior_df_no_ar.to_csv(f"posterior_no_ar{model_suffix}.csv", index = False)
         
 
     
         posterior_mu_df = posterior_to_df(jnp.transpose(mu_mcmc, (0, 1, 3, 4, 2)), id_df["id"], metrics, range(18,39))
-        posterior_mu_df.to_csv("posterior_mu_ar_2025.csv", index = False)
+        posterior_mu_df.to_csv(f"posterior_mu_ar{model_suffix}.csv", index = False)
 
         posterior_third_deriv = posterior_peaks_to_df(third_deriv, id_df["id"], metrics)
-        posterior_third_deriv.to_csv("posterior_third_deriv_ar_2025.csv", index = False)
+        posterior_third_deriv.to_csv(f"posterior_third_deriv_ar{model_suffix}.csv", index = False)
 
         posterior_first_deriv = posterior_to_df(jnp.transpose(first_deriv, (0, 1, 3, 4, 2)), id_df["id"], metrics, range(18,39))
-        posterior_first_deriv.to_csv("posterior_first_deriv_ar_2025.csv", index = False)
+        posterior_first_deriv.to_csv(f"posterior_first_deriv_ar{model_suffix}.csv", index = False)
 
         posterior_peak_vals = posterior_peaks_to_df(peak_val, id_df["id"], metrics)
-        posterior_peak_vals.to_csv("posterior_peak_vals_ar_2025.csv", index = False)
+        posterior_peak_vals.to_csv(f"posterior_peak_vals_ar{model_suffix}.csv", index = False)
 
 
     latent_space_df = pd.DataFrame(results_map["X"], columns = [f"Dim {i+1}" for i in range(results_map["X"].shape[1])])
     latent_space_df = pd.concat([latent_space_df, id_df], axis = 1)
-    latent_space_df.to_csv("latent_space_2025.csv", index = False)
+    latent_space_df.to_csv(f"latent_space{model_suffix}.csv", index = False)
 
-    wTx = jnp.einsum("nr,mr -> nm", results_map["X"], results_map["W"]  * jnp.sqrt(results_map["lengthscale"]))
-    phi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(rff_dim))   
+    if "hsgp" in model_name:
+        phi_x = eigenfunctions_multivariate(results_map["X"],  2 * jnp.ones(basis_dims)[..., None] , approx_x_dim)
+    elif "rflvm" in model_name:
+        wTx = jnp.einsum("nr,mr -> nm", results_map["X"], results_map["W"]  * jnp.sqrt(results_map["lengthscale"]))
+        phi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(approx_x_dim))  
+
+
+
+
     phi_X_df = pd.DataFrame(phi_x, columns = [f"Dim {i+1}" for i in range(phi_x.shape[1])])
     phi_X_df = pd.concat([phi_X_df, id_df], axis = 1)
-    phi_X_df.to_csv("phi_X_2025.csv", index = False)
+    phi_X_df.to_csv(f"phi_X{model_suffix}.csv", index = False)
 
 
