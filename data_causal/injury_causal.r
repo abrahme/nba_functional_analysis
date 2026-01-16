@@ -13,7 +13,7 @@ library(patchwork)
 library(umap)
 
 
-data <- read.csv("data/injury_player_cleaned.csv") |>     mutate( pct_games = games / pmax(games, total_games, na.rm = TRUE),
+data <- read.csv("data/injury_player_cleaned.csv") |>    mutate( pct_games = games / pmax(games, total_games, na.rm = TRUE),
             mpg = minutes / games,
             blk_rate = 36 * (blk / minutes),
             ast_rate = 36 * (ast / minutes),
@@ -551,17 +551,17 @@ minutes_lost_total <- minutes_lost %>% bind_rows(minutes_lost %>% filter(!is.na(
 
 injury_summary <- injury_data |> group_by(id) |> summarize(first_major_injury = first(first_major_injury)) |> ungroup() |> group_by(first_major_injury) |> summarize(n = n()) |> ungroup() %>% bind_rows(summarize(., across(where(is.numeric), sum, na.rm = TRUE)) %>%
       mutate(first_major_injury = "All Injuries"), n_uninjured %>% count() %>% mutate(first_major_injury = "Placebo"))
-test_plt <- minutes_lost_total %>% inner_join(injury_summary, by = "first_major_injury") %>% filter(n >= 20) %>% mutate(first_major_injury = fct_reorder(first_major_injury, ratio, .fun = mean, .desc = TRUE))  %>% 
+test_plt <- minutes_lost_total %>% inner_join(injury_summary, by = "first_major_injury") %>% filter(n >= 10) %>% mutate(first_major_injury = fct_reorder(first_major_injury, ratio, .fun = mean, .desc = TRUE))  %>% 
   ggplot(aes(x = ratio, y = first_major_injury, )) + stat_pointinterval() + geom_vline(aes(xintercept = 1.0), linetype = "dashed", color = "red") + 
 
- geom_text(data = injury_summary %>% filter(n >= 20), aes(x = .35, y = first_major_injury, label = glue("N = {n}")))  + xlim(c(.3, 1.5)) +
+ geom_text(data = injury_summary %>% filter(n >= 10), aes(x = .35, y = first_major_injury, label = glue("N = {n}")))  + xlim(c(.3, 1.5)) +
 theme_classic()  + labs(x = "Ratio of Observed Minutes Played to Predicted Minutes Played", y = "First Major Injury", title = "Injury Impact on Reduction in Minutes Played") 
 ggsave("model_output/model_plots/causal/minutes_lost.png", test_plt)
-test_plt_games <- minutes_lost_total %>% inner_join(injury_summary, by = "first_major_injury") %>% filter(n >= 20) %>% mutate(first_major_injury = fct_reorder(first_major_injury, ratio_games, .fun = mean, .desc = TRUE))  %>% 
+test_plt_games <- minutes_lost_total %>% inner_join(injury_summary, by = "first_major_injury") %>% filter(n >= 10) %>% mutate(first_major_injury = fct_reorder(first_major_injury, ratio_games, .fun = mean, .desc = TRUE))  %>% 
   ggplot(aes(x = ratio_games, y = first_major_injury, )) + stat_pointinterval() + geom_vline(aes(xintercept = 1.0), linetype = "dashed", color = "red") + 
 
 
- geom_text(data = injury_summary %>% filter(n >= 20), aes(x = .35, y = first_major_injury, label = glue("N = {n}")))  + xlim(c(.3, 1.5)) +
+ geom_text(data = injury_summary %>% filter(n >= 10), aes(x = .35, y = first_major_injury, label = glue("N = {n}")))  + xlim(c(.3, 1.5)) +
 theme_classic()  + labs(x = "Ratio of Observed Games Played to Predicted Games Played", y = "First Major Injury", title = "Injury Impact on Reduction in Games Played") 
 
 

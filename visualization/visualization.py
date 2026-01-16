@@ -6,7 +6,7 @@ import plotly.express as px
 import matplotlib.pyplot as plt
 import numpy as np
 import arviz as az
-from model.inference_utils import create_metric_trajectory, create_metric_trajectory_map, create_metric_trajectory_prior, create_metric_trajectory_mu
+from model.inference_utils import create_metric_trajectory, create_metric_trajectory_map, create_metric_trajectory_prior, create_metric_trajectory_mu, create_hazard_trajectory_map
 
 def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str], metric_outputs: list[str], exposure_names: list[str],  posterior_mean_samples, observations, exposures, posterior_variance_samples, posterior_dispersion_samples, posterior_kappa_samples):
     """
@@ -148,6 +148,43 @@ def plot_prior_predictive_career_trajectory(metrics: list[str], metric_outputs: 
 #     return fig
 
 
+def plot_posterior_predictive_hazard_trajectory_map(player_index, metrics: list[str], censor_type: list[str], posterior_map, observations, censor):
+    """
+    Plots the posterior predictive career trajectory using matplotlib instead of plotly.
+    """
+    # create 4x4 subplots
+    fig, axes = plt.subplots(1, 2, figsize=(12, 12))
+    axes = axes.flatten()  # flatten for easy indexing
+    
+    observation_dict, posterior_dict = create_hazard_trajectory_map(
+        posterior_map, player_index, observations,
+         metrics=metrics
+    )
+
+    obs = observation_dict["y"]
+    posterior = posterior_dict["y"]
+    x = list(range(18, 39))  # ages 18–38
+
+    for index, metric in enumerate(metrics):
+        ax = axes[index]
+        title = metric.upper()
+        if censor_type[index] == "left":
+            title = "ENTRANCE"
+        ax.axvline(x = obs[..., index].mean(), label="Observed", color="blue") if censor[player_index, index] == 0 else ax.axvline(x = obs[..., index].mean(), label="Censored", color="black")
+        ax.plot(x, posterior[..., index], label="Posterior Mean", color="red")
+        ax.set_title(title, fontsize=10)
+    
+    # hide unused subplots if fewer than 16 metrics
+    # for j in range(len(metrics), 16):
+    #     axes[j].axis("off")
+    
+    # global legend
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper right")
+    
+    fig.tight_layout()
+    return fig
+
 def plot_posterior_predictive_career_trajectory_map(
     player_index, metrics: list[str], metric_outputs: list[str], 
     posterior_map, observations, exposures
@@ -156,7 +193,7 @@ def plot_posterior_predictive_career_trajectory_map(
     Plots the posterior predictive career trajectory using matplotlib instead of plotly.
     """
     # create 4x4 subplots
-    fig, axes = plt.subplots(4, 4, figsize=(12, 12))
+    fig, axes = plt.subplots(4, (len(metrics) // 4) + 1, figsize=(12, 12))
     axes = axes.flatten()  # flatten for easy indexing
     
     observation_dict, posterior_dict = create_metric_trajectory_map(
@@ -180,8 +217,8 @@ def plot_posterior_predictive_career_trajectory_map(
         ax.set_title(title, fontsize=10)
     
     # hide unused subplots if fewer than 16 metrics
-    for j in range(len(metrics), 16):
-        axes[j].axis("off")
+    # for j in range(len(metrics), 16):
+    #     axes[j].axis("off")
     
     # global legend
     handles, labels = axes[0].get_legend_handles_labels()

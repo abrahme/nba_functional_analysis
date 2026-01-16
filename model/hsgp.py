@@ -3,6 +3,36 @@ import jax
 from jax.scipy.stats import norm
 from jaxlib.xla_extension import ArrayImpl
 from typing import get_args
+from numpyro.distributions import Categorical, Independent, Normal, MixtureSameFamily
+
+
+
+def make_spectral_mixture_density(eigenvalue, mu, cov, mixture_weight):
+    """
+    eigenvalue: (N, 5)
+    mu: (16, 5, K)
+    cov: (16, 5, K)   # diagonal covariances
+    mixture_weight: (16, K)
+    
+    returns: (16, N) log probs of all N eigenvalues under each of 16 mixtures
+    """
+    def log_prob_single_prior(mu_b, cov_b, weight_b):
+        """
+        mu_b: (5, K)
+        cov_b: (5, K)
+        weight_b: (K,)
+        """
+        # Mixture distribution
+        mixing_dist = Categorical(probs=weight_b)  # (K,)
+        # Each component is 5-D multivariate with diagonal covariance
+        component_dist = Independent(Normal(mu_b, cov_b), 1)  # event_shape=5
+        mixture = MixtureSameFamily(mixing_dist, component_dist)
+        # eigenvalue: (N, 5)
+        return mixture.log_prob(eigenvalue.T)  # returns (N,)
+    
+    # vmap over the 16 priors
+    logp = jax.vmap(log_prob_single_prior, in_axes=(0, 0, 0))(mu, cov, mixture_weight)
+    return jnp.sqrt(jnp.exp(logp)) 
 
 def eigenindices(m: list[int] | int, dim: int) -> ArrayImpl:
     """Returns the indices of the first :math:`D \\times m^\\star` eigenvalues of the laplacian operator.
@@ -66,17 +96,56 @@ def eigenindices(m: list[int] | int, dim: int) -> ArrayImpl:
 
 
 
+# @jax.custom_vjp
 # def safe_cos_term(divisor, x, L):
 #     denom = 2 * L * jnp.square(divisor)
 #     z = jnp.where(divisor == 0, 0, divisor * (x+L))
 #     numer = 1 - jnp.cos(z)
 #     return jnp.where(z == 0, jnp.square(x + L)/ (4 * L), numer / denom)
 
+
+# @jax.custom_vjp
 # def safe_sin_term(divisor, x, L):
 #     denom = 2 * L * divisor
 #     z = jnp.where(divisor == 0, 0, divisor * (x+L))
 #     numer = jnp.sin(z)
 #     return jnp.where(z == 0, (x+L) / (2*L), numer / denom)
+
+
+
+# def safe_cos_term_fwd(divisor, x, L):
+#     y = safe_cos_term(divisor, x, L)
+#     return y, (divisor, x, L)
+
+# def safe_cos_term_bwd(res, g):
+#     divisor, x, L = res
+#     # derivative w.r.t. x is safe_sin_term
+#     grad_x = safe_sin_term(divisor, x, L)
+#     # compute partial derivatives for all inputs
+#     return (  # returns tuple of same length as inputs
+#         jnp.zeros_like(divisor),  # ∂y/∂divisor (assume 0)
+#         jnp.sum(g * grad_x),                # ∂y/∂x
+#         jnp.zeros_like(L)        # ∂y/∂L (assume 0)
+#     )
+
+# def safe_sin_term_fwd(divisor, x, L):
+#     y = safe_sin_term(divisor, x, L)
+#     return y, (divisor, x, L)
+
+# def safe_sin_term_bwd(res, g):
+#     divisor, x, L = res
+
+#     grad_x = jnp.where(divisor == 0, 1 / (2 * L), jnp.cos(divisor * (x + L)) / (2 * L))
+#     return (
+#         jnp.zeros_like(divisor),  # ∂y/∂divisor (assume 0)
+#         jnp.sum(g * grad_x),                # ∂y/∂x
+#         jnp.zeros_like(L)
+#     )
+
+# safe_cos_term.defvjp(safe_cos_term_fwd, safe_cos_term_bwd)
+# safe_cos_term = jax.jit(safe_cos_term)
+# safe_sin_term.defvjp(safe_sin_term_fwd, safe_sin_term_bwd)
+# safe_sin_term = jax.jit(safe_sin_term)
 
 
 @jax.jit
@@ -330,8 +399,10 @@ def spectral_density( w: ArrayImpl, alpha: float, length: float | ArrayImpl
     :return: spectral density value
     :rtype: float
     """
-    
+    # jax.debug.print("this is the lengthscale inside the spectral density function :{length}", length = length)
+    # jax.debug.print("this is the alpha inside the spectral density function :{alpha}", alpha = alpha)
     c = alpha * jnp.prod(jnp.sqrt(2 * jnp.pi) * length, axis=-1)
+    # jax.debug.print("this is the omega inside the spectral density function :{omega}", omega = w)
     e = jnp.exp(-0.5 * jnp.sum(w**2 * length**2, axis=-1))
     return c * e
 

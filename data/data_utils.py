@@ -63,19 +63,6 @@ def process_data(df, output_metric, exposure, model, input_metrics, player_indic
         de_trend_array = jnp.log(de_trend_array / (1 - de_trend_array))
     elif model == "beta-binomial":
         metric_array = metric_df.to_numpy()
-        if exposure == "games_exposure":
-            season_array = df[["id", "age", "year"]].pivot(columns="age",values="year",index="id").to_numpy()
-            retirement_array = np.where((season_array == validation_year).sum(axis = 1) == 0)[0] 
-            entrance_array = np.where((season_array == 1997).sum(axis = 1) == 0)[0] 
-            max_season_array = (21 - np.argmax(np.flip(~np.isnan(metric_array), axis = 1), axis = 1))
-            min_season_array = np.argmax(~np.isnan(metric_array), axis = 1)
-            for player_index, ret_index in zip(retirement_array, max_season_array[retirement_array]):
-                metric_array[player_index, ret_index:] = 0
-                exposure_array[player_index, ret_index:] = 82
-            for player_index, ent_index in zip (entrance_array, min_season_array[entrance_array]):
-                exposure_array[player_index, 0:ent_index] = 82 
-                metric_array[player_index, 0:ent_index] = 0
-
         metric_array[~np.isnan(metric_array)] = np.int32(metric_array[~np.isnan(metric_array)])
         exposure_array[~np.isnan(metric_array)] = np.int32(exposure_array[~np.isnan(exposure_array)])
         if normalize:
@@ -83,7 +70,7 @@ def process_data(df, output_metric, exposure, model, input_metrics, player_indic
             metric_array = (metric_array_obs - np.nanmean(metric_array_obs)) / np.nanstd(metric_array_obs)
         adj_exp_array = jnp.array(exposure_array) if not normalize else jnp.sqrt(exposure_array)
         de_trend_array = jnp.log(de_trend_array / (1 - de_trend_array))
-    elif model == "binomial":
+    elif model in ["binomial"]:
         metric_array = metric_df.to_numpy()
         if exposure == "simple_exposure":
             season_array = df[["id", "age", "year"]].pivot(columns="age",values="year",index="id").reindex(columns = range(18,39)).to_numpy()
@@ -140,8 +127,35 @@ def process_data(df, output_metric, exposure, model, input_metrics, player_indic
         de_trend_array = jnp.where(mask, jnp.nan, de_trend_array)
     else:
         mask = jnp.ones_like(metric_array, dtype= bool)
-
     return adj_exp_array, jnp.array(metric_array), X, mask, de_trend_array
+
+def process_surv_data(df, output_metric, censor_type, input_metrics, validation_year = 2021):
+    agg_dict = {input_metric:"max" for input_metric in input_metrics}
+    df = df.sort_values(by=["id","year"])
+    df["ft_pct"] = df["ftm"] / df["fta"]
+    df["three_pct"] = df["fg3m"] / df["fg3a"]
+    df["two_pct"] = df["fg2m"] / df["fg2a"]
+    if input_metrics:
+        X = df[input_metrics + ["id"]].groupby("id").agg(agg_dict).reset_index()[input_metrics]
+    else:
+        X = None
+  
+    metric_df = df[[output_metric, "id", "age"]]
+
+    metric_df  = metric_df.pivot(columns="age",values=output_metric,index="id").reindex(columns=range(18,39))
+
+    
+
+    metric_array = metric_df.to_numpy()
+
+    season_array = df[["id", "age", "year"]].pivot(columns="age",values="year",index="id").reindex(columns = range(18,39)).to_numpy()
+    if censor_type == "right":
+        cens_array = (season_array == validation_year).sum(axis = 1) != 0
+        obs_array = (21 - np.argmax(np.flip(~np.isnan(metric_array), axis = 1), axis = 1)) + 18
+    elif censor_type == "left":
+        cens_array = (season_array == 1997).sum(axis = 1) != 0
+        obs_array = np.argmax(~np.isnan(metric_array), axis = 1) + 18 ### here if cens_array == 1, we have censored the observation, if 0 it is observed
+    return cens_array, obs_array
 
 
 
@@ -190,6 +204,21 @@ def create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, pla
 
     return covariate_X, data_set, basis
 
+
+def create_surv_data(data, basis_dims, censor_type, metrics, player_index: list[int] = [], validation_year:int = 2021):
+    covariate_X = create_basis(data, basis_dims)
+    if player_index:
+        covariate_X = covariate_X[jnp.array(player_index)]
+    data_set = []
+    for censor, metric in zip(censor_type, metrics):
+        censor_mask, Y = process_surv_data(data, metric, censor, ["position_group"], validation_year)
+        if player_index:
+            censor_mask = censor_mask[jnp.array(player_index)]
+            Y = Y[jnp.array(player_index)]
+        data_dict = {"observations": Y, "censor_type":jnp.ones_like(Y) if censor == "right" else jnp.zeros_like(Y), "censored":censor_mask}
+        data_set.append(data_dict)
+    basis = jnp.arange(18,39)
+    return covariate_X, data_set, basis
 
 def average_peak_differences(x):
     mask = ~jnp.isnan(x)
