@@ -266,7 +266,7 @@ def create_metric_trajectory_all(posterior_mean_samples, observations, exposures
         obs = observations[metric_index]
         post = posterior_mean_samples[..., metric_index, :, :]
         if metric_output == "gaussian":
-            scale = posterior_variance_samples[gaussian_index][..., None, None] / jnp.sqrt(posterior_predictions_min_exposure)
+            scale = posterior_variance_samples[gaussian_index][..., None, None] / jnp.sqrt(posterior_predictions_min_exposure + 1)
             dist = Normal()
             posterior_predictions = (dist.sample(key = key, sample_shape=post.shape) * scale + post)
             # posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_min_exposure < 1)].set(-2.0)

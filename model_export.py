@@ -41,7 +41,7 @@ if __name__ == "__main__":
     elif "linear" in model_name:
         model_suffix = "_linear"
     elif "rflvm" in model_name:
-        model_suffix = "rff"
+        model_suffix = "_rff"
     else:
         model_suffix = "_"
     basis_dims = args["basis_dims"]
@@ -308,9 +308,9 @@ if __name__ == "__main__":
 
     if "rflvm" in model_name:
         wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv, first_deriv = make_mu_rflvm_mcmc_AR(results_mcmc["X"], results_mcmc["lengthscale_deriv"], results_mcmc["alpha"],
-                            results_mcmc["beta"], results_mcmc["W"], results_mcmc["lengthscale"], results_mcmc["c_max"],
+                            results_mcmc["beta"], results_mcmc["W"], results_mcmc["W_t_max"], results_mcmc["W_c_max"], results_mcmc["lengthscale"], results_mcmc["lengthscale_t_max"], results_mcmc["lengthscale_c_max"],  results_mcmc["c_max"],
                             results_mcmc["t_max_raw"], offset_dict["t_max_var"],
-                              offset_dict["c_max_var"], L_time, M_time, x_time + L_time, offset_dict,
+                              offset_dict["c_max_var"], L_time, M_time, x_time + L_time, offset_dict, approx_x_dim,
                             
                             sigma_ar = results_mcmc["sigma_ar"],
                             # sigma_ar = avg_sd[..., None][None, None],

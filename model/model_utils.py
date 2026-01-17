@@ -160,16 +160,16 @@ def make_mu_mcmc_fixed_X(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_r
 
     return wTx, mu, t_max, c_max, AR, second_deriv, third_deriv, first_deriv
 
-def make_mu_rflvm_mcmc_AR(X, ls_deriv, alpha_time, weights, W, W_t_max, W_c_max, ls, ls_t_max, ls_c_max, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, shifted_x_time, offset_dict, beta_ar, sigma_ar, rho_ar, AR_0_raw, phi_time, orthogonalize = False):
+def make_mu_rflvm_mcmc_AR(X, ls_deriv, alpha_time, weights, W, W_t_max, W_c_max, ls, ls_t_max, ls_c_max, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, shifted_x_time, offset_dict, rank, beta_ar, sigma_ar, rho_ar, AR_0_raw, phi_time, orthogonalize = False):
     spd = jnp.squeeze(jnp.sqrt(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(alpha_time, ls_deriv)))
     # weights = weights * spd[..., None, :, :]
     weights *= spd.T[None]
     wTx = jnp.einsum("...nr, mr -> ...nm", X, W * jnp.sqrt(ls))   
-    psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(W.shape[0])) 
+    psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], -1) * (1/ jnp.sqrt(rank ) )
     wTx_t_max = jnp.einsum("...nr, mr -> ...nm", X, W_t_max * jnp.sqrt(ls_t_max))
-    psi_x_t_max = jnp.concatenate([jnp.cos(wTx_t_max), jnp.sin(wTx_t_max)], axis = -1) * (1/ jnp.sqrt(W_t_max.shape[0]))   
+    psi_x_t_max = jnp.concatenate([jnp.cos(wTx_t_max), jnp.sin(wTx_t_max)], axis = -1) * (1/ jnp.sqrt(rank)) 
     wTx_c_max = jnp.einsum("...nr, mr -> ...nm", X, W_c_max * jnp.sqrt(ls_c_max))
-    psi_x_c_max = jnp.concatenate([jnp.cos(wTx_c_max), jnp.sin(wTx_c_max)], axis = -1) * (1/ W_c_max.shape[0])
+    psi_x_c_max = jnp.concatenate([jnp.cos(wTx_c_max), jnp.sin(wTx_c_max)], axis = -1) * (1/ jnp.sqrt(rank))
     t_max =  jnp.tanh(jnp.einsum("ijnm, m... -> ijn...", psi_x_t_max, t_max_raw * sigma_t_max)  + jnp.arctanh(offset_dict["t_max"]/10)) * 10 
     c_max = jnp.einsum("ijnm, m... -> ijn...",psi_x_c_max, c_max * sigma_c_max)  + offset_dict["c_max"]
     # intercept = jnp.transpose(c_max)[..., None]
@@ -277,14 +277,14 @@ def make_mu_hsgp(X, ls_deriv, alpha_time, alpha_X, weights, ls, ls_c_max, ls_t_m
 def make_mu_linear(X, ls_deriv, alpha_time, weights, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, phi_time, shifted_x_time, rank, offset_dict):
     spd_time = jnp.squeeze(jnp.sqrt(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(alpha_time, ls_deriv)))
     weights = weights * spd_time.T[None] 
-    psi_x = X[:, 2 * rank // 3:]
-    t_max = jnp.tanh(make_psi_gamma(X[:, 0: rank // 3], t_max_raw * sigma_t_max)   + jnp.arctanh(offset_dict["t_max"]/10)) * 10 
-    c_max = make_psi_gamma(X[:, rank // 3 : 2 * rank // 3], c_max * sigma_c_max)  + offset_dict["c_max"]
+    psi_x = X
+    t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw * sigma_t_max)   + jnp.arctanh(offset_dict["t_max"]/10)) * 10 
+    c_max = make_psi_gamma(psi_x, c_max * sigma_c_max)  + offset_dict["c_max"]
     phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
     phi_double_prime_tmax = jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))(t_max)
     phi_triple_prime_tmax = jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))(t_max)
     phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
-    phi_prime_t =  vmap_make_convex_phi_prime(np.squeeze(shifted_x_time), np.squeeze(L_time), M_time)
+    phi_prime_t =  vmap_make_convex_phi_prime(jnp.squeeze(shifted_x_time), jnp.squeeze(L_time), M_time)
     intercept = jnp.transpose(c_max)[..., None]
     gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
     mu = intercept + gamma_phi_gamma_x
@@ -297,9 +297,9 @@ def make_mu_linear(X, ls_deriv, alpha_time, weights, c_max, t_max_raw, sigma_t_m
 def make_mu_linear_mcmc_AR(X, ls_deriv, alpha_time, weights, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, phi_time, shifted_x_time,rank,  offset_dict, beta_ar, sigma_ar, rho_ar, AR_0_raw, orthogonalize = False):
     spd_time = jnp.squeeze(jnp.sqrt(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(alpha_time, ls_deriv)))
     weights = weights * spd_time.T[None] 
-    psi_x = X[..., 2 * rank // 3:]
-    t_max = jnp.tanh(jnp.einsum("ijnm, m... -> ijn...", X[..., 0: rank // 3], t_max_raw * sigma_t_max)   + jnp.arctanh(offset_dict["t_max"]/10)) * 10 
-    c_max = jnp.einsum("ijnm, m... -> ijn...", X[..., rank // 3 : 2 * rank // 3], c_max * sigma_c_max)  + offset_dict["c_max"]
+    psi_x = X
+    t_max = jnp.tanh(jnp.einsum("ijnm, m... -> ijn...", X, t_max_raw * sigma_t_max)   + jnp.arctanh(offset_dict["t_max"]/10)) * 10 
+    c_max = jnp.einsum("ijnm, m... -> ijn...", X, c_max * sigma_c_max)  + offset_dict["c_max"]
     phi_prime_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))))(t_max)
     phi_double_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))))(t_max)
     phi_triple_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))))(t_max)

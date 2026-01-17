@@ -2443,8 +2443,8 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         sigma_c_max = offsets["c_max_var"]
         sigma_t_max = offsets["t_max_var"]
         
-        t_max_raw = self.prior["t_max_raw"] if not isinstance(self.prior["t_max_raw"], Distribution) else sample("t_max_raw", self.prior["t_max_raw"], sample_shape=(self.r // 3, self.k))
-        c_max_raw = self.prior["c_max"] if not isinstance(self.prior["c_max"], Distribution) else sample("c_max", self.prior["c_max"] , sample_shape=(self.r // 3, self.k))
+        t_max_raw = self.prior["t_max_raw"] if not isinstance(self.prior["t_max_raw"], Distribution) else sample("t_max_raw", self.prior["t_max_raw"], sample_shape=(self.r , self.k))
+        c_max_raw = self.prior["c_max"] if not isinstance(self.prior["c_max"], Distribution) else sample("c_max", self.prior["c_max"] , sample_shape=(self.r , self.k))
         
 
         if num_gaussians > 0:
@@ -2469,8 +2469,8 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
 
 
         psi_x = X
-        t_max = jnp.tanh(make_psi_gamma(psi_x[:, 0: self.r // 3], t_max_raw * sigma_t_max.T)   + jnp.arctanh(offsets["t_max"]/10))* 10  if not prior else numpyro.deterministic("t_max", jnp.tanh(make_psi_gamma(psi_x[:, 0: self.r // 3], t_max_raw * sigma_t_max.T)   + jnp.arctanh(offsets["t_max"]/10))* 10)
-        c_max = make_psi_gamma(psi_x[:, self.r // 3 : 2 * self.r // 3], c_max_raw * sigma_c_max.T)  + offsets["c_max"]
+        t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw * sigma_t_max.T)   + jnp.arctanh(offsets["t_max"]/10))* 10  if not prior else numpyro.deterministic("t_max", jnp.tanh(make_psi_gamma(psi_x, t_max_raw * sigma_t_max.T)   + jnp.arctanh(offsets["t_max"]/10))* 10)
+        c_max = make_psi_gamma(psi_x, c_max_raw * sigma_c_max.T)  + offsets["c_max"]
 
 
         if prior:
@@ -2480,7 +2480,7 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
         phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
 
-        weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.r // 3, M_time, self.k))
+        weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.r , M_time, self.k))
         weights *= spd_time.T[None]
 
 
@@ -2490,7 +2490,7 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         player_intercept = (intercept_raw * sigma_intercept)[..., None]
 
         intercept = jnp.transpose(c_max)[..., None]
-        gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x[:,  2 * self.r // 3 : ], weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x[:,  2 * self.r // 3 : ])
+        gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
         mu = intercept + gamma_phi_gamma_x  if not prior else numpyro.deterministic("mu", intercept + gamma_phi_gamma_x)
         for family in data_set:
             k_indices = data_set[family]["indices"]
@@ -2598,8 +2598,8 @@ class ConvexMaxARTVLinearLVM(ConvexMaxTVLinearLVM):
         sigma_c_max = offsets["c_max_var"]
         sigma_t_max = offsets["t_max_var"]
         
-        t_max_raw = self.prior["t_max_raw"] if not isinstance(self.prior["t_max_raw"], Distribution) else sample("t_max_raw", self.prior["t_max_raw"], sample_shape=(self.r // 3 , self.k))
-        c_max_raw = self.prior["c_max"] if not isinstance(self.prior["c_max"], Distribution) else sample("c_max", self.prior["c_max"] , sample_shape=(self.r  // 3, self.k))
+        t_max_raw = self.prior["t_max_raw"] if not isinstance(self.prior["t_max_raw"], Distribution) else sample("t_max_raw", self.prior["t_max_raw"], sample_shape=(self.r  , self.k))
+        c_max_raw = self.prior["c_max"] if not isinstance(self.prior["c_max"], Distribution) else sample("c_max", self.prior["c_max"] , sample_shape=(self.r  , self.k))
         
 
         if num_gaussians > 0:
@@ -2625,8 +2625,8 @@ class ConvexMaxARTVLinearLVM(ConvexMaxTVLinearLVM):
 
         
         psi_x = X
-        t_max = jnp.tanh(make_psi_gamma(psi_x[:, 0: self.r // 3], t_max_raw * sigma_t_max.T)   + jnp.arctanh(offsets["t_max"]/10))* 10  if not prior else numpyro.deterministic("t_max", jnp.tanh(make_psi_gamma(psi_x[:, 0: self.r // 3], t_max_raw * sigma_t_max.T)   + jnp.arctanh(offsets["t_max"]/10))* 10)
-        c_max = make_psi_gamma(psi_x[:, self.r // 3 : 2 * self.r // 3], c_max_raw * sigma_c_max.T)  + offsets["c_max"]
+        t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw * sigma_t_max.T)   + jnp.arctanh(offsets["t_max"]/10))* 10  if not prior else numpyro.deterministic("t_max", jnp.tanh(make_psi_gamma(psi_x, t_max_raw * sigma_t_max.T)   + jnp.arctanh(offsets["t_max"]/10))* 10)
+        c_max = make_psi_gamma(psi_x, c_max_raw * sigma_c_max.T)  + offsets["c_max"]
 
 
         if prior:
@@ -2636,7 +2636,7 @@ class ConvexMaxARTVLinearLVM(ConvexMaxTVLinearLVM):
         phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
         phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
 
-        weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.r // 3, M_time, self.k))
+        weights = self.prior["beta"] if not isinstance(self.prior["beta"], Distribution) else sample("beta", self.prior["beta"], sample_shape=(self.r , M_time, self.k))
         weights *= spd_time.T[None]
 
 
@@ -2661,7 +2661,7 @@ class ConvexMaxARTVLinearLVM(ConvexMaxTVLinearLVM):
         AR = jnp.transpose(AR, (1,2,0))
 
         intercept = jnp.transpose(c_max)[..., None]
-        gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x[:,  2 * self.r // 3 : ], weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x[:,  2 * self.r // 3 : ])
+        gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
         mu = intercept + gamma_phi_gamma_x  if not prior else numpyro.deterministic("mu", intercept + gamma_phi_gamma_x)
         for family in data_set:
             k_indices = data_set[family]["indices"]
