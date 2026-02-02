@@ -5,11 +5,12 @@ import numpy as np
 import argparse
 import arviz as az
 from jax import config, vmap
+from numpyro.diagnostics import print_summary
 config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, average_peak_differences, average_range_differences
 import numpyro
 import jax.numpy as jnp
-from model.model_utils import make_mu_rflvm, make_mu_hsgp, make_mu_linear, make_mu_rflvm_mcmc_AR, make_mu_hsgp_mcmc_AR, make_mu_linear_mcmc_AR, compute_residuals_map, compute_priors
+from model.model_utils import make_mu_rflvm, make_mu_hsgp, make_mu_linear, make_mu_rflvm_mcmc_AR, make_mu_hsgp_mcmc_AR, make_mu_linear_mcmc_AR, make_mu_linear_mcmc, compute_residuals_map, compute_priors
 from model.inference_utils import posterior_peaks_to_df, posterior_to_df, posterior_X_to_df
 from model.hsgp import vmap_make_convex_phi, eigenfunctions_multivariate, make_spectral_mixture_density, diag_spectral_density, sqrt_eigenvalues
 
@@ -71,9 +72,9 @@ if __name__ == "__main__":
     fake_data = pd.DataFrame({"age": range(18,39), "id": 99999999, "year": range(2000, 2021), "name": "No Name"})
     fake_data = fake_data.reindex(columns=data.columns)
     data = pd.concat([data, fake_data], ignore_index=True)
-    metric_output = ["beta-binomial", "binomial", "beta", "beta"] + (["gaussian"] * 2) + (["poisson"] * 8) + (["binomial"] * 3)
-    metrics = ["games", "retirement", "pct_minutes", "usg", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","ftm","fg2m", "fg3m"]
-    exposure_list = ([ "games_exposure", "simple_exposure", "games_exposure", "minutes"]) + (["minutes"] * 10) + ["fta","fg2a", "fg3a"]
+    metric_output = ["beta-binomial", "binomial", "beta", "beta"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
+    metrics = ["games", "retirement", "pct_minutes", "usg", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a", "fg3a", "ftm","fg2m", "fg3m"]
+    exposure_list = ([ "games_exposure", "simple_exposure", "games_exposure", "minutes"]) + (["minutes"] * 11) + ["fta","fg2a", "fg3a"]
     # metric_output = ["gaussian", "gaussian", "negative-binomial"]
     # metrics = ["obpm", "dbpm", "minutes"]
     # exposure_list = ["minutes", "minutes", "games_exposure"]
@@ -269,6 +270,7 @@ if __name__ == "__main__":
     f.close()
     results_mcmc = {**results_map, **results_mcmc}
     for item in results_mcmc:
+        print(item, results_mcmc[item].shape)
         if item == "X":
             if "X_free" in results_mcmc:
                 X_new = jnp.tile(results_mcmc["X"][None, None], (1, 50, 1, 1))
@@ -276,17 +278,16 @@ if __name__ == "__main__":
                 results_mcmc["X"] = X_new
             if "hsgp" in model_name:
                 results_mcmc["X"] = jnp.tanh(results_mcmc["X"]) * 1.9
-    
     if "rflvm" in model_name:
-        mu, *_ = make_mu_rflvm(results_map["X"], results_map["lengthscale_deriv"], results_map["alpha"], results_map["beta"],
+        mu, *_ = make_mu_rflvm(results_map["X"], 3 + results_map["lengthscale_deriv"], results_map["alpha"], results_map["beta"],
                                                 results_map["W"], results_map["W_t_max"], results_map["W_c_max"],  results_map["lengthscale"], results_map["lengthscale_t_max"], results_map["lengthscale_c_max"], results_map["c_max"], results_map["t_max_raw"], 
-                                                # results_map["sigma_t"],
-                                                # results_map["sigma_c"], 
-                                                offset_dict["t_max_var"],
-                                                offset_dict["c_max_var"],
+                                                results_map["sigma_t"],
+                                                results_map["sigma_c"], 
+                                                # offset_dict["t_max_var"],
+                                                # offset_dict["c_max_var"],
                                                 L_time, M_time, phi_time, x_time + L_time, offset_dict)
     elif "hsgplvm" in model_name: 
-        mu, *_ = make_mu_hsgp(results_map["X"], results_map["lengthscale_deriv"], results_map["alpha"], results_map["alpha_X"], results_map["beta"], results_map["lengthscale"],
+        mu, *_ = make_mu_hsgp(results_map["X"], 3 + results_map["lengthscale_deriv"], results_map["alpha"], results_map["alpha_X"], results_map["beta"], results_map["lengthscale"],
                               results_map["lengthscale_c_max"], results_map["lengthscale_t_max"],  
                               results_map["c_max"], results_map["t_max_raw"], 
                             #   results_map["sigma_t"],
@@ -295,8 +296,12 @@ if __name__ == "__main__":
                             offset_dict["c_max_var"],
                               L_time, M_time, phi_time, x_time + L_time, offset_dict, basis_dims, 2 * jnp.ones(basis_dims)[..., None] ,approx_x_dim )
     elif "linear" in model_name:
-        mu, *_ = make_mu_linear(results_map["X"], results_map["lengthscale_deriv"], results_map["alpha"], results_map["beta"], results_map["c_max"], results_map["t_max_raw"], offset_dict["t_max_var"],
-                                                offset_dict["c_max_var"], L_time, M_time, phi_time, x_time + L_time, basis_dims, offset_dict)
+        mu, *_ = make_mu_linear(results_map["X"], 3 + results_map["lengthscale_deriv"], results_map["alpha"], results_map["beta"], results_map["c_max"], results_map["t_max_raw"], 
+                                # offset_dict["t_max_var"],
+                                # offset_dict["c_max_var"],
+                                results_map["sigma_t"],
+                                results_map["sigma_c"], 
+                                  L_time, M_time, phi_time, x_time + L_time, basis_dims, offset_dict)
     if "intercept" in results_map:
         mu += (results_map["intercept"] * results_map["sigma_intercept"])[..., None]
     obs, preds = create_metric_trajectory_map(mu, [], Y, exposures, metric_output, metrics)
@@ -307,7 +312,7 @@ if __name__ == "__main__":
     # autocorr = jnp.zeros_like(avg_sd)
 
     if "rflvm" in model_name:
-        wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv, first_deriv = make_mu_rflvm_mcmc_AR(results_mcmc["X"], results_mcmc["lengthscale_deriv"], results_mcmc["alpha"],
+        wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv, first_deriv = make_mu_rflvm_mcmc_AR(results_mcmc["X"], 3 + results_mcmc["lengthscale_deriv"], results_mcmc["alpha"],
                             results_mcmc["beta"], results_mcmc["W"], results_mcmc["W_t_max"], results_mcmc["W_c_max"], results_mcmc["lengthscale"], results_mcmc["lengthscale_t_max"], results_mcmc["lengthscale_c_max"],  results_mcmc["c_max"],
                             results_mcmc["t_max_raw"], offset_dict["t_max_var"],
                               offset_dict["c_max_var"], L_time, M_time, x_time + L_time, offset_dict, approx_x_dim,
@@ -321,7 +326,7 @@ if __name__ == "__main__":
                             # AR_0_raw = jnp.zeros((len(metrics), covariate_X.shape[0])),
                             phi_time=phi_time, orthogonalize=False)
     elif "hsgplvm" in model_name:
-        wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv, first_deriv = make_mu_hsgp_mcmc_AR(results_mcmc["X"],  results_mcmc["lengthscale_deriv"], 
+        wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv, first_deriv = make_mu_hsgp_mcmc_AR(results_mcmc["X"],  3 + results_mcmc["lengthscale_deriv"], 
                               results_mcmc["alpha"], results_mcmc["alpha_X"], results_mcmc["beta"], results_mcmc["lengthscale"],
                               results_mcmc["lengthscale_c_max"], results_mcmc["lengthscale_t_max"],  
                               results_mcmc["c_max"], results_mcmc["t_max_raw"], offset_dict["t_max_var"],
@@ -335,23 +340,29 @@ if __name__ == "__main__":
                             AR_0_raw=results_mcmc["AR_0"],
                             # AR_0_raw = jnp.zeros((len(metrics), covariate_X.shape[0])),
                              orthogonalize=False)
-    elif "linear" in model_name:
-        wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv, first_deriv = make_mu_linear_mcmc_AR(results_mcmc["X"],  results_mcmc["lengthscale_deriv"], 
-                              results_mcmc["alpha"], results_mcmc["beta"],
-                              results_mcmc["c_max"], results_mcmc["t_max_raw"], offset_dict["t_max_var"],
-                              offset_dict["c_max_var"], L_time, M_time, phi_time, x_time + L_time, basis_dims, offset_dict,
-                            sigma_ar = results_mcmc["sigma_ar"],
-                            # sigma_ar = avg_sd[..., None][None, None],
-                            beta_ar = results_mcmc["beta_ar"], 
-                            rho_ar=results_mcmc["rho_ar"],
-                            # rho_ar = autocorr[..., None][None, None],
-                            AR_0_raw=results_mcmc["AR_0"],
-                            # AR_0_raw = jnp.zeros((len(metrics), covariate_X.shape[0])),
-                             orthogonalize=False)
+    elif "linear" in model_name: 
+        if "AR" in model_name:
+            wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv, first_deriv = make_mu_linear_mcmc_AR(results_mcmc["X"], 3 + results_mcmc["lengthscale_deriv"], 
+                                results_mcmc["alpha"], results_mcmc["beta"],
+                                results_mcmc["c_max"], results_mcmc["t_max_raw"], results_mcmc["sigma_t"],
+                                results_mcmc["sigma_c"], L_time, M_time, phi_time, x_time + L_time, basis_dims, offset_dict,
+                                sigma_ar = results_mcmc["sigma_ar"],
+                                # sigma_ar = avg_sd[..., None][None, None],
+                                beta_ar = results_mcmc["beta_ar"], 
+                                rho_ar=results_mcmc["rho_ar"],
+                                # rho_ar = autocorr[..., None][None, None],
+                                AR_0_raw=results_mcmc["AR_0"],
+                                # AR_0_raw = jnp.zeros((len(metrics), covariate_X.shape[0])),
+                                orthogonalize=False)
+        else:
+            wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv, first_deriv = make_mu_linear_mcmc(results_mcmc["X"], 3 + results_mcmc["lengthscale_deriv"], 
+                                results_mcmc["alpha"], results_mcmc["beta"],
+                                results_mcmc["c_max"], results_mcmc["t_max_raw"], results_mcmc["sigma_t"],
+                                results_mcmc["sigma_c"], L_time, M_time, phi_time, x_time + L_time, basis_dims, offset_dict)
+
     if "intercept" in results_mcmc:
-        mu_mcmc += (results_mcmc["intercept"] * results_mcmc["sigma_intercept"])[None, None, :, :, None]
-        
-    
+        print("added offset")
+        mu_mcmc += (results_mcmc["intercept"] * results_mcmc["sigma_intercept"][None, None])[..., None]
     latent_val = mu_mcmc + AR
     players = id_df[id_df["name"].isin(predict_players)].index
     player_names = id_df[id_df["name"].isin(predict_players)]["name"].tolist()
@@ -369,24 +380,31 @@ if __name__ == "__main__":
     })
     summary = az.summary(idata)
     summary.to_csv(f"model_output/posterior_latent_ar{model_suffix}_summary.csv")
+    # print(jnp.mean(results_mcmc["sigma_beta"], (0, 1)), jnp.mean(results_mcmc["sigma_negative_binomial"], (0, 1)), jnp.mean(results_mcmc["tau"], (0, 1)))
+    # print_summary({k:results_mcmc[k] for k in results_mcmc if k in ["sigma_beta", "tau", "sigma_negative_binomial"]})
+    # raise ValueError 
 
+    summary = az.summary(results_mcmc, var_names = ["sigma_beta", "sigma_negative_binomial", "tau"])
+    summary.to_csv(f"model_output/posterior_variance{model_suffix}_summary.csv")
 
     peaks = tmax_mcmc + basis.mean()
     peak_val = cmax_mcmc 
     
     _, pos = create_metric_trajectory_all(mu_mcmc + AR, Y, exposures, 
                                             metric_output, metrics, exposure_list, 
-                                            jnp.transpose(results_mcmc["sigma"][None, None], (2,0,1)),
-                                            # results_mcmc["sigma_beta"][..., None, None],
-                                            # results_mcmc["sigma_beta_binomial"][..., None, None],
-                                            # posterior_neg_bin_samples=results_mcmc["sigma_negative_binomial"],
+                                            jnp.transpose(results_mcmc["sigma"]),
+                                            jnp.transpose(results_mcmc["sigma_beta"],(2, 0, 1)),
+                                            # jnp.transpose(results_mcmc["sigma_beta_binomial"], (2, 0, 1)),
+                                            posterior_neg_bin_samples=jnp.transpose(results_mcmc["sigma_negative_binomial"], (2, 0, 1)),
+                                            posterior_tau_samples=jnp.transpose(results_mcmc["tau"], (2,0,1))
                                             ) 
     _, pos_no_ar = create_metric_trajectory_all(mu_mcmc, Y, exposures, 
                                             metric_output, metrics, exposure_list, 
-                                            jnp.transpose(results_mcmc["sigma"][None, None], (2,0,1)),
-                                            # results_mcmc["sigma_beta"][..., None, None],
-                                            # results_mcmc["sigma_beta_binomial"][..., None, None],
-                                            # posterior_neg_bin_samples=results_mcmc["sigma_negative_binomial"],
+                                            jnp.transpose(results_mcmc["sigma"]),
+                                            jnp.transpose(results_mcmc["sigma_beta"],(2, 0, 1)),
+                                            # jnp.transpose(results_mcmc["sigma_beta_binomial"], (2, 0, 1)),
+                                            posterior_neg_bin_samples=jnp.transpose(results_mcmc["sigma_negative_binomial"], (2, 0, 1)),
+                                            posterior_tau_samples=jnp.transpose(results_mcmc["tau"], (2,0,1))
                                             ) 
     
 

@@ -294,6 +294,26 @@ def make_mu_linear(X, ls_deriv, alpha_time, weights, c_max, t_max_raw, sigma_t_m
     return mu, t_max, c_max, 0, second_deriv, third_deriv, first_deriv
 
 
+def make_mu_linear_mcmc(X, ls_deriv, alpha_time, weights, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, phi_time, shifted_x_time,rank,  offset_dict):
+    spd_time = jnp.squeeze(jnp.sqrt(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(alpha_time, ls_deriv)))
+    weights = weights * spd_time.T[None] 
+    psi_x = X
+    t_max = jnp.tanh(jnp.einsum("ijnm, m... -> ijn...", X, t_max_raw * sigma_t_max)   + jnp.arctanh(offset_dict["t_max"]/10)) * 10 
+    c_max = jnp.einsum("ijnm, m... -> ijn...", X, c_max * sigma_c_max)  + offset_dict["c_max"]
+    phi_prime_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))))(t_max)
+    phi_double_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))))(t_max)
+    phi_triple_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))))(t_max)
+    phi_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))))(t_max)
+    phi_prime_t =  vmap_make_convex_phi_prime(jnp.squeeze(shifted_x_time), jnp.squeeze(L_time), M_time)
+    intercept = jnp.swapaxes(c_max, -2, -1)[..., None]
+    gamma_phi_gamma_x = jnp.einsum("...nm, mdk, ...nktdz, jzk, ...nj -> ...knt", psi_x, weights, phi_t_max[:,:,:,:,None,...] - phi_time[None, None, None, None] +  phi_prime_t_max[:, :,:,:, None, ...] * (((shifted_x_time - L_time)[None, None, None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
+    mu = intercept + gamma_phi_gamma_x
+    second_deriv = -1 * jnp.einsum("...nm, mdk, ...nkdz, jzk, ...nj -> ...nk", psi_x, weights, phi_double_prime_tmax, weights, psi_x)
+    third_deriv = -1 * jnp.einsum("...nm, mdk, ...nkdz, jzk, ...nj -> ...nk", psi_x, weights, phi_triple_prime_tmax, weights, psi_x)
+    first_deriv = jnp.einsum("...nm, mdk, ...nktdz, jzk, ...nj -> ...knt", psi_x, weights, phi_prime_t_max[:, :,:,:, None, ...] - phi_prime_t[None, None, None, None], weights, psi_x)
+
+    return None, mu, t_max, c_max, 0, second_deriv, third_deriv, first_deriv
+
 def make_mu_linear_mcmc_AR(X, ls_deriv, alpha_time, weights, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, phi_time, shifted_x_time,rank,  offset_dict, beta_ar, sigma_ar, rho_ar, AR_0_raw, orthogonalize = False):
     spd_time = jnp.squeeze(jnp.sqrt(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(alpha_time, ls_deriv)))
     weights = weights * spd_time.T[None] 
@@ -358,11 +378,12 @@ def make_mu_hsgp_mcmc_AR(X, ls_deriv, alpha_time, alpha_X, weights, ls, ls_c_max
         AR = orthogonalize_ar(AR, Q)
     return None, mu, t_max, c_max, AR, second_deriv, third_deriv, first_deriv
 
-def compute_residuals_map(map_values, obs_values, exposures, metric_output, gaussian_var = None, nb_variance = None, beta_binom_variance = None, beta_variance = None):
+def compute_residuals_map(map_values, obs_values, exposures, metric_output, metrics, gaussian_var = None, nb_variance = None, beta_binom_variance = None, beta_variance = None):
     residuals = []
     rho = []
     gaussian_index = 0
     negative_binom_index = 0
+    beta_index = 0
     for index, metric_type in enumerate(metric_output):
         if metric_type == "gaussian":
             resid = map_values[..., index] - obs_values[..., index]
@@ -370,7 +391,7 @@ def compute_residuals_map(map_values, obs_values, exposures, metric_output, gaus
             gaussian_index += 1
         elif metric_type in ["poisson", "negative-binomial"]:
             scaled_obs_val = jnp.log(obs_values[..., index] / 36)
-            multiplier = 0
+            multiplier = 1
             if metric_type == "negative-binomial":
                 multiplier =  nb_variance[negative_binom_index]
             resid = (scaled_obs_val - jnp.log(map_values[..., index] / 36))
@@ -378,17 +399,22 @@ def compute_residuals_map(map_values, obs_values, exposures, metric_output, gaus
             if metric_type == "negative-binomial":
                 negative_binom_index += 1
         elif metric_type in ["binomial", "beta-binomial"]:
-            scaled_obs_val = jsci.logit(obs_values[..., index])
-            multiplier = 1
-            if metric_type == "beta-binomial":
-                multiplier = (exposures[index] + beta_binom_variance)/(1 + beta_binom_variance)
-            resid = (scaled_obs_val - jsci.logit(map_values[..., index]))
-            weight =  (exposures[index]) / multiplier
+            if metrics[index] == "retirement":
+                resid = (obs_values[..., index] - map_values[..., index])*(map_values[..., index])*(1 - map_values[..., index])
+                weight = jnp.ones_like(obs_values[..., index])
+            else:
+                scaled_obs_val = jsci.logit(obs_values[..., index])
+                multiplier = 1
+                if metric_type == "beta-binomial":
+                    multiplier = (exposures[index] + beta_binom_variance)/(1 + beta_binom_variance)
+                resid = (scaled_obs_val - jsci.logit(map_values[..., index]))
+                weight =  (exposures[index]) / multiplier
         elif metric_type in ["beta"]:
-            scaled_obs_val = jsci.logit(obs_values[..., index] /48)
+            scaled_obs_val = jsci.logit(obs_values[..., index] ) 
             multiplier = exposures[index] * beta_variance
-            resid = (scaled_obs_val - jsci.logit(map_values[..., index]/48))
+            resid = (scaled_obs_val - jsci.logit(map_values[..., index]))
             weight = 1 / multiplier
+            beta_index += 1
         
         residual_weighted = jnp.square(resid) * weight
         mask = jnp.isfinite(residual_weighted)

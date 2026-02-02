@@ -112,22 +112,16 @@ def process_data(df, output_metric, exposure, model, input_metrics, player_indic
         adj_exp_array = jnp.sqrt(exposure_array)
         de_trend_array = jnp.log(de_trend_array / (1 - de_trend_array))
     if injury:  
-        injury_array = df[["injury_period", "id", "age"]].pivot(columns = "age", values = "injury_period", index = "id").reindex(columns=range(18,39)).to_numpy()
-        injury_mask = (injury_array == "pre-injury")
-
-        injury_type_array = df[["first_major_injury", "id", "age"]].pivot(columns = "age", values = "first_major_injury", index = "id").reindex(columns=range(18,39)).to_numpy() ### gives me per player, if they have an injury
-        has_injury = (~pd.isnull(injury_type_array) & (injury_type_array != "None")).any(axis=1)
-        _, T = metric_array.shape
-        time_idx = np.arange(T)
-        last_pre_idx = np.maximum.reduce(np.where(injury_mask, time_idx, -1), -1) ### gives me per player, where their last pre-injury period is
-        last_pre_idx = np.where(has_injury, last_pre_idx, T + 1)
-        mask = time_idx[None, :] > last_pre_idx[:, None]
-        metric_array = jnp.where(mask, jnp.nan, metric_array)
-        adj_exp_array = jnp.where(mask, jnp.nan, adj_exp_array)
-        de_trend_array = jnp.where(mask, jnp.nan, de_trend_array)
+        injury_array = df[["injury_period", "id", "age"]].pivot(columns = "age", values = "injury_period", index = "id").reindex(columns=range(18,39))
+        injury_array = injury_array.ffill(axis = 1).fillna("pre-injury").to_numpy()
+        injury_mask = (injury_array != "pre-injury")
+        injury_type_array = df[["injury_code", "id", "age"]].pivot(columns = "age", values = "injury_code", index = "id").reindex(columns=range(18,39)) ### gives me per player, if they have an injury
+        injury_type_array = injury_type_array.ffill(axis = 1).fillna(0).to_numpy()
+        mask = injury_mask
+        injury_type_array = jnp.where(injury_mask, injury_type_array, 0)
     else:
         mask = jnp.ones_like(metric_array, dtype= bool)
-    return adj_exp_array, jnp.array(metric_array), X, mask, de_trend_array
+    return adj_exp_array, jnp.array(metric_array), X, mask, de_trend_array, injury_type_array if injury else jnp.zeros_like(metric_array)
 
 def process_surv_data(df, output_metric, censor_type, input_metrics, validation_year = 2021):
     agg_dict = {input_metric:"max" for input_metric in input_metrics}
@@ -190,15 +184,16 @@ def create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, pla
         covariate_X = covariate_X[jnp.array(player_index)]
     data_set = []
     for output,metric,exposure_val in zip(metric_output, metrics, exposure_list):
-        exposure, Y, _, injury_mask, de_trend = process_data(data, metric, exposure_val, output, ["position_group"], validation_year=validation_year, injury=injury)
+        exposure, Y, _, injury_mask, de_trend, injury_type = process_data(data, metric, exposure_val, output, ["position_group"], validation_year=validation_year, injury=injury)
         if player_index:
             exposure = exposure[jnp.array(player_index)]
             Y = Y[jnp.array(player_index)]
             injury_mask = injury_mask[jnp.array(player_index)]
             de_trend = de_trend[jnp.array(player_index)]
+            injury_type = injury_type[jnp.array(injury_type)]
 
         data_dict = {"metric":metric, "output": output, "exposure_data": exposure, "output_data": Y, "mask": jnp.isfinite(Y), "injury_mask": injury_mask,
-                    "de_trend": de_trend}
+                    "de_trend": de_trend, "injury_type": injury_type}
         data_set.append(data_dict)
     basis = jnp.arange(18,39)
 

@@ -83,7 +83,7 @@ injury_data <-  data |>
     select(name, id, obpm, dbpm, pct_games, mpg, usg, blk_rate, ast_rate, tov_rate, oreb_rate, dreb_rate, stl_rate, fg3a_rate, fg2a_rate, fta_rate, ft_pct, fg2_pct, fg3_pct, age, first_major_injury, injury_period, year, retirement) |>
     rename(pct_minutes = mpg, games = pct_games, blk = blk_rate, ast = ast_rate, tov = tov_rate, oreb = oreb_rate, dreb = dreb_rate, stl = stl_rate, fg3a = fg3a_rate, fg2a = fg2a_rate, fta = fta_rate, ftm = ft_pct, fg2m = fg2_pct, fg3m = fg3_pct) |>
     pivot_longer( cols = c(obpm, dbpm, games, pct_minutes, blk, ast, tov, retirement,
-             oreb, dreb, stl, usg, fg2a,
+             oreb, dreb, stl, usg, fg2a, fg3a,
              fta, ftm, fg2m, fg3m, retirement),
     names_to = "metric",
     values_to = "obs_value")
@@ -277,7 +277,7 @@ ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_max_2018.png"
 
 peaks_players <- peaks_plt_df %>% group_by(metric, player) %>% summarize(value = mean(value)) %>% ungroup() %>% pivot_wider(names_from = metric, values_from = value) %>% inner_join(latent_space %>% filter(minutes >= quantile(minutes, .75, na.rm = TRUE)) %>% select(id), by = c("player" = "id"))
 
-peaks_pca <- prcomp(peaks_players  %>% select(-player) %>% data.matrix() , scale. = TRUE, center = TRUE)
+peaks_pca <- prcomp(peaks_players  %>% select(-c(player,RETIREMENT)) %>% data.matrix() , scale. = TRUE, center = TRUE)
 
 peaks_pca_df <- tibble(PC1 = peaks_pca$x[,1], PC2 = peaks_pca$x[,2], id = peaks_players$player) %>% inner_join(latent_space %>% select(id, name, position_group, minutes))
 
@@ -328,7 +328,7 @@ ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_max_pca_loadi
 
 peak_vals_players <- peak_vals_plt_df %>% group_by(metric, player) %>% summarize(value = mean(value)) %>% ungroup() %>% pivot_wider(names_from = metric, values_from = value) %>% inner_join(latent_space %>% filter(minutes >= quantile(minutes, .75, na.rm = TRUE)) %>% select(id), by = c("player" = "id"))
 
-peak_vals_pca <- prcomp(peak_vals_players  %>% select(-player) %>% data.matrix() , scale. = TRUE, center = TRUE)
+peak_vals_pca <- prcomp(peak_vals_players  %>% select(-c(player,RETIREMENT)) %>% data.matrix() , scale. = TRUE, center = TRUE)
 
 peak_vals_pca_df <- tibble(PC1 = peak_vals_pca$x[,1], PC2 = peak_vals_pca$x[,2], id = peak_vals_players$player) %>% inner_join(latent_space %>% select(id, name, position_group, minutes))
 
@@ -681,11 +681,24 @@ plot_posterior <- function(grouped_data_set, hold_out_year, plot_obs = TRUE) {
 
 plot_posterior_mu_spaghetti <- function(grouped_data_set){
   group_name <- unique(grouped_data_set$name)
+  hold_out_year <- 2021
+  raw_plt <- grouped_data_set |> mutate(
+    age_of_holdout = if_else(year ==  hold_out_year, age, Inf),
+    age_of_holdout = min(age_of_holdout)
+  ) 
+    
+  validation_label <- "Hold-Out"
+    
   
   
-  plt <- grouped_data_set |>
+  plt <- raw_plt |>
     ggplot(aes(x = age))  +
     geom_line(aes(x = age, y = mu, group = sample),  color = "grey", alpha = .2) + 
+    geom_point(aes(x = age, y = obs_value), color = "black") + 
+    geom_vline(aes(xintercept = age_of_holdout),
+               linetype = "dashed",
+               color = "red") + 
+    geom_line(aes(x = age, y = posterior_mean)) + 
     
     facet_wrap( ~ metric, scales = "free_y") + theme_bw() + 
     labs(x = "Age", y = "Metric Value") + ggtitle(paste("Posterior Latent Career Trajectory: ", group_name))
@@ -724,12 +737,19 @@ plots_list <- joined_data |>
     })
 
 
-plots_list <- posterior_mu_data |> 
+plots_list <- joined_data |> 
+              group_by(metric, player, age) |> 
+              summarize(lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
+              upper = HDInterval::hdi(value, credMass = 0.95)["upper"], 
+              obs_value = first(obs_value), 
+              year = min(year), 
+              posterior_mean = mean(value, na.rm = TRUE)) |> ungroup() |> inner_join(
+              posterior_mu_data |> 
               mutate(mu = case_when(metric %in% c("fg2m", "ftm", "games", "fg3m", "retirement") ~ plogis(value),
                                                                                  metric %in% c("obpm", "dbpm") ~ value, 
                                                                                  metric %in% c("pct_minutes") ~ plogis(value) * 48,
                                                                                  metric %in% c("usg") ~ plogis(value),
-                                                                                 .default = exp(value) * 36))  |>
+                                                                                 .default = exp(value) * 36)))  |>
             mutate(metric = toupper(metric),
                     metric = case_when(metric == "GAMES" ~ "GP%",
                     metric == "FG2M" ~ "FG2%",

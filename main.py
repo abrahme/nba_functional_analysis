@@ -21,12 +21,12 @@ from sklearn.pipeline import Pipeline
 from sklearn.decomposition import PCA
 from scipy.cluster.hierarchy import linkage, leaves_list
 from numpyro.diagnostics import print_summary
-from model.hsgp import  diag_spectral_density, make_spectral_mixture_density, make_convex_f, make_psi_gamma,  vmap_make_convex_phi, vmap_make_convex_phi_prime, eigenfunctions_multivariate, sqrt_eigenvalues
+from model.hsgp import  diag_spectral_density, make_spectral_mixture_density, make_psi_gamma,  vmap_make_convex_phi, vmap_make_convex_phi_prime, eigenfunctions_multivariate, sqrt_eigenvalues
 jax.config.update("jax_enable_x64", True)
 from model.inference_utils import get_latent_sites, create_metric_trajectory_map
-from model.model_utils import make_mu_rflvm, compute_residuals_map, compute_priors
+from model.model_utils import make_mu_rflvm, make_mu_linear, make_mu_hsgp, compute_residuals_map, compute_priors
 from data.data_utils import create_fda_data, average_peak_differences, create_surv_data
-from model.models import ConvexMaxARTVHSGPLVM, ConvexMaxSpectralMixtureTVHSGPLVM, ConvexMaxARBackConstrainedTVHSGPLVM, ConvexMaxTVHSGPLVM, ConvexMaxTVLinearLVM, ConvexMaxTVRFLVM, GibbsConvexMaxBoundaryTVRFLVM, GibbsConvexMaxBoundaryARTVRFLVM, ConvexMaxBackConstrainedTVHSGPLVM, ConvexMaxBoundaryTVRFLVM, ConvexMaxBoundaryARTVRFLVM, ConvexMaxARTVRFLVM, ConvexMaxARTVLinearLVM
+from model.models import ConvexMaxARTVHSGPLVM, ConvexMaxInjuryTVLinearLVM, ConvexMaxInjuryTVHSGPLVM, ConvexMaxSpectralMixtureTVHSGPLVM, ConvexMaxARBackConstrainedTVHSGPLVM, ConvexMaxTVHSGPLVM, ConvexMaxTVLinearLVM, ConvexMaxTVRFLVM, GibbsConvexMaxBoundaryTVRFLVM, GibbsConvexMaxBoundaryARTVRFLVM, ConvexMaxBackConstrainedTVHSGPLVM, ConvexMaxBoundaryTVRFLVM, ConvexMaxBoundaryARTVRFLVM, ConvexMaxARTVRFLVM, ConvexMaxARTVLinearLVM
 from visualization.visualization import plot_posterior_predictive_career_trajectory_map, plot_prior_predictive_career_trajectory, plot_prior_mean_trajectory
 
 
@@ -73,6 +73,7 @@ if __name__ == "__main__":
     basis_dims = args["basis_dims"]
     approx_x_dim = args["approx_x_dim"]
     injury = args["injury"]
+
     basis_dims_2 = args["basis_dims_2"]
     param_path = args["fixed_param_path"]
     vectorized = args["vectorized"]
@@ -86,7 +87,15 @@ if __name__ == "__main__":
     data = data.groupby("id").filter(lambda x: x["year"].min() <= cohort_year) ### filter out players who entered the league after this cohort year
     # data = data.groupby("id").filter(lambda x: len(x) >= 3) ### just test to keep guys who have played at least 3 years
     data["first_major_injury"] = data["first_major_injury"].fillna("None")
-    names = data.groupby("id")["name"].first().values.tolist()
+    data['first_major_injury'] = (
+    data['first_major_injury']
+            .astype('category')
+            .cat.set_categories(
+                ['None'] + 
+                [c for c in pd.unique(data['first_major_injury']) if c != 'None'],
+                ordered=False
+            ))
+    data["injury_code"] = data["first_major_injury"].cat.codes
     data["log_min"] = np.log(data["minutes"])
     data["usg"] /= 100
     data["usg"] += .01
@@ -97,12 +106,18 @@ if __name__ == "__main__":
     fake_data = pd.DataFrame({"age": range(18,39), "id": 99999999, "year": range(2000, 2021), "name": "No Name"})
     fake_data = fake_data.reindex(columns=data.columns)
     data = pd.concat([data, fake_data], ignore_index=True)
-    metric_output = ["beta-binomial", "binomial", "beta", "beta"] + (["gaussian"] * 2) + (["poisson"] * 8) + (["binomial"] * 3)
-    metrics = ["games", "retirement", "pct_minutes", "usg", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a","ftm","fg2m", "fg3m"]
-    exposure_list = ([ "games_exposure", "simple_exposure", "games_exposure", "minutes"]) + (["minutes"] * 10) + ["fta","fg2a", "fg3a"]
-    # metric_output = ["gaussian", "gaussian", "negative-binomial"]
-    # metrics = ["obpm", "dbpm", "minutes"]
-    # exposure_list = ["minutes", "minutes", "games_exposure"]
+    names = data.groupby("id")["name"].first().values.tolist()
+
+    metric_output = ["beta-binomial", "binomial", "beta", "beta"] + (["gaussian"] * 2) + (["negative-binomial"] * 9) + ["binomial"] + (["beta-binomial"] * 2)
+    metrics = ["games", "retirement", "pct_minutes", "usg", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a", "fg3a", "ftm","fg2m", "fg3m"]
+    exposure_list = ([ "games_exposure", "simple_exposure", "games_exposure", "minutes"]) + (["minutes"] * 11) + ["fta","fg2a", "fg3a"]
+
+    # metric_output = ["beta-binomial", "gaussian", "beta"]
+    # metrics = ["games", "obpm", "usg"]
+    # exposure_list = ["games_exposure", "minutes", "minutes"]
+    # metric_output = ["binomial", "gaussian", "gaussian", "beta", "beta-binomial"] + ["poisson"] * 7 + ["beta", "binomial"]
+    # metrics = ["retirement", "obpm", "dbpm", "usg", "games", "fta", "fg2a", "ast", "blk", "stl", "oreb", "dreb", "pct_minutes" ,"fg2m"]
+    # exposure_list = ["simple_exposure"] + ["minutes"] * 3 + ["games_exposure"] + ["minutes"] * 7 + ["games_exposure", "fg2a"]
     scale_values = jnp.ones((len(metrics), 1))
 
     for metric, metric_type, exposure in zip(metrics, metric_output, exposure_list):
@@ -168,6 +183,8 @@ if __name__ == "__main__":
 
             if "max" in model_name:
                 model = ConvexMaxTVHSGPLVM(latent_rank=basis_dims, hsgp_dim=approx_x_dim, output_shape=(covariate_X.shape[0], len(basis), len(metrics)), L_X = 2*jnp.ones(basis_dims)[..., None],  basis=basis)
+                if injury:
+                    model = ConvexMaxInjuryTVHSGPLVM(latent_rank=basis_dims, hsgp_dim=approx_x_dim, output_shape=(covariate_X.shape[0], len(basis), len(metrics)), basis = basis, L_X = 2*jnp.ones(basis_dims)[..., None], injury_rank=3, num_injury_types=int(data["injury_code"].max() + 1))
                 if "spectral" in model_name:
                     model = ConvexMaxSpectralMixtureTVHSGPLVM(latent_rank=basis_dims, hsgp_dim=approx_x_dim, output_shape=(covariate_X.shape[0], len(basis), len(metrics)), L_X = 2*jnp.ones(basis_dims)[..., None],  basis=basis, mixture_dim=10)
                 if "AR" in model_name:
@@ -179,6 +196,8 @@ if __name__ == "__main__":
     elif "linear" in model_name:
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, [], injury=injury, validation_year=validation_year)
         model = ConvexMaxTVLinearLVM(latent_rank=basis_dims, output_shape=(covariate_X.shape[0], len(basis), len(metrics)), basis = basis)
+        if injury:
+            model = ConvexMaxInjuryTVLinearLVM(latent_rank=basis_dims, output_shape=(covariate_X.shape[0], len(basis), len(metrics)), basis = basis, injury_rank=3, num_injury_types=int(data["injury_code"].max() + 1))
         if "AR" in model_name:
             model = ConvexMaxARTVLinearLVM(latent_rank=basis_dims, output_shape=(covariate_X.shape[0], len(basis), len(metrics)), basis = basis)
 
@@ -223,8 +242,13 @@ if __name__ == "__main__":
         distribution_families = set([data_entity["output"] for data_entity in data_set])
         distribution_indices = {family: jnp.array([index for index, data_entity in enumerate(data_set) if family == data_entity["output"]]) for family in distribution_families}
         masks = jnp.stack([data_entity["mask"] for data_entity in data_set])
+        injury_masks = jnp.stack([data_entity["injury_mask"] for data_entity in data_set])
+        injury_types = jnp.stack([data_entity["injury_type"] for data_entity in data_set]).astype(jnp.int32)
         exposures = jnp.stack([data_entity["exposure_data"] for data_entity in data_set])
         Y = jnp.stack([data_entity["output_data"] for data_entity in data_set])
+        # yao_index = names.index("Yao Ming")
+        # print(masks[0,yao_index], Y[0, yao_index], injury_masks[3, yao_index], injury_types[3, yao_index], yao_index)
+        # raise ValueError
         Y_linearized = []
         exp_linearized = []
         for data_entity in data_set:
@@ -371,28 +395,45 @@ if __name__ == "__main__":
             samples = model.run_inference(num_chains=num_chains, num_samples=num_samples, vectorized=vectorized, num_warmup=num_warmup, model_args=model_args, gibbs_sites=[gibbs_site_1, gibbs_site_2])
         else:
             if "convex" in model_name:
-                model_args.update({ "hsgp_params": hsgp_params})
+                model_args.update({"hsgp_params": hsgp_params})
                 if "max" in model_name:
                     model_args["offsets"] = {"t_max": offset_peak, "c_max": offset_max, "boundary_r": offset_boundary_r, "boundary_l": offset_boundary_l, "t_max_var": offset_peak_var, "c_max_var": offset_max_var}
                     model_args["offsets"]["W_eff"] = W_eff
                     model_args["offsets"]["Y_linearized"] = Z
+                    model_args["offsets"]["injury_indicator"] = injury_masks
+                    model_args["offsets"]["injury_type"] = injury_types
                     # model_args["offsets"]["surv_offsets"] = {"t_max": jnp.log(jnp.sum((Y_surv - 17) * (1 - masks_surv), axis = 0, keepdims = True) / jnp.sum(1 - masks_surv, axis = 0, keepdims = True))}
-                    # if "AR" in model_name and (len(initial_params) > 0) & (inference_method == "mcmc") and ("hsgp" not in model_name):
-                        # mu, *_ = make_mu(initial_params["X"], initial_params["lengthscale_deriv"], initial_params["alpha"], initial_params["beta"],
-                        #                     initial_params["W"], initial_params["lengthscale"], initial_params["c_max"], initial_params["t_max_raw"], initial_params["sigma_t"],
-                        #                     initial_params["sigma_c"], L_time, M_time, phi_time, x_time + L_time, model_args["offsets"])
-                        # obs, preds = create_metric_trajectory_map(mu, [], Y, exposures, metric_output, metrics)
+                    if "AR" in model_name and (len(initial_params) > 0) & (inference_method == "mcmc"):
+                        if "rflvm" in model_name:
+                            mu, *_ = make_mu_rflvm(initial_params["X"], initial_params["lengthscale_deriv"], initial_params["alpha"], initial_params["beta"],
+                                                initial_params["W"], initial_params["W_t_max"], initial_params["W_c_max"],  initial_params["lengthscale"], initial_params["lengthscale_t_max"], initial_params["lengthscale_c_max"], initial_params["c_max"], initial_params["t_max_raw"], initial_params["sigma_t"],
+                                                initial_params["sigma_c"], L_time, M_time, phi_time, x_time + L_time, model_args["offsets"])
+                        elif "linear" in model_name:
+                            mu, *_ = make_mu_linear(initial_params["X"], initial_params["lengthscale_deriv"], initial_params["alpha"], initial_params["beta"], initial_params["c_max"], initial_params["t_max_raw"], 
+                                initial_params["sigma_t"],
+                                initial_params["sigma_c"], L_time, M_time, phi_time, x_time + L_time, basis_dims, model_args["offsets"])
+                        elif "hsgp" in model_name:
+                            mu, *_ = make_mu_hsgp(initial_params["X"], initial_params["lengthscale_deriv"], initial_params["alpha"], initial_params["alpha_X"], initial_params["beta"], initial_params["lengthscale"],
+                              initial_params["lengthscale_c_max"], initial_params["lengthscale_t_max"],  
+                              initial_params["c_max"], initial_params["t_max_raw"], 
+                              initial_params["sigma_t"],
+                              initial_params["sigma_c"],
+                               L_time, M_time, phi_time, x_time + L_time, model_args["offsets"], basis_dims, 2 * jnp.ones(basis_dims)[..., None] ,approx_x_dim
+                              )
+                        if "intercept" in initial_params:
+                            mu += (initial_params["intercept"] * initial_params["sigma_intercept"])[..., None]
+                        obs, preds = create_metric_trajectory_map(mu, [], Y, exposures, metric_output, metrics)
                         
-                        # avg_sd, autocorr = compute_residuals_map(preds["y"], obs["y"], exposures, metric_output, initial_params["sigma"], initial_params["sigma_negative_binomial"], 
-                        #                                         initial_params["sigma_beta_binomial"], initial_params["sigma_beta"])
-                        # # avg_sd = jnp.ones((len(metrics))) * .01
-                        # # autocorr = jnp.zeros_like(avg_sd)
-                        # model_args["offsets"].update({"avg_sd": avg_sd, "rho":autocorr})
-                        # print(avg_sd, autocorr)
+                        avg_sd, autocorr = compute_residuals_map(preds["y"], obs["y"], exposures, metric_output, metrics, initial_params["sigma"], initial_params.get("sigma_negative_binomial",1),  
+                                                                initial_params.get("sigma_beta_binomial", 0), initial_params.get("sigma_beta",1))
+                        # avg_sd = jnp.ones((len(metrics))) * .01
+                        # autocorr = jnp.zeros_like(avg_sd)
+                        model_args["offsets"].update({"avg_sd": avg_sd, "rho":autocorr})
+                        print(avg_sd, autocorr)
                         # raise ValueError
                         # model_args["offsets"].update({"avg_sd" : jnp.ones(16)})
             if map_inference:
-                samples, state = model.run_map_inference(num_steps=50000, model_args=model_args, initial_state=initial_params if initial_params_path else None)
+                samples, state = model.run_map_inference(num_steps=20000, model_args=model_args, initial_state=initial_params if initial_params_path else None)
             elif prior_predictive:
                 print("sampling from prior")
                 samples = model.predict({}, model_args, num_samples = num_samples)
@@ -423,7 +464,7 @@ if __name__ == "__main__":
         alpha_time = samples["alpha__loc"]
         print("alpha_time", alpha_time)
         shifted_x_time = hsgp_params["shifted_x_time"]
-        ls_deriv =  samples["lengthscale_deriv__loc"]
+        ls_deriv =  3 + samples["lengthscale_deriv__loc"]
         weights = samples["beta__loc"]
         intercept_raw = samples["intercept__loc"]
         sigma_intercept = samples["sigma_intercept__loc"]
@@ -476,17 +517,17 @@ if __name__ == "__main__":
 
             psi_x = eigenfunctions_multivariate(X, 2 *  jnp.ones(basis_dims)[..., None], approx_x_dim)
         elif "linear" in model_name:
-            psi_x = X[:,  2 * basis_dims // 3 : ]
+            psi_x = X
             spd = spd.T[None]
 
         weights *= spd 
         gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
         X_center = X - jnp.mean(X, keepdims = True, axis = 0)
         if "max" in model_name:
-            # sigma_c_max = samples["sigma_c__loc"]
-            # sigma_t_max = samples["sigma_t__loc"] 
-            sigma_c_max = model_args["offsets"]["c_max_var"]
-            sigma_t_max = model_args["offsets"]["t_max_var"]
+            sigma_c_max = samples["sigma_c__loc"]
+            sigma_t_max = samples["sigma_t__loc"] 
+            # sigma_c_max = model_args["offsets"]["c_max_var"]
+            # sigma_t_max = model_args["offsets"]["t_max_var"]
             t_max_raw = samples["t_max_raw__loc"] 
             if "hsgp" in model_name:
 
@@ -499,8 +540,8 @@ if __name__ == "__main__":
                 c_max = make_psi_gamma(psi_x, samples["c_max__loc"]* spd_c_max.T)  + model_args["offsets"]["c_max"]
             else:
                 if "linear" in model_name:
-                    t_max = jnp.tanh(make_psi_gamma(X[:, 0 : basis_dims // 3 ], t_max_raw * sigma_t_max.T)  + jnp.arctanh(model_args["offsets"]["t_max"]/10)) * 10
-                    c_max = make_psi_gamma(X[:,  basis_dims // 3 : 2 * basis_dims // 3 ], samples["c_max__loc"] * sigma_c_max.T ) + model_args["offsets"]["c_max"]
+                    t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw * sigma_t_max.T)  + jnp.arctanh(model_args["offsets"]["t_max"]/10)) * 10
+                    c_max = make_psi_gamma(psi_x, samples["c_max__loc"] * sigma_c_max.T ) + model_args["offsets"]["c_max"]
                 elif "rflvm" in model_name:
 
                     t_max = jnp.tanh(make_psi_gamma(psi_x_t_max, t_max_raw * sigma_t_max)   + jnp.arctanh(model_args["offsets"]["t_max"]/10)) * 10  
@@ -511,6 +552,60 @@ if __name__ == "__main__":
             intercept = jnp.transpose(c_max)[..., None]
             gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
             mu = intercept + gamma_phi_gamma_x + player_intercept
+        
+            if injury:
+                injury_loading = samples["injury_loading__loc"]
+                injury_factor = samples["injury_factor__loc"]
+                injury_mean_prior = jnp.einsum("ip, kp -> ki", injury_factor, injury_loading) ### remove the no-injury effect
+                injury_raw = samples["injury_raw__loc"]
+                sigma_injury = samples["sigma_injury__loc"]
+                injury_indicator = model_args["offsets"]["injury_indicator"]
+                injury_type = model_args["offsets"]["injury_type"] 
+                injury_effect_raw = injury_mean_prior[:, None, None, :] + injury_raw * sigma_injury[:, None, None, :]
+                full_mask = (injury_indicator * masks)[..., None]
+                avg_injury_effect =  (injury_effect_raw * full_mask).sum(axis = (1,2)) / full_mask.sum(axis = (1,2))
+                injury_effect = jnp.take_along_axis(injury_effect_raw, injury_type[..., None], -1).squeeze(-1) * injury_indicator
+                injuries = data["first_major_injury"].cat.categories[1:]
+                injury_effect_data = pd.DataFrame(avg_injury_effect[1:], columns = injuries, index = metrics)
+                ax = injury_effect_data.plot(kind = "bar", title = "Injury Effect by Metric")
+                fig = ax.get_figure()
+                # Save to file
+                fig.savefig(f"model_output/model_plots/injury/{model_name}_metrics_injuries.png", dpi=300, bbox_inches='tight')
+
+
+                injury_pca = make_pca_pipeline().fit(injury_mean_prior.T)
+                injury_loadings_df = pd.DataFrame(injury_pca.named_steps["pca"].components_.T, columns = ["PC1", "PC2"])
+                fig, ax = plt.subplots(figsize=(6, 6))
+                ax.scatter(injury_loadings_df["PC1"], injury_loadings_df["PC2"], alpha=0.01)
+                injury_loadings_df["metrics"] = metrics
+
+                for row in injury_loadings_df.itertuples():
+                    ax.text(row.PC1, row.PC2, row.metrics, fontsize=8)
+
+                ax.set_xlabel("PC1")
+                ax.set_ylabel("PC2")
+                ax.set_title("PCA Visualization of Injury Loadings")
+                fig.savefig(f"model_output/model_plots/injury/{model_name}_injury_loadings.png", format = "png")
+                plt.close()                
+
+                
+                injury_pca_df = pd.DataFrame(injury_pca.transform(injury_mean_prior.T), columns = ["PC1", "PC2"])
+                fig, ax = plt.subplots(figsize=(6, 6))
+                ax.scatter(injury_pca_df["PC1"], injury_pca_df["PC2"], alpha=0.01)
+                
+                injury_pca_df["injury"] = injuries
+                for row in injury_pca_df.itertuples():
+                    ax.text(row.PC1, row.PC2, row.injury, fontsize=8)
+
+                ax.set_xlabel("PC1")
+                ax.set_ylabel("PC2")
+                ax.set_title("PCA Visualization of Injury")
+                fig.savefig(f"model_output/model_plots/injury/{model_name}_injury_pca.png", format = "png")
+                plt.close()
+
+
+
+
 
 
     elif prior_predictive:
@@ -528,7 +623,7 @@ if __name__ == "__main__":
 
     if map_inference or prior_predictive:
         file_pre = inference_method
-        player_labels = ["Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", 
+        player_labels = ["Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", "Yao Ming",
                             "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash", 
                             "Chris Paul", "Shaquille O'Neal", "Trae Young"]
         predict_players = player_labels + ["Jamal Murray", "Donovan Mitchell", "Ray Allen", "Klay Thompson",

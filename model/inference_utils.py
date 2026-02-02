@@ -216,8 +216,9 @@ def match_align(Phi):
     return Phi_star
 
 def create_metric_trajectory_all(posterior_mean_samples, observations, exposures, metric_outputs: list[str], metrics: list[str], exposure_names: list[str], posterior_variance_samples = None, posterior_dispersion_samples = None, posterior_kappa_samples=None,
-                                 posterior_neg_bin_samples = None):
+                                 posterior_neg_bin_samples = None, posterior_tau_samples = None):
     posterior_kappa_samples = 1 if posterior_kappa_samples is None else posterior_kappa_samples
+    posterior_tau_samples = 0 if posterior_tau_samples is None else posterior_tau_samples
     posterior_dispersion_samples = 1 if posterior_dispersion_samples is None else posterior_dispersion_samples
     posterior_variance_samples = 1 if posterior_variance_samples is None else posterior_variance_samples
     posterior_neg_bin_samples = 1 if posterior_neg_bin_samples is None else posterior_neg_bin_samples
@@ -230,11 +231,11 @@ def create_metric_trajectory_all(posterior_mean_samples, observations, exposures
     minutes_index = metrics.index("pct_minutes")
     games_index = metrics.index("games")  
     ### first sample retirement
-    post_retirement = posterior_mean_samples[..., retirement_index, :, :]
+    post_retirement = jsc.special.expit(posterior_mean_samples[..., retirement_index, :, :])
     exposure_retirement = exposures[retirement_index]
     exposure_retirement = exposure_retirement.at[jnp.isnan(exposure_retirement)].set(1)
     exposure_retirement = jnp.astype(exposure_retirement, jnp.int64)
-    posterior_predictions_retirement = BinomialLogits(logits = post_retirement, total_count = exposure_retirement).sample(key = key)
+    posterior_predictions_retirement = BetaBinomial(concentration0 = 1 - post_retirement, concentration1= post_retirement, total_count = exposure_retirement).sample(key = key)
     obs_retirement = observations[retirement_index]
 
     ### then sample games
@@ -248,16 +249,19 @@ def create_metric_trajectory_all(posterior_mean_samples, observations, exposures
                                                total_count=exposure_games[None, None, ...]).sample(key = key)
     obs_games = observations[games_index]
     # posterior_predictions_games_exposure = jnp.where(~jnp.isnan(obs_games)[None, None, ...], obs_games[None,None,...], jnp.squeeze(posterior_predictions_games))
-    posterior_predictions_games_exposure = posterior_predictions_games
+    posterior_predictions_games_exposure = posterior_predictions_games * posterior_predictions_retirement
     #### then sample minutes 
     post_min = posterior_mean_samples[..., minutes_index, :, :]
-    posterior_predictions_min = BetaProportion(jsc.special.expit(post_min), posterior_dispersion_samples * (posterior_predictions_games_exposure + 1)).sample(key = key) * (48 * posterior_predictions_games)
+    posterior_predictions_min = BetaProportion(jsc.special.expit(post_min), posterior_dispersion_samples[beta_index][..., None, None] * (posterior_predictions_games_exposure + 1)).sample(key = key) * (48 * posterior_predictions_games)
+    beta_index += 1
     # posterior_predictions_min = posterior_predictions_min.at[posterior_predictions_games == 0].set(0)
     obs_min = observations[minutes_index]
     posterior_predictions_min_exposure = jnp.where(~jnp.isnan(obs_min)[None, None, ...], obs_min[None,None,...] * 48 * exposure_games, posterior_predictions_min)
     posteriors = {"games": posterior_predictions_games / exposure_games, "retirement": jsc.special.expit(post_retirement), "minutes":jnp.where(posterior_predictions_games == 0, 0, posterior_predictions_min / (posterior_predictions_games * 48))}
     obs_normalized = {"games": obs_games / exposure_games, "minutes": obs_min, "retirement": obs_retirement}
     ### sample all the poisson metrics using posterior predictions log min as exposure, and sample obpm / dbpm using sqrt(minutes) as exposure
+    print(posterior_variance_samples.shape)
+    
     for metric_index, metric_output in enumerate(metric_outputs):
         metric = metrics[metric_index]
         if (metric_index in [minutes_index, games_index, retirement_index]) :
@@ -266,7 +270,7 @@ def create_metric_trajectory_all(posterior_mean_samples, observations, exposures
         obs = observations[metric_index]
         post = posterior_mean_samples[..., metric_index, :, :]
         if metric_output == "gaussian":
-            scale = posterior_variance_samples[gaussian_index][..., None, None] / jnp.sqrt(posterior_predictions_min_exposure + 1)
+            scale = jnp.sqrt(jnp.square(posterior_variance_samples[gaussian_index]) / (posterior_predictions_min_exposure + 1) + jnp.square(posterior_tau_samples[gaussian_index][..., None, None]))
             dist = Normal()
             posterior_predictions = (dist.sample(key = key, sample_shape=post.shape) * scale + post)
             # posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_min_exposure < 1)].set(-2.0)
@@ -294,9 +298,10 @@ def create_metric_trajectory_all(posterior_mean_samples, observations, exposures
             # posterior_predictions = posterior_predictions.at[jnp.where(counts == 0)].set(0)
             obs_normal = obs / exposure
         elif metric_output == "beta":
-            dist = BetaProportion(jsc.special.expit(post), posterior_predictions_min_exposure + 1)
+            dist = BetaProportion(jsc.special.expit(post), posterior_dispersion_samples[beta_index][..., None, None] * (posterior_predictions_min_exposure + 1))
             posterior_predictions = dist.sample(key = key)
             obs_normal = obs
+            beta_index += 1
         posteriors[metric] = posterior_predictions
         obs_normalized[metric] = obs_normal
         
@@ -472,10 +477,10 @@ def create_metric_trajectory_map(posterior_mean_map: jnp.ndarray, player_index, 
             gaussian_index += 1
         elif metric_output in ["poisson", "negative-binomial"]:
             if metrics[metric_index] != "minutes":
-                posterior_predictions = 36.0 * jax.nn.softplus(post) / 1
+                posterior_predictions = 36.0 * jnp.exp(post) / 1
                 obs_normal = 36.0 * (obs / (1 * jnp.exp(exposure)))
             else:
-                posterior_predictions = jax.nn.softplus(post)
+                posterior_predictions = jnp.exp(post)
                 obs_normal = obs / jnp.exp(exposure)
         elif metric_output in ["binomial", "beta", "beta-binomial"]:
             posterior_predictions = jsc.special.expit(post)
