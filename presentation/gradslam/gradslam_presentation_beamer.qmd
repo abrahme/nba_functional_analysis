@@ -16,12 +16,104 @@ title-slide: false
 ---
 
 # Overview {.smaller}
-
+- Introduce the problem of modeling NBA player career trajectories and the importance of incorporating realistic aging dynamics and injury effects.
 - Discuss a novel prior on concave functions to encode realistic aging dynamics.
 - Illustrate application of this prior in a Bayesian model of NBA player trajectories.
 - Discuss inference challenges and present preliminary results on trajectory estimation and injury impact analysis.
  
 ---
+
+# Motivation {.smaller}
+![](../../model_output/model_plots/empirical_production_player.png){fig-cap="Example empirical player production curve" width="78%"}
+
+# Multiple Metrics of Performance {.smaller}
+- We can think of metrics as a combination of two broad categories:
+1. Skill-based metrics (e.g. OBPM, FT%) that capture a player's skill and basketball IQ.
+2. Athleticism-based metrics (e.g. BLK rate, STL rate)
+
+- More importantly, two different athletes can express certain metrics through different combinations of skill and athleticism. 
+
+# Skill Acquisition and Aging in Sports {.smaller}
+- Skill acquisition phase: early career improvement as players develop skills and adapt to the league.
+- Peak performance phase: players reach their maximum potential, often in their late 20s to early 30s.
+- Decline phase: performance declines due to aging, wear-and-tear, and reduced athleticism.
+
+# Data Overview {.smaller}
+- 28 seasons of NBA player season-level aggregate data (1997-2025) from Basketball Reference.
+- "K" metrics (e.g. OBPM, Games Played, STL Rate) capturing skill and/or athleticism.
+- "M" injury indicators (e.g. ACL tear, Achilles rupture) with timing.
+- "P" $\approx$ 2800 players with at least 1 season of data.
+- "T" = 20 seasons of potential career length (age 18-38).
+- Metrics only observed when players are active (mix of MNAR/ MAR).
+- Heteroscedastic noise: more variability in some metrics (e.g. Games Played) than others (e.g. FT%).
+
+# What we Hope to Learn {.smaller}
+1. Can we project when an athlete will peak and how long they will maintain peak performance?
+2. Can we categorize subtypes of metrics that respond differently to aging and injury?
+3. Can we identify which types of athletes load more on skill vs. athleticism, and how this affects their aging trajectories and response to injury?
+
+
+# Model Assumptions {.smaller}
+1. \textcolor{blue}{Player heterogeneity is captured by latent embeddings.}
+2. \textcolor{green}{Player trajectories are smooth and concave in age, with a single peak.}
+3. \textcolor{red}{Injuries induce a shock and recovery trajectory that is learned from data.}
+4. \textcolor{purple}{Short-term deviations around the aging curve are modeled as a noise process.}
+5. \textcolor{orange}{Observational noise is heteroscedastic and metric-specific.}
+
+\only<1>{
+$$
+{\color{blue}{X_p}} \sim N(0, I_D)
+$$
+}
+
+\only<2>{
+$$
+{\color{green}{f^k(X,t)}} \sim MCP(\Theta; X)
+$$
+}
+
+\only<3>{
+$$
+{\color{red}{\tau^k_{ptm}}} \sim N(w_m^T\tau^{*}_k, \sigma^2_{k})
+$$
+}
+
+\only<4>{
+$$
+{\color{purple}{r_p^k(t)}} \sim AR(1)
+$$
+}
+
+\only<5>{
+$$
+\begin{aligned}
+\mu^k_{ptm} &= {\color{green}{f^k(X_p,t)}} + {\color{red}{\tau^k_{ptm}}} + {\color{purple}{r_p^k(t)}} \\
+{\color{orange}{Y^k_{pt}}} &\sim \operatorname{EF}\!\left({\mu^k_{pt}},\, {\color{orange}{\phi^k_{pt}}}\right)
+\end{aligned}
+$$
+}
+
+# Model Inference Challenges {.smaller}
+- High-dimensional parameter space with complex dependencies.
+- Identifiability issues between player embeddings, injury effects, and aging curves
+- A rotation matrix $R$ can be applied to the latent space such that $w_L^T X = w_l^T R R^{-1} X$, which preserves the likelihood but creates non-identifiability between $w_l$ and $X$.
+
+
+# Proposed Inference Approach {.smaller}
+
+## Addressing Additive Components and Identifiability
+
+
+1. Fit the concave function and AR components first to the data (mask out injured time-points from the likelihood) without the injury component to get a MAP estimate of the aging curve and AR parameters.
+2. Fix the concave function and AR parameters to their MAP estimates, and then fit the injury component to the residuals to get a MAP estimate of injury effects.
+
+# Proposed Inference Approach (cont.) {.smaller}
+
+## Addressing Rotational Ambiguity in Latent Space
+1. Initialize parameter values using the MAP procedure found by Stochastic Gradient Descent (SGD).
+2. Fix hyperparameters to their MAP estimates to reduce dimensionality, as these are often well-identified and less critical for uncertainty quantification.
+3. To address rotational ambiguity for the latent factor models, fix factor loadings to their MAP estimates, and allow the latent embeddings to vary during MCMC sampling. (Mauri and Dunson, 2025)
+4. Run MCMC sampling (e.g. NUTS) over the remaining parameters to obtain posterior samples for trajectory estimation and injury impact analysis.
 
 # Concavity  
 A function $f(t)$ is concave on some interval $[a,b]$ if it's second derivative is non-positive:
@@ -312,6 +404,7 @@ $$
 
 # Adjusting the HSGP Approx. (cont.) {.smaller}
 Is the covariance of $g(z,X)$ still approximately separable in $z$ and $X$?
+
 **Proof sketch:** 
 
 $$
@@ -352,98 +445,10 @@ Y(X,t) &\sim \operatorname{Poisson}(\exp(\eta(X
 \end{aligned}
 $$
 
-- Since the exponential link is monotone, peak location and peak value priors can still be effective, while concavity isn't necessarily preserved in the observed data space
-
-# Why a Concave Prior? {.smaller}
-
-![](../../model_output/model_plots/empirical_production_player.png){fig-cap="Example empirical player production curve" width="78%"}
-
-# Data Overview {.smaller}
-- 28 seasons of NBA player season-level aggregate data (1997-2025) from Basketball Reference.
-- "K" metrics (e.g. OBPM, Games Played, STL Rate) capturing skill and/or athleticism.
-- "M" injury indicators (e.g. ACL tear, Achilles rupture) with timing.
-- "P" $\approx$ 2800 players with at least 1 season of data.
-- "T" = 20 seasons of potential career length (age 18-38).
-
-# Missing Data Challenges {.smaller}
-- Missing data due to players not playing every season, and some metrics only observed when players are active.
-- Right censored data for players who are still active or whose careers end after 38.
-- Left censored data for players who start after age 18 or whose careers start before 1997.
-- Mix of informative and uninformative missingness patterns across metrics and seasons.
-
-# Model Assumptions {.smaller}
-1. \textcolor{blue}{Player heterogeneity is captured by latent embeddings.}
-2. \textcolor{green}{Player trajectories are smooth and concave in age, with a single peak.}
-3. \textcolor{red}{Injuries induce a shock and recovery trajectory that is learned from data.}
-4. \textcolor{purple}{Short-term deviations around the aging curve are modeled as a noise process.}
-5. \textcolor{orange}{Observational noise is heteroscedastic and metric-specific.}
-
-\only<1>{
-$$
-{\color{blue}{X_p}} \sim N(0, I_D)
-$$
-}
-
-\only<2>{
-$$
-{\color{green}{f^k(X,t)}} \sim MCP(\Theta; X)
-$$
-}
-
-\only<3>{
-$$
-{\color{red}{\tau^k_{ptm}}} \sim N(w_m^T\tau^{*}_k, \sigma^2_{k})
-$$
-}
-
-\only<4>{
-$$
-{\color{purple}{r_p^k(t)}} \sim AR(1)
-$$
-}
-
-\only<5>{
-$$
-\begin{aligned}
-\mu^k_{ptm} &= {\color{green}{f^k(X_p,t)}} + {\color{red}{\tau^k_{ptm}}} + {\color{purple}{r_p^k(t)}} \\
-{\color{orange}{\eta^k_{pt}}} &= \mu^k_{pt}
- + \mathbb{1}_{\{k\in\mathcal{K}_{\text{rate}}\}}\log e^k_{pt} \\
-{\color{orange}{Y^k_{pt}}} &\sim \operatorname{EF}\!\left({\eta^k_{pt}},\, {\color{orange}{\phi^k_{pt}}}\right)
-\end{aligned}
-$$
-}
-
----
+- Since the exponential link is monotone, peak location and peak value priors can still be effective, while concavity isn't necessarily preserved in the observed data space.
 
 
 
-# Model Summary {.smaller}
-- Bayesian functional model for joint skill + athleticism trajectories.
-- Handles heteroscedastic uncertainty, concave aging structure, and latent player embeddings.
-- Explicitly estimates injury impact and counterfactual recovery paths.
-- Metric correlation is not explicitly modeled, but shared latent structure induce correlation in practice.
-
-# Model Inference Challenges {.smaller}
-- High-dimensional parameter space with complex dependencies.
-- Identifiability issues between player embeddings, injury effects, and aging curves
-- A rotation matrix $R$ can be applied to the latent space such that $\alpha_l(X) = w_l^T R R^{-1} X$, which preserves the likelihood but creates non-identifiability between $w_l$ and $X$.
-
-
-# Proposed Inference Approach {.smaller}
-
-## Addressing Additive Components and Identifiability
-
-
-1. Fit the concave function and AR components first to the data (mask out injured time-points from the likelihood) without the injury component to get a MAP estimate of the aging curve and AR parameters.
-2. Fix the concave function and AR parameters to their MAP estimates, and then fit the injury component to the residuals to get a MAP estimate of injury effects.
-
-# Proposed Inference Approach (cont.) {.smaller}
-
-## Addressing Rotational Ambiguity in Latent Space
-1. Initialize parameter values using the MAP procedure found by Stochastic Gradient Descent (SGD).
-2. Fix hyperparameters to their MAP estimates to reduce dimensionality, as these are often well-identified and less critical for uncertainty quantification.
-3. To address rotational ambiguity for the latent factor models, fix factor loadings to their MAP estimates, and allow the latent embeddings to vary during MCMC sampling. (Mauri and Dunson, 2025)
-4. Run MCMC sampling (e.g. NUTS) over the remaining parameters to obtain posterior samples for trajectory estimation and injury impact analysis.
 
 # Model Specifics {.smaller}
 - Concave function modeled using the HSGP approximation with $5$ basis functions.
