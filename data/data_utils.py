@@ -63,19 +63,6 @@ def process_data(df, output_metric, exposure, model, input_metrics, player_indic
         de_trend_array = jnp.log(de_trend_array / (1 - de_trend_array))
     elif model == "beta-binomial":
         metric_array = metric_df.to_numpy()
-        if exposure == "games_exposure":
-            season_array = df[["id", "age", "year"]].pivot(columns="age",values="year",index="id").to_numpy()
-            retirement_array = np.where((season_array == validation_year).sum(axis = 1) == 0)[0] 
-            entrance_array = np.where((season_array == 1997).sum(axis = 1) == 0)[0] 
-            max_season_array = (21 - np.argmax(np.flip(~np.isnan(metric_array), axis = 1), axis = 1))
-            min_season_array = np.argmax(~np.isnan(metric_array), axis = 1)
-            for player_index, ret_index in zip(retirement_array, max_season_array[retirement_array]):
-                metric_array[player_index, ret_index:] = 0
-                exposure_array[player_index, ret_index:] = 82
-            for player_index, ent_index in zip (entrance_array, min_season_array[entrance_array]):
-                exposure_array[player_index, 0:ent_index] = 82 
-                metric_array[player_index, 0:ent_index] = 0
-
         metric_array[~np.isnan(metric_array)] = np.int32(metric_array[~np.isnan(metric_array)])
         exposure_array[~np.isnan(metric_array)] = np.int32(exposure_array[~np.isnan(exposure_array)])
         if normalize:
@@ -83,7 +70,7 @@ def process_data(df, output_metric, exposure, model, input_metrics, player_indic
             metric_array = (metric_array_obs - np.nanmean(metric_array_obs)) / np.nanstd(metric_array_obs)
         adj_exp_array = jnp.array(exposure_array) if not normalize else jnp.sqrt(exposure_array)
         de_trend_array = jnp.log(de_trend_array / (1 - de_trend_array))
-    elif model == "binomial":
+    elif model in ["binomial"]:
         metric_array = metric_df.to_numpy()
         if exposure == "simple_exposure":
             season_array = df[["id", "age", "year"]].pivot(columns="age",values="year",index="id").reindex(columns = range(18,39)).to_numpy()
@@ -122,26 +109,47 @@ def process_data(df, output_metric, exposure, model, input_metrics, player_indic
         metric_array = metric_df.to_numpy()
         if normalize:
             metric_array = (metric_array - np.nanmean(metric_array)) / (np.nanstd(metric_array))
-        adj_exp_array = jnp.sqrt(exposure_array)
+        adj_exp_array = jnp.sqrt(1 + exposure_array)
         de_trend_array = jnp.log(de_trend_array / (1 - de_trend_array))
     if injury:  
-        injury_array = df[["injury_period", "id", "age"]].pivot(columns = "age", values = "injury_period", index = "id").reindex(columns=range(18,39)).to_numpy()
-        injury_mask = (injury_array == "pre-injury")
-
-        injury_type_array = df[["first_major_injury", "id", "age"]].pivot(columns = "age", values = "first_major_injury", index = "id").reindex(columns=range(18,39)).to_numpy() ### gives me per player, if they have an injury
-        has_injury = (~pd.isnull(injury_type_array) & (injury_type_array != "None")).any(axis=1)
-        _, T = metric_array.shape
-        time_idx = np.arange(T)
-        last_pre_idx = np.maximum.reduce(np.where(injury_mask, time_idx, -1), -1) ### gives me per player, where their last pre-injury period is
-        last_pre_idx = np.where(has_injury, last_pre_idx, T + 1)
-        mask = time_idx[None, :] > last_pre_idx[:, None]
-        metric_array = jnp.where(mask, jnp.nan, metric_array)
-        adj_exp_array = jnp.where(mask, jnp.nan, adj_exp_array)
-        de_trend_array = jnp.where(mask, jnp.nan, de_trend_array)
+        injury_array = df[["injury_period", "id", "age"]].pivot(columns = "age", values = "injury_period", index = "id").reindex(columns=range(18,39))
+        injury_array = injury_array.ffill(axis = 1).fillna("pre-injury").to_numpy()
+        injury_mask = (injury_array != "pre-injury")
+        injury_type_array = df[["injury_code", "id", "age"]].pivot(columns = "age", values = "injury_code", index = "id").reindex(columns=range(18,39)) ### gives me per player, if they have an injury
+        injury_type_array = injury_type_array.ffill(axis = 1).fillna(0).to_numpy()
+        mask = injury_mask
+        injury_type_array = jnp.where(injury_mask, injury_type_array, 0)
     else:
         mask = jnp.ones_like(metric_array, dtype= bool)
+    return adj_exp_array, jnp.array(metric_array), X, mask, de_trend_array, injury_type_array if injury else jnp.zeros_like(metric_array)
 
-    return adj_exp_array, jnp.array(metric_array), X, mask, de_trend_array
+def process_surv_data(df, output_metric, censor_type, input_metrics, validation_year = 2021):
+    agg_dict = {input_metric:"max" for input_metric in input_metrics}
+    df = df.sort_values(by=["id","year"])
+    df["ft_pct"] = df["ftm"] / df["fta"]
+    df["three_pct"] = df["fg3m"] / df["fg3a"]
+    df["two_pct"] = df["fg2m"] / df["fg2a"]
+    if input_metrics:
+        X = df[input_metrics + ["id"]].groupby("id").agg(agg_dict).reset_index()[input_metrics]
+    else:
+        X = None
+  
+    metric_df = df[[output_metric, "id", "age"]]
+
+    metric_df  = metric_df.pivot(columns="age",values=output_metric,index="id").reindex(columns=range(18,39))
+
+    
+
+    metric_array = metric_df.to_numpy()
+
+    season_array = df[["id", "age", "year"]].pivot(columns="age",values="year",index="id").reindex(columns = range(18,39)).to_numpy()
+    if censor_type == "right":
+        cens_array = (season_array == validation_year).sum(axis = 1) != 0
+        obs_array = (21 - np.argmax(np.flip(~np.isnan(metric_array), axis = 1), axis = 1)) + 18
+    elif censor_type == "left":
+        cens_array = (season_array == 1997).sum(axis = 1) != 0
+        obs_array = np.argmax(~np.isnan(metric_array), axis = 1) + 18 ### here if cens_array == 1, we have censored the observation, if 0 it is observed
+    return cens_array, obs_array
 
 
 
@@ -176,20 +184,36 @@ def create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, pla
         covariate_X = covariate_X[jnp.array(player_index)]
     data_set = []
     for output,metric,exposure_val in zip(metric_output, metrics, exposure_list):
-        exposure, Y, _, injury_mask, de_trend = process_data(data, metric, exposure_val, output, ["position_group"], validation_year=validation_year, injury=injury)
+        exposure, Y, _, injury_mask, de_trend, injury_type = process_data(data, metric, exposure_val, output, ["position_group"], validation_year=validation_year, injury=injury)
         if player_index:
             exposure = exposure[jnp.array(player_index)]
             Y = Y[jnp.array(player_index)]
             injury_mask = injury_mask[jnp.array(player_index)]
             de_trend = de_trend[jnp.array(player_index)]
+            injury_type = injury_type[jnp.array(injury_type)]
 
         data_dict = {"metric":metric, "output": output, "exposure_data": exposure, "output_data": Y, "mask": jnp.isfinite(Y), "injury_mask": injury_mask,
-                    "de_trend": de_trend}
+                    "de_trend": de_trend, "injury_type": injury_type}
         data_set.append(data_dict)
     basis = jnp.arange(18,39)
 
     return covariate_X, data_set, basis
 
+
+def create_surv_data(data, basis_dims, censor_type, metrics, player_index: list[int] = [], validation_year:int = 2021):
+    covariate_X = create_basis(data, basis_dims)
+    if player_index:
+        covariate_X = covariate_X[jnp.array(player_index)]
+    data_set = []
+    for censor, metric in zip(censor_type, metrics):
+        censor_mask, Y = process_surv_data(data, metric, censor, ["position_group"], validation_year)
+        if player_index:
+            censor_mask = censor_mask[jnp.array(player_index)]
+            Y = Y[jnp.array(player_index)]
+        data_dict = {"observations": Y, "censor_type":jnp.ones_like(Y) if censor == "right" else jnp.zeros_like(Y), "censored":censor_mask}
+        data_set.append(data_dict)
+    basis = jnp.arange(18,39)
+    return covariate_X, data_set, basis
 
 def average_peak_differences(x):
     mask = ~jnp.isnan(x)

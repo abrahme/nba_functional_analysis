@@ -1,110 +1,311 @@
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
+import argparse
 import time
+import sys
+import re
 
 
-years = range(1997, 2026)
-advanced_dfs = []
-advanced_keep_cols = ["Player", "Age", "Team", "OBPM", "G", "DBPM", "Pos", "MP"]
-advanced_keep_cols_mapper = {"Player": "name", "Team": "team", "Age": "age", "OBPM": "obpm", "DBPM":"dbpm", "G":"games", "Pos":"position", "MP": "minutes"}
+def _extract_height_from_soup(soup, meta_div=None):
+    """
+    Extract player height from a Basketball Reference player page.
 
-for year in years:
-# URL of the page
-    url_advanced = f"https://www.basketball-reference.com/leagues/NBA_{year}_advanced.html"
+    Tries the structured `itemprop=height` location first, then falls back
+    to parsing `#meta` text patterns used on some player pages.
+    """
+    height_span = soup.find('span', {'itemprop': 'height'})
+    if height_span:
+        height_text = height_span.get_text(strip=True)
+        if height_text:
+            return height_text
 
-    # Get page content
+    if meta_div is None:
+        meta_div = soup.find('div', {'id': 'meta'})
+
+    if meta_div:
+        for paragraph in meta_div.find_all('p'):
+            text = paragraph.get_text(" ", strip=True)
+            match = re.search(r'\b([4-8]-\d{1,2})\b', text)
+            if match:
+                return match.group(1)
+
+        meta_text = meta_div.get_text(" ", strip=True)
+        match = re.search(r'\b([4-8]-\d{1,2})\b', meta_text)
+        if match:
+            return match.group(1)
+
+    page_text = soup.get_text(" ", strip=True)
+    match = re.search(r'\b([4-8]-\d{1,2})\b', page_text)
+    if match:
+        return match.group(1)
+
+    return "NA"
+
+
+def fetch_player_draft_and_height(player_id, session=None, headers=None, timeout=20):
+    """
+    Fetch draft position and height from a Basketball Reference player page.
+
+    Returns a tuple: (draft_position, height)
+    Missing values are returned as "NA".
+    """
+    if pd.isna(player_id):
+        return "NA", "NA"
+
+    player_id = str(player_id).strip()
+    if not player_id:
+        return "NA", "NA"
+
+    if session is None:
+        session = requests
+
+    if headers is None:
+        headers = {
+            'User-Agent': (
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/91.0.4472.124 Safari/537.36'
+            )
+        }
+
+    url = f"https://www.basketball-reference.com/players/{player_id[0]}/{player_id}.html"
+
+    try:
+        response = session.get(url, headers=headers, timeout=timeout)
+        if response.status_code != 200:
+            return "NA", "NA"
+    except Exception:
+        return "NA", "NA"
+
+    soup = BeautifulSoup(response.content, 'html.parser')
+
+    draft_position = "NA"
+    meta_div = soup.find('div', {'id': 'meta'})
+    height = _extract_height_from_soup(soup, meta_div=meta_div)
+    if meta_div:
+        for paragraph in meta_div.find_all('p'):
+            label = paragraph.find('strong')
+            if label and 'Draft:' in label.get_text(strip=True):
+                draft_text = paragraph.get_text(" ", strip=True)
+                match = re.search(r'\((\d+)(?:st|nd|rd|th)\s+pick,\s+(\d+)(?:st|nd|rd|th)\s+overall\)', draft_text)
+                if match:
+                    draft_position = match.group(2)
+                else:
+                    undrafted = re.search(r'Undrafted', draft_text, flags=re.IGNORECASE)
+                    if undrafted:
+                        draft_position = "Undrafted"
+                break
+
+    return draft_position, height
+
+
+def collect_unique_player_ids(input_csv, id_column='id'):
+    """
+    Read a player CSV and return a list of unique Basketball Reference IDs.
+
+    IDs are normalized by stripping whitespace and dropping empty/NA entries.
+    """
+    df = pd.read_csv(input_csv)
+
+    if id_column not in df.columns:
+        raise ValueError(f"Column '{id_column}' not found in input CSV.")
+
+    ids_series = df[id_column].dropna().astype(str).str.strip()
+    ids_series = ids_series[ids_series != ""]
+
+    return ids_series.drop_duplicates().tolist()
+
+
+def get_draft_position_and_height(input_csv, output_csv=None, id_column='id', sleep_seconds=2):
+    """
+    Given an input CSV of players with Basketball Reference IDs, create a new
+    DataFrame with one row per unique ID and columns:
+      - id
+      - draft_position
+      - height
+
+    Missing or unavailable values are filled with "NA".
+    """
+    if id_column != 'id':
+        print(f"Input ID column is '{id_column}'. Output column name will be standardized to 'id'.")
+
+    input_df = pd.read_csv(input_csv)
+    if id_column not in input_df.columns:
+        raise ValueError(f"Column '{id_column}' not found in input CSV.")
+
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Referer": "https://google.com",
-        # Add other headers if needed
+        'User-Agent': (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) '
+            'Chrome/91.0.4472.124 Safari/537.36'
+        )
     }
 
-    response_advanced = requests.get(url_advanced, headers=headers)
-    print(response_advanced)
-    soup_advanced = BeautifulSoup(response_advanced.content, 'html.parser')
-    # Directly find the table by ID
-    advanced_table = soup_advanced.find("table", {"id": "advanced"})
-    if advanced_table is None:
-        raise ValueError("Table with id='advanced_post' not found.")
+    unique_player_ids = collect_unique_player_ids(input_csv, id_column=id_column)
+    print(f"Collected {len(unique_player_ids)} unique player IDs from {input_csv}")
 
-    # Parse the table into a DataFrame
-    df_advanced = pd.read_html(str(advanced_table))[0]
+    rows = []
 
-    # Drop repeated header rows (e.g., rows where 'Player' == 'Player')
-    df_advanced = df_advanced[df_advanced['Player'] != 'Player']
+    with requests.Session() as session:
+        total_unique = len(unique_player_ids)
+        for idx, player_id in enumerate(unique_player_ids, start=1):
+            draft_pos, height = fetch_player_draft_and_height(
+                player_id,
+                session=session,
+                headers=headers
+            )
+            rows.append({
+                'id': player_id,
+                'draft_position': draft_pos,
+                'height': height
+            })
 
-    is_multiteam_summary = df_advanced["Team"].str.match(r"\dTM")
-    player_counts = df_advanced["Player"].value_counts()
-    is_single_entry = df_advanced["Player"].map(player_counts) == 1
-    final_df_advanced = df_advanced[is_multiteam_summary | is_single_entry]
+            if idx % 25 == 0 or idx == total_unique:
+                print(f"Fetched draft/height for {idx}/{total_unique} unique IDs")
 
-    # Reset index and show
-    final_df_advanced.reset_index(drop=True, inplace=True)
-    final_df_advanced = final_df_advanced[advanced_keep_cols]
-    final_df_advanced.rename(mapper=advanced_keep_cols_mapper, axis=1, inplace=True)
-    final_df_advanced["year"] = year
-    advanced_dfs.append(final_df_advanced)
-    time.sleep(5)
+            time.sleep(sleep_seconds)
 
-advanced_stats = pd.concat(advanced_dfs)
+    df = pd.DataFrame(rows, columns=['id', 'draft_position', 'height'])
+
+    if output_csv is None:
+        if input_csv.lower().endswith('.csv'):
+            output_csv = input_csv[:-4] + '_id_draft_height.csv'
+        else:
+            output_csv = input_csv + '_id_draft_height.csv'
+
+    df.to_csv(output_csv, index=False, na_rep='NA')
+    print(f"Saved id-level draft/height CSV to {output_csv}")
+
+    return df
+
+def get_nba_stats(start_year=2000, end_year=2026, stat_type='totals'):
+    """
+    Scrapes NBA stats from Basketball Reference for a range of years.
     
-dfs = []
-keep_cols = ["Player", "Age", "Team", "3P", "3PA","2P","2PA","FT","FTA","ORB","DRB", "AST", "STL", "BLK","TOV", "PF", "G", "MP", "Pos"]
-keep_cols_mapper = {"Player": "name", "3P": "fg3m", "3PA": "fg3a", "2P": "fg2m", "2PA": "fg2a", "FT": "ftm", "ORB": "oreb", "DRB": "dreb", "G": "games", "MP": "minutes", "Pos": "position" }
+    stat_type options: 
+    - 'totals' (Total stats)
+    - 'advanced' (Advanced stats)
+    - 'per_game' (Per Game stats)
+    """
+    
+    # Map the URL identifier to the actual HTML table ID
+    # Advanced uses id="advanced", Totals uses id="totals_stats"
+    table_ids = {
+        'totals': 'totals_stats',
+        'advanced': 'advanced',
+        'per_game': 'per_game_stats'
+    }
+    
+    target_table_id = table_ids.get(stat_type)
+    if not target_table_id:
+        print(f"Error: Unknown stat_type '{stat_type}'. Supported: {list(table_ids.keys())}")
+        return
 
-for year in years:
-    print(year)
-# URL of the page
-    url_totals = f"https://www.basketball-reference.com/leagues/NBA_{year}_totals.html"
-
-    # Get page content
+    all_data = []
+    
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Referer": "https://google.com",
-        # Add other headers if needed
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
 
-    response_totals = requests.get(url_totals, headers=headers)
+    print(f"Starting scrape for '{stat_type}' from {start_year} to {end_year}...")
+    print("NOTE: A 4-second delay is enforced between requests to avoid IP bans.")
 
+    for year in range(start_year, end_year + 1):
+        # URL structure: https://www.basketball-reference.com/leagues/NBA_2024_totals.html
+        url = f"https://www.basketball-reference.com/leagues/NBA_{year}_{stat_type}.html"
+        
+        try:
+            print(f"Fetching {year}...", end=" ")
+            response = requests.get(url, headers=headers)
+            
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                # Find the specific table
+                table = soup.find('table', {'id': target_table_id})
+                
+                if table:
+                    df = pd.read_html(str(table))[0]
+                    
+                    # CLEANUP:
+                    
+                    
+                    # 2. Add Season column
+                    df.insert(0, 'Season', year)
+                    
+                    # 3. Remove Hall of Fame asterisks
+                    if 'Player' in df.columns:
+                        df['Player'] = df['Player'].str.replace('*', '', regex=False)
+                    player_ids = []
+                    for row in table.tbody.find_all("tr"):
+                        td = row.find("td", {"data-stat": "name_display"})
+                        if td and td.has_attr("data-append-csv"):
+                            player_ids.append(td["data-append-csv"])
+                        else:
+                            player_ids.append(None)
 
+                    df["id"] = player_ids
+                    # 1. Remove repeating headers
+                    df = df[df['Rk'] != 'Rk']
+                    df = df[df["Player"] != "League Average"] ## remove league average column
+                    
+                    all_data.append(df)
+                    print(f"Success ({len(df)} rows).")
+                else:
+                    print(f"Table not found. (Season might not exist yet)")
+            
+            elif response.status_code == 429:
+                print("\nERROR: Rate limit exceeded (429). You are sending requests too fast.")
+                sys.exit(1)
+            else:
+                print(f"Failed. Status code: {response.status_code}")
+                
+        except Exception as e:
+            print(f"Error occurred: {e}")
 
-    soup_totals = BeautifulSoup(response_totals.content, 'html.parser')
-    # Directly find the table by ID
-    totals_table = soup_totals.find("table", {"id": "totals_stats"})
-    if advanced_table is None:
-        raise ValueError("Table with id='totals_stats' not found.")
+        # CRITICAL: Sleep to respect rate limits
+        time.sleep(10)
 
-    # Parse the table into a DataFrame
-    df_totals = pd.read_html(str(totals_table))[0]
+    if all_data:
+        final_df = pd.concat(all_data, ignore_index=True)
+        
+        output_filename = f"data/nba_{stat_type}_stats_{start_year}-{end_year}.csv"
+        final_df.to_csv(output_filename, index=False)
+        print(f"\nDone! Saved {len(final_df)} rows to {output_filename}")
+    else:
+        print("\nNo data collected.")
 
-    # Drop repeated header rows (e.g., rows where 'Player' == 'Player')
-    df_totals = df_totals[df_totals['Player'] != 'Player']
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="nba_stats",
+        choices=["nba_stats", "player_meta"],
+        help="Choose 'nba_stats' to scrape season tables or 'player_meta' to export id/draft_position/height."
+    )
 
-    is_multiteam_summary = df_totals["Team"].str.match(r"\dTM")
-    player_counts = df_totals["Player"].value_counts()
-    is_single_entry = df_totals["Player"].map(player_counts) == 1
-    final_df_totals = df_totals[is_multiteam_summary | is_single_entry]
+    parser.add_argument("--start_year", type=int, default=1997)
+    parser.add_argument("--end_year", type=int, default=2026)
+    parser.add_argument("--stat_type", type=str, default="totals")
 
-    # Reset index and show
-    final_df_totals.reset_index(drop=True, inplace=True)
-    final_df_totals = final_df_totals[keep_cols]
-    final_df_totals.rename(mapper=keep_cols_mapper, axis=1, inplace=True)
-    final_df_totals["year"] = year
-    final_df_totals.columns = final_df_totals.columns.str.lower()
-    dfs.append(final_df_totals)
-    time.sleep(5)
+    parser.add_argument("--input_csv", type=str, default=None)
+    parser.add_argument("--output_csv", type=str, default=None)
+    parser.add_argument("--id_column", type=str, default="id")
+    parser.add_argument("--sleep_seconds", type=float, default=2)
 
-total_stats = pd.concat(dfs)
+    args = parser.parse_args()
 
-aggregate_data = pd.merge(total_stats, advanced_stats, on = ["name", "team", "age", "year", "games", "minutes", "position"])
-position_map = {"SG": "G", "PG": "G", "SF": "F", "PF": "F", "C": "C", "G":"G", "F":"F"}
-aggregate_data["position_group"] = aggregate_data["position"].apply(lambda x: position_map[x])
-aggregate_data["season"] = aggregate_data["year"].apply(lambda x: str(x - 1) + "-" + str(x)[-2:])
-aggregate_data.to_csv("data/validation_player_data.csv", index = False)
+    if args.mode == "player_meta":
+        if not args.input_csv:
+            parser.error("--input_csv is required when --mode player_meta")
+
+        get_draft_position_and_height(
+            input_csv=args.input_csv,
+            output_csv=args.output_csv,
+            id_column=args.id_column,
+            sleep_seconds=args.sleep_seconds
+        )
+    else:
+        get_nba_stats(args.start_year, args.end_year, stat_type=args.stat_type)

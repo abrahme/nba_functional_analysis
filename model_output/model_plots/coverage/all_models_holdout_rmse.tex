@@ -1,0 +1,27 @@
+\begin{table}
+\caption{Holdout RMSE by metric across models (bold = lowest value)}
+\label{tab:holdout_rmse_all_models}
+\begin{tabular}{lllll}
+\toprule
+Metric & concave & concave + AR & concave + AR + injury & naive \\
+\midrule
+games & \textbf{0.2810} & 0.3192 & 0.3373 & 0.3649 \\
+usg & 0.0821 & \textbf{0.0557} & 0.0637 & 0.1594 \\
+pct_minutes & 0.2173 & 0.1698 & 0.1729 & \textbf{0.1624} \\
+obpm & 2.8374 & 3.1424 & 3.1877 & \textbf{2.1287} \\
+dbpm & 1.4306 & 1.6293 & 1.8881 & \textbf{1.0066} \\
+blk & \textbf{0.9983} & 1.2208 & 1.4125 & 26.9378 \\
+stl & \textbf{1.5316} & 1.6164 & 1.6431 & 29.3856 \\
+ast & 4.9731 & \textbf{4.7103} & 4.7667 & 28.3389 \\
+dreb & \textbf{7.3598} & 7.6787 & 7.4200 & 30.6619 \\
+oreb & \textbf{2.3001} & 2.3478 & 2.3854 & 26.6403 \\
+tov & \textbf{3.7763} & 3.8732 & 3.8351 & 29.3834 \\
+fta & 5.0882 & 4.4853 & \textbf{4.1471} & 25.8345 \\
+fg2a & 12.6899 & 13.3148 & \textbf{12.4363} & 28.8759 \\
+fg3a & 4.3243 & \textbf{3.8595} & 4.4419 & 17.8312 \\
+ftm & \textbf{0.2935} & 0.2965 & 0.3024 & 0.4241 \\
+fg2m & 0.5015 & 0.5064 & 0.5101 & \textbf{0.4976} \\
+fg3m & 0.3662 & 0.3316 & \textbf{0.3304} & 0.4205 \\
+\bottomrule
+\end{tabular}
+\end{table}

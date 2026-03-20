@@ -1,0 +1,27 @@
+\begin{table}
+\caption{Holdout bias by metric across models (bold = lowest absolute value)}
+\label{tab:holdout_bias_all_models}
+\begin{tabular}{lllll}
+\toprule
+Metric & concave & concave + AR & concave + AR + injury & naive \\
+\midrule
+games & \textbf{-0.2447} & -0.2755 & -0.2850 & -0.3359 \\
+usg & -0.0325 & \textbf{0.0098} & 0.0195 & 0.0792 \\
+pct_minutes & -0.0414 & -0.0115 & \textbf{-0.0012} & 0.0222 \\
+obpm & 1.3365 & 0.9126 & 0.8544 & \textbf{0.2106} \\
+dbpm & 0.4124 & 0.4818 & 0.4370 & \textbf{0.0057} \\
+blk & \textbf{0.8613} & 1.0285 & 1.1618 & 20.4232 \\
+stl & \textbf{1.4497} & 1.5127 & 1.5196 & 24.4659 \\
+ast & 4.3761 & \textbf{4.1678} & 4.1804 & 23.0729 \\
+dreb & \textbf{7.0389} & 7.3989 & 7.1659 & 27.2336 \\
+oreb & 2.0174 & \textbf{2.0130} & 2.0440 & 20.2262 \\
+tov & \textbf{3.4594} & 3.5641 & 3.5478 & 24.5896 \\
+fta & 4.1812 & 3.7882 & \textbf{3.5818} & 19.5639 \\
+fg2a & \textbf{10.6763} & 11.8547 & 11.2836 & 24.7594 \\
+fg3a & 1.5374 & \textbf{1.3843} & 1.7577 & 9.0188 \\
+ftm & -0.0970 & -0.0842 & \textbf{-0.0805} & -0.3045 \\
+fg2m & 0.1578 & 0.1630 & 0.1720 & \textbf{0.1417} \\
+fg3m & 0.2925 & \textbf{0.2381} & 0.2390 & 0.3516 \\
+\bottomrule
+\end{tabular}
+\end{table}
