@@ -187,7 +187,8 @@ def plot_posterior_predictive_hazard_trajectory_map(player_index, metrics: list[
 
 def plot_posterior_predictive_career_trajectory_map(
     player_index, metrics: list[str], metric_outputs: list[str], 
-    posterior_map, observations, exposures
+    posterior_map_mu, posterior_map_mu_ar, observations, exposures,
+    validation_mask = None
 ):
     """
     Plots the posterior predictive career trajectory using matplotlib instead of plotly.
@@ -196,14 +197,47 @@ def plot_posterior_predictive_career_trajectory_map(
     fig, axes = plt.subplots(4, (len(metrics) // 4) + 1, figsize=(12, 12))
     axes = axes.flatten()  # flatten for easy indexing
     
-    observation_dict, posterior_dict = create_metric_trajectory_map(
-        posterior_map, player_index, observations, exposures,
+    observation_dict, posterior_mu_dict = create_metric_trajectory_map(
+        posterior_map_mu, player_index, observations, exposures,
+        metric_outputs=metric_outputs, metrics=metrics
+    )
+    _, posterior_mu_ar_dict = create_metric_trajectory_map(
+        posterior_map_mu_ar, player_index, observations, exposures,
         metric_outputs=metric_outputs, metrics=metrics
     )
 
     obs = observation_dict["y"]
-    posterior = posterior_dict["y"]
+    posterior_mu = posterior_mu_dict["y"]
+    posterior_mu_ar = posterior_mu_ar_dict["y"]
     x = list(range(18, 39))  # ages 18–38
+
+    def _exposure_to_weight(exposure_values, metric_type):
+        if metric_type in ["poisson", "negative-binomial"]:
+            return np.exp(exposure_values)
+        if metric_type in ["gaussian", "beta"]:
+            return np.square(np.maximum(exposure_values, 0.0))
+        return np.maximum(exposure_values, 0.0)
+
+    def _normalize_to_size(weight_values, observed_values, min_size=10.0, max_size=36.0):
+        valid_mask = np.isfinite(weight_values) & np.isfinite(observed_values)
+        if valid_mask.sum() <= 1:
+            size_vals = np.full_like(weight_values, fill_value=(min_size + max_size) / 2.0, dtype=float)
+            size_vals[~np.isfinite(observed_values)] = min_size
+            return size_vals
+
+        valid_weights = weight_values[valid_mask]
+        weight_min = np.nanmin(valid_weights)
+        weight_max = np.nanmax(valid_weights)
+        if not np.isfinite(weight_min) or not np.isfinite(weight_max) or np.isclose(weight_min, weight_max):
+            normalized = np.ones_like(weight_values, dtype=float)
+        else:
+            normalized = (weight_values - weight_min) / (weight_max - weight_min + 1e-8)
+
+        size_vals = min_size + (max_size - min_size) * np.clip(normalized, 0.0, 1.0)
+        size_vals[~valid_mask] = min_size
+        return size_vals
+
+    mu_ar_label = "mu + AR"
 
     for index, metric in enumerate(metrics):
         ax = axes[index]
@@ -211,9 +245,17 @@ def plot_posterior_predictive_career_trajectory_map(
         title = metric.upper()
         if metric_type == "poisson":
             title += " per 36 min"
-        
-        ax.plot(x, obs[..., index], label="Observed", color="blue")
-        ax.plot(x, posterior[..., index], label="Posterior Mean", color="red")
+
+        exposure_raw = np.asarray(exposures[index, player_index, ...], dtype=float)
+        observed_vals = np.asarray(obs[..., index], dtype=float)
+        held_out_vals = np.asarray(np.where(validation_mask[player_index], observed_vals, np.nan))
+        exposure_weight = _exposure_to_weight(exposure_raw, metric_type)
+        point_sizes = _normalize_to_size(exposure_weight, observed_vals)
+
+        ax.scatter(x, observed_vals, label="Observed", color="black", alpha=0.8, s=point_sizes, zorder=3)
+        ax.scatter(x, held_out_vals, label = "Validation", color = "red", alpha = 0.8, s = point_sizes, zorder=3)
+        ax.plot(x, posterior_mu[..., index], label="mu only", color="green")
+        ax.plot(x, posterior_mu_ar[..., index], label=mu_ar_label, color="blue")
         ax.set_title(title, fontsize=10)
     
     # hide unused subplots if fewer than 16 metrics
@@ -225,7 +267,7 @@ def plot_posterior_predictive_career_trajectory_map(
     fig.legend(handles, labels, loc="upper right")
     
     fig.tight_layout()
-    return fig
+    return fig, axes
 
 def plot_mcmc_diagnostics(inference_data, variable_name, plot = "trace"):
     if plot == "trace":

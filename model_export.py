@@ -7,11 +7,11 @@ import arviz as az
 from jax import config, vmap
 from numpyro.diagnostics import print_summary
 config.update("jax_enable_x64", True)
-from data.data_utils import create_fda_data, average_peak_differences, average_range_differences
+from data.data_utils import create_fda_data, average_peak_differences, average_range_differences, create_surv_data
 import numpyro
 import jax.numpy as jnp
-from model.model_utils import make_mu_rflvm, make_mu_hsgp, make_mu_linear, make_mu_rflvm_mcmc_AR, make_mu_hsgp_mcmc_AR, make_mu_linear_mcmc_AR, make_mu_linear_mcmc, compute_residuals_map, compute_priors
-from model.inference_utils import posterior_peaks_to_df, posterior_to_df, posterior_X_to_df
+from model.model_utils import make_mu_rflvm, make_mu_hsgp, make_mu_linear, make_mu_rflvm_mcmc_AR, make_mu_hsgp_mcmc_AR, make_mu_linear_mcmc_AR, make_mu_linear_mcmc, compute_residuals_map, compute_priors, make_survival_linear_injury_mcmc, apply_detrend_for_offsets, make_survival_linear_mcmc
+from model.inference_utils import posterior_peaks_to_df, posterior_to_df, posterior_X_to_df, posterior_injury_to_df, posterior_injury_prior_mean_to_df, posterior_survival_to_df, posterior_player_scalar_to_df
 from model.hsgp import vmap_make_convex_phi, eigenfunctions_multivariate, make_spectral_mixture_density, diag_spectral_density, sqrt_eigenvalues
 
 from model.inference_utils import create_metric_trajectory_all, create_metric_trajectory_map
@@ -37,6 +37,7 @@ if __name__ == "__main__":
     args = vars(parser.parse_args())
     mcmc_path = args["mcmc_path"]
     model_name = args["model_name"]
+    injury = args["injury"]
     if "hsgp" in model_name:
         model_suffix = "_hsgp"
     elif "linear" in model_name:
@@ -45,6 +46,10 @@ if __name__ == "__main__":
         model_suffix = "_rff"
     else:
         model_suffix = "_"
+    if injury:
+        model_suffix += "_injury"
+    if "counterfactual" in model_name:
+        model_suffix += "_counterfactual"
     basis_dims = args["basis_dims"]
     de_trend_metrics = args["de_trend_metrics"]
     injury = args["injury"]
@@ -57,11 +62,35 @@ if __name__ == "__main__":
     cohort_year = args["cohort_year"]
 
     
-    data = pd.read_csv("data/injury_player_cleaned.csv").query(f"age <= 38 & name != 'Brandon Williams' & year <= {validation_year}") ### filter out years that happen after this year
-    data = data.groupby("id").filter(lambda x: x["year"].min() <= cohort_year) ### filter out players who entered the league after this cohort year
+    data = pd.read_csv("data/injury_player_cleaned.csv").query(f"age <= 38 & name != 'Brandon Williams'") ### filter out years that happen after this year
+    # data = data.groupby("id").filter(lambda x: x["year"].min() <= cohort_year) ### filter out players who entered the league after this cohort year
     # data = data.groupby("id").filter(lambda x: len(x) >= 3) ### just test to keep guys who have played at least 3 years
-    data["first_major_injury"] = data["first_major_injury"].fillna("None")
+    data["first_major_injury"] = (
+        data["first_major_injury"]
+        .fillna("None")
+        .astype(str)
+        .str.strip()
+        .replace(
+            {
+                "Quad Tendon": "Quad/Patellar",
+                "Patellar Tendon": "Quad/Patellar",
+            },
+        )
+    )
+    data['first_major_injury'] = (
+    data['first_major_injury']
+            .astype('category')
+            .cat.set_categories(
+                ['None'] + 
+                [c for c in pd.unique(data['first_major_injury']) if c != 'None'],
+                ordered=False
+            ))
+    data["injury_code"] = data["first_major_injury"].cat.codes
+    injury_type_labels = [inj for inj in data["first_major_injury"].cat.categories if inj != "None"]
+    injury_type_ids = np.arange(1, len(injury_type_labels) + 1)
+
     names = data.groupby("id")["name"].first().values.tolist()
+
     data["log_min"] = np.log(data["minutes"])
     data["usg"] /= 100
     data["usg"] += .01
@@ -72,12 +101,15 @@ if __name__ == "__main__":
     fake_data = pd.DataFrame({"age": range(18,39), "id": 99999999, "year": range(2000, 2021), "name": "No Name"})
     fake_data = fake_data.reindex(columns=data.columns)
     data = pd.concat([data, fake_data], ignore_index=True)
-    metric_output = ["beta-binomial", "binomial", "beta", "beta"] + (["gaussian"] * 2) + (["poisson"] * 9) + (["binomial"] * 3)
-    metrics = ["games", "retirement", "pct_minutes", "usg", "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a", "fg3a", "ftm","fg2m", "fg3m"]
-    exposure_list = ([ "games_exposure", "simple_exposure", "games_exposure", "minutes"]) + (["minutes"] * 11) + ["fta","fg2a", "fg3a"]
-    # metric_output = ["gaussian", "gaussian", "negative-binomial"]
-    # metrics = ["obpm", "dbpm", "minutes"]
-    # exposure_list = ["minutes", "minutes", "games_exposure"]
+    validation_mask = data[["year", "age", "id"]].pivot(columns="age", index="id", values=f"year").reindex(columns = range(18,39)).apply(
+                                                                        lambda r: r.dropna().iloc[0] + (np.array(range(18,39)) - r.dropna().index[0]) if r.notna().any() else r,
+                                                                        axis=1,
+                                                                        result_type="expand").to_numpy() > validation_year
+    # validation_mask = data[["split","age", "id"]].pivot(columns="age", index="id", values="split").reindex(columns = range(18,39)).to_numpy() == "test"
+    metric_output = ["beta-binomial", "beta", "beta"] + (["gaussian"] * 2) + (["poisson"] * 6) + (["negative-binomial"] * 3) + (["binomial"] * 3)
+    metrics = ["games","usg", "pct_minutes",  "obpm","dbpm","blk","stl","ast","dreb","oreb","tov","fta","fg2a", "fg3a", "ftm","fg2m", "fg3m"]
+    exposure_list = ([ "games_exposure", "minutes", "games"]) + (["minutes"] * 11) + ["fta","fg2a", "fg3a"]
+
     scale_values = jnp.ones((len(metrics), 1))
     id_df = data[["id", "name", "position_group", "minutes"]].groupby("id").max().reset_index()
 
@@ -117,102 +149,32 @@ if __name__ == "__main__":
         player_indices = []
     
     de_trend_indices = [True if metric in de_trend_metrics else False for metric in metrics]
+
     covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, [], injury=injury, validation_year=validation_year)
+    surv_masks = None
+    Y_surv = None
     distribution_families = set([data_entity["output"] for data_entity in data_set])
     distribution_indices = {family: jnp.array([index for index, data_entity in enumerate(data_set) if family == data_entity["output"]]) for family in distribution_families}
+    injury_masks = jnp.stack([data_entity["injury_mask"] for data_entity in data_set])
+    injury_types = jnp.stack([data_entity["injury_type"] for data_entity in data_set]).astype(jnp.int32)
     masks = jnp.stack([data_entity["mask"] for data_entity in data_set])
+    if "counterfactual" in model_name:
+            masks = masks * (~injury_masks)
     exposures = jnp.stack([data_entity["exposure_data"] for data_entity in data_set])
     Y = jnp.stack([data_entity["output_data"] for data_entity in data_set])
-    Y_linearized = []
-    exp_linearized = []
-    for data_entity in data_set:
-        family = data_entity["output"]
-        Y_obs = data_entity["output_data"]
-        exposure_obs = data_entity["exposure_data"]
-        if family == "gaussian":
-            Y_linearized.append(Y_obs)
-            exp_linearized.append(jnp.square(exposure_obs))
-        elif family in ["negative-binomial", "poisson"]:
-            Y_linearized.append(jnp.log(Y_obs + 1))
-            exp_linearized.append(jnp.exp(exposure_obs))
-        elif family in ["binomial", "beta-binomial", "bernoulli"]:
-            p = (Y_obs + .5) / (exposure_obs + 1)
-            Y_linearized.append(jnp.log(p)/jnp.log(1 - p))
-            exp_linearized.append(exposure_obs)
-        elif family in ["beta"]:
-            Y_linearized.append(jnp.log(Y_obs) / jnp.log(1 - Y_obs))
-            exp_linearized.append(jnp.square(exposure_obs) - 1)
-    Y_linearized = jnp.stack(Y_linearized)
-    exp_linearized = jnp.stack(exp_linearized)
-    W_eff = exp_linearized * masks
-    Y_safe = jnp.nan_to_num(Y_linearized, nan=0.0, posinf=0.0, neginf=0.0)
-    Y_safe = Y_safe.reshape(Y_safe.shape[1], - 1)
-    W_eff = jnp.nan_to_num(1 / W_eff.reshape(W_eff.shape[1], -1), nan=0.0, posinf=0.0, neginf=0.0)
-    mu = (Y_safe * W_eff).sum(axis=0) / (W_eff.sum(axis=0))
-
-    Z = (Y_safe - mu) * W_eff
     de_trend = jnp.stack([data_entity["de_trend"] for data_entity in data_set]) 
     de_trend = jnp.where(jnp.array(de_trend_indices)[..., None, None], de_trend, 0.0)
-    # offset_list = []
-    # offset_max_list = []
-    # offset_peak_list = []
-    # offset_boundary_l = []
-    # offset_boundary_r = []
-    # for index, family in enumerate(metric_output):  
-    #     weight = exposures[index]
-    #     individual_weight = jnp.nansum(weight, -1)
-    #     if family == "gaussian":
-    #         p = jnp.nansum(Y[index] * weight) / jnp.nansum(weight)
-    #         offset_list.append(p)
-    #         p_max = jnp.nansum(jnp.nanmax(Y[index], -1) * individual_weight) / jnp.nansum(individual_weight)
-    #         p_max_var = jnp.nansum(jnp.square(jnp.nanmax(Y[index], -1) - p_max) * individual_weight) / jnp.nansum(individual_weight)
-    #         offset_max_list.append( p_max)
-    #         peak = jnp.nansum(jnp.nanargmax(Y[index], -1) * individual_weight) / jnp.nansum(individual_weight)
-            
-    #         boundary_l, boundary_r = average_peak_differences(Y[index])
-    #         offset_boundary_l.append(boundary_l)
-    #         offset_boundary_r.append(boundary_r)
-    #     else:
-    #         if family in ["poisson", "negative-binomial"]:
-    #             individual_weight = jnp.exp(individual_weight)
-    #             p = jnp.nansum(Y[index]) / jnp.nansum(jnp.exp(exposures[index]))
-    #             p_max = jnp.nansum(jnp.nanmax(Y[index] / jnp.exp(exposures[index]), -1) * individual_weight) / jnp.nansum(individual_weight)
-    #             p_max_var = jnp.nansum(jnp.square(jnp.nanmax(Y[index]/ jnp.exp(exposures[index]), -1) - p_max) * individual_weight) / jnp.nansum(individual_weight)
-    #             peak = jnp.nansum(jnp.nanargmax(Y[index] / jnp.exp(exposures[index]), -1) * individual_weight) / jnp.nansum(individual_weight)
-    #             offset_list.append(jnp.log(p))
-    #             offset_max_list.append(jnp.log(p_max))                 
-    #         elif family in ["beta-binomial", "binomial", "bernoulli"]:
-    #             p = jnp.nansum(Y[index]) / jnp.nansum(exposures[index])
-    #             p_max = jnp.nansum(jnp.nanmax(Y[index] / exposures[index], -1) * individual_weight) / jnp.nansum(individual_weight) if exposure_list[index] != "simple_exposure" else .5
-    #             p_max_var = jnp.nansum(individual_weight * jnp.square(jnp.nanmax(Y[index] / exposures[index], -1)- p_max)) / jnp.nansum(individual_weight)
-    #             offset_list.append(jnp.log(p/ (1-p)))
-    #             offset_max_list.append(jnp.log(p_max/(1-p_max)))
-    #             peak = jnp.nansum(jnp.nanargmax(Y[index] / exposures[index], -1) * individual_weight) / jnp.nansum(individual_weight) if exposure_list[index] != "simple_exposure" else jnp.argmax(jnp.nanmean(Y[index] / exposures[index], 0))
-    #             p_star = Y[index] / exposures[index]     
-    #         elif family == "beta":
-    #             weight  = jnp.square(weight)
-    #             individual_weight = jnp.nansum(weight, -1)
-    #             p = jnp.nansum(Y[index] * weight) / jnp.nansum(weight)
-    #             p_max = jnp.nansum(jnp.nanmax(Y[index], -1) * individual_weight) / jnp.nansum(individual_weight)
-    #             p_max_var = jnp.nansum(jnp.square(jnp.nanmax(Y[index], -1) - p_max) * individual_weight) / jnp.nansum(individual_weight)
-    #             peak = jnp.nansum(jnp.nanargmax(Y[index], -1) * individual_weight) / jnp.nansum(individual_weight)
-    #             offset_list.append(jnp.log(p / (1 - p)))
-    #             offset_max_list.append(jnp.log(p_max/(1-p_max)))
-        
-
-    #     print(peak + 18, p_max, jnp.sqrt(p_max_var), metrics[index])
-        # offset_peak_list.append(peak + 18 - basis.mean())
-    # raise ValueError
-
-    offset_max, offset_max_var, offset_peak, offset_peak_var =  compute_priors(Y, exposures, metric_output, exposure_list)
+    de_trend_adjusted = jnp.where(jnp.isnan(de_trend), 0.0, de_trend)
+    Y_for_offsets = apply_detrend_for_offsets(
+        Y_obs=Y,
+        exposures_obs=exposures,
+        metric_families=metric_output,
+        de_trend_values=de_trend,
+        de_trend_mask=jnp.array(de_trend_indices),
+    )
+    offset_max, offset_max_var, offset_peak, offset_peak_var =  compute_priors(Y_for_offsets, exposures, metric_output, exposure_list)
     offset_peak = offset_peak + 18 - basis.mean()
-    # offset_peak = offset_peak / 20
-    # offset_peak -= .5
-    # offset_peak *= 2
-    # offset_peak_var /= 400
-    # offsets = jnp.array(offset_list)[None]
-    # offset_max = jnp.array(offset_max_list)[None]
-    # offset_peak = jnp.array(offset_peak_list)[None]
+
     offset_boundary_r = jnp.log(jnp.exp(2) - 1)
     offset_boundary_l = jnp.log(jnp.exp(2) - 1)
     data_dict = {}
@@ -228,13 +190,10 @@ if __name__ == "__main__":
     if "convex" in model_name:
             hsgp_params = {}
             x_time = basis - basis.mean()
-            # x_time = (basis - jnp.min(basis)) 
-            # x_time /= jnp.max(x_time)
-            # x_time -= jnp.mean(x_time)
-            # x_time *= 2
+  
             L_time = 2 * jnp.max(jnp.abs(x_time), 0, keepdims=True)
             print(f"L_time: {L_time}, x_time: {x_time} ")
-            M_time = 20
+            M_time = 5
             phi_time = vmap_make_convex_phi(jnp.squeeze(x_time), jnp.squeeze(L_time), M_time)
             hsgp_params["phi_x_time"] = phi_time
             hsgp_params["M_time"] = M_time
@@ -269,6 +228,30 @@ if __name__ == "__main__":
             results_mcmc = {key: val[:, ::thin, ...] for key, val in results_mcmc.items()}
     f.close()
     results_mcmc = {**results_map, **results_mcmc}
+    _summary_vars = ["sigma_beta", "sigma_beta_binomial", "sigma", "sigma_ar", "sigma_negative_binomial"]
+    _summary_subset = {k: results_mcmc[k] for k in _summary_vars if k in results_mcmc}
+    summary = az.summary(_summary_subset)
+    print(summary)
+    summary.to_csv(f"model_output/posterior_variance{model_suffix}_summary.csv")
+    survival_injury_keys = {
+        "entrance",
+        "entrance_global_offset",
+        "exit_global_offset",
+        "sigma_entrance",
+        "entrance_latent",
+        "exit",
+        "exit_rate",
+        "injury_factor",
+        "injury_exit_loading",
+        "injury_exit_global_offset",
+        "sigma_injury_exit",
+        "injury_exit_raw",
+    }
+    has_survival_injury = all(key in results_mcmc for key in survival_injury_keys)
+
+    _, surv_data_set, _ = create_surv_data(data, basis_dims, ["left", "right"], ["retirement"] * 2, [], validation_year=validation_year)
+    surv_masks = jnp.stack([data_entity["censored"] for data_entity in surv_data_set], -1)
+    Y_surv = jnp.stack([data_entity["observations"] for data_entity in surv_data_set], -1)
     for item in results_mcmc:
         print(item, results_mcmc[item].shape)
         if item == "X":
@@ -304,10 +287,13 @@ if __name__ == "__main__":
                                   L_time, M_time, phi_time, x_time + L_time, basis_dims, offset_dict)
     if "intercept" in results_map:
         mu += (results_map["intercept"] * results_map["sigma_intercept"])[..., None]
+
+    mu += de_trend_adjusted
     obs, preds = create_metric_trajectory_map(mu, [], Y, exposures, metric_output, metrics)
                         
-    # avg_sd, autocorr = compute_residuals_map(preds["y"], obs["y"], exposures, metric_output, results_map["sigma"], results_map["sigma_negative_binomial"], 
-    #                                                             results_map["sigma_beta_binomial"], results_map["sigma_beta"])
+    avg_sd, autocorr, lognormal_params, beta_params = compute_residuals_map(preds["y"], obs["y"], exposures, metric_output, metrics, results_map["sigma"], results_map.get("sigma_negative_binomial", 0),
+                                                                results_map.get("sigma_beta_binomial", 0), results_map.get("sigma_beta", 1))
+    
     # avg_sd = jnp.ones((len(metrics))) * .01
     # autocorr = jnp.zeros_like(avg_sd)
 
@@ -363,7 +349,288 @@ if __name__ == "__main__":
     if "intercept" in results_mcmc:
         print("added offset")
         mu_mcmc += (results_mcmc["intercept"] * results_mcmc["sigma_intercept"][None, None])[..., None]
-    latent_val = mu_mcmc + AR
+    latent_val = mu_mcmc + AR + de_trend_adjusted
+    if injury:
+        injury_loading = results_mcmc["injury_loading"]
+        injury_factor = results_mcmc["injury_factor"]
+        sigma_injury = results_mcmc["sigma_injury"]
+        injury_mean_prior = jnp.einsum("...ip, ...kp -> ...ki", injury_factor, injury_loading )
+        injury_raw = results_mcmc["injury_raw"]
+        injury_effect_raw = injury_mean_prior[:,:,:,None, None, :] + injury_raw * sigma_injury[..., None, None, None]
+        injury_effect = jnp.take_along_axis(jnp.concatenate([jnp.zeros_like(AR)[..., None], injury_effect_raw ], -1), injury_types[..., None][None, None], -1).squeeze(-1) 
+        latent_val = latent_val + injury_effect
+
+        injury_posterior_df = posterior_injury_to_df(
+            injury_effect_raw,
+            id_df["id"].to_numpy(),
+            metrics,
+            range(18, 39),
+            injury_type_ids,
+            injury_type_labels,
+            injury_at_age=jnp.any(injury_masks, axis=0).astype(jnp.int32),
+        )
+        injury_posterior_df.to_csv(f"posterior_injury_samples{model_suffix}.csv", index=False)
+
+        injury_prior_mean_export = injury_mean_prior
+        injury_prior_metrics = list(metrics)
+        if "injury_exit_loading" in results_mcmc:
+            injury_exit_prior_mean = jnp.einsum("...ip, ...p -> ...i", injury_factor, results_mcmc["injury_exit_loading"])
+            if "injury_exit_global_offset" in results_mcmc:
+                injury_exit_prior_mean = injury_exit_prior_mean + results_mcmc["injury_exit_global_offset"][..., None]
+            injury_prior_mean_export = jnp.concatenate(
+                [injury_prior_mean_export, injury_exit_prior_mean[:, :, None, :]],
+                axis=2,
+            )
+            injury_prior_metrics = injury_prior_metrics + ["exit_hazard"]
+
+        injury_prior_df = posterior_injury_prior_mean_to_df(
+            injury_prior_mean_export,
+            injury_prior_metrics,
+            injury_type_ids,
+            injury_type_labels,
+        )
+        injury_prior_df.to_csv(f"posterior_injury_prior_mean{model_suffix}.csv", index=False)
+    else:
+        injury_effect = jnp.zeros_like(latent_val)
+
+    if has_survival_injury and injury and ("counterfactual" not in model_name):
+            surv_posterior = make_survival_linear_injury_mcmc(
+                X=results_mcmc["X"],
+                entrance=results_mcmc["entrance"],
+                entrance_global_offset=results_mcmc["entrance_global_offset"],
+                exit_global_offset=results_mcmc["exit_global_offset"],
+                sigma_entrance=results_mcmc["sigma_entrance"],
+                entrance_latent_raw=results_mcmc["entrance_latent"],
+                exit=results_mcmc["exit"],
+                exit_rate=results_mcmc["exit_rate"],
+                injury_factor=results_mcmc["injury_factor"],
+                injury_exit_loading=results_mcmc["injury_exit_loading"],
+                injury_exit_global_offset=results_mcmc["injury_exit_global_offset"],
+                sigma_injury_exit=results_mcmc["sigma_injury_exit"],
+                injury_exit_raw=results_mcmc["injury_exit_raw"],
+                injury_indicator=injury_masks,
+                injury_type=injury_types,
+                entrance_times=Y_surv[:, 0] - 18 + 1e-6,
+                left_censor=surv_masks[:, 0],
+                basis=basis,
+                entry_shift=0.0,
+            )
+
+            observed_surv_df = pd.DataFrame(
+                {
+                    "player": id_df["id"].to_numpy(),
+                    "observed_entrance_age": np.asarray(Y_surv[:, 0]),
+                    "observed_exit_age": np.asarray(Y_surv[:, 1]),
+                    "entrance_censored": np.asarray(surv_masks[:, 0]).astype(np.int32),
+                    "exit_censored": np.asarray(surv_masks[:, 1]).astype(np.int32),
+                }
+            )
+
+            entrance_survival_df = posterior_survival_to_df(
+                surv_posterior["entrance_survival"],
+                id_df["id"],
+                range(18, 39),
+                "entrance_survival",
+            )
+            entrance_survival_df = entrance_survival_df.merge(observed_surv_df, on="player", how="left")
+            entrance_survival_df["scenario"] = "observed"
+            entrance_survival_df.to_csv(f"posterior_entrance_survival{model_suffix}.csv", index=False)
+
+            entrance_hazard_df = posterior_survival_to_df(
+                surv_posterior["entrance_hazard"],
+                id_df["id"],
+                range(18, 39),
+                "entrance_hazard",
+            )
+            entrance_hazard_df = entrance_hazard_df.merge(observed_surv_df, on="player", how="left")
+            entrance_hazard_df["scenario"] = "observed"
+            entrance_hazard_df.to_csv(f"posterior_entrance_hazard{model_suffix}.csv", index=False)
+
+            entrance_latent_df = posterior_player_scalar_to_df(
+                surv_posterior["entrance_latent"],
+                id_df["id"],
+                "entrance_latent_duration",
+            )
+            entrance_latent_df = entrance_latent_df.merge(observed_surv_df, on="player", how="left")
+            entrance_latent_df["scenario"] = "observed"
+            entrance_latent_df.to_csv(f"posterior_entrance_latent{model_suffix}.csv", index=False)
+    
+            surv_posterior_counterfactual = make_survival_linear_injury_mcmc(
+                X=results_mcmc["X"],
+                entrance=results_mcmc["entrance"],
+                entrance_global_offset=results_mcmc["entrance_global_offset"],
+                exit_global_offset=results_mcmc["exit_global_offset"],
+                sigma_entrance=results_mcmc["sigma_entrance"],
+                entrance_latent_raw=results_mcmc["entrance_latent"],
+                exit=results_mcmc["exit"],
+                exit_rate=results_mcmc["exit_rate"],
+                injury_factor=results_mcmc["injury_factor"],
+                injury_exit_loading=results_mcmc["injury_exit_loading"],
+                injury_exit_global_offset=results_mcmc["injury_exit_global_offset"],
+                sigma_injury_exit=results_mcmc["sigma_injury_exit"],
+                injury_exit_raw=results_mcmc["injury_exit_raw"],
+                injury_indicator=jnp.zeros_like(injury_masks),
+                injury_type=jnp.zeros_like(injury_types),
+                entrance_times=Y_surv[:, 0] - 18 + 1e-6,
+                left_censor=surv_masks[:, 0],
+                basis=basis,
+            )
+
+
+            exit_survival_df_obs = posterior_survival_to_df(
+                surv_posterior["exit_survival"],
+                id_df["id"],
+                range(18, 39),
+                "exit_survival",
+            )
+            exit_survival_df_obs = exit_survival_df_obs.merge(observed_surv_df, on="player", how="left")
+            exit_survival_df_obs["scenario"] = "observed"
+            exit_survival_df_cf = posterior_survival_to_df(
+                surv_posterior_counterfactual["exit_survival"],
+                id_df["id"],
+                range(18, 39),
+                "exit_survival",
+            )
+            exit_survival_df_cf = exit_survival_df_cf.merge(observed_surv_df, on="player", how="left")
+            exit_survival_df_cf["scenario"] = "counterfactual"
+            pd.concat([exit_survival_df_obs, exit_survival_df_cf], ignore_index=True).to_csv(
+                f"posterior_exit_survival{model_suffix}.csv", index=False
+            )
+
+            exit_hazard_df_obs = posterior_survival_to_df(
+                surv_posterior["exit_hazard"],
+                id_df["id"],
+                range(18, 39),
+                "exit_hazard",
+            )
+            exit_hazard_df_obs = exit_hazard_df_obs.merge(observed_surv_df, on="player", how="left")
+            exit_hazard_df_obs["scenario"] = "observed"
+            exit_hazard_df_cf = posterior_survival_to_df(
+                surv_posterior_counterfactual["exit_hazard"],
+                id_df["id"],
+                range(18, 39),
+                "exit_hazard",
+            )
+            exit_hazard_df_cf = exit_hazard_df_cf.merge(observed_surv_df, on="player", how="left")
+            exit_hazard_df_cf["scenario"] = "counterfactual"
+            pd.concat([exit_hazard_df_obs, exit_hazard_df_cf], ignore_index=True).to_csv(
+                f"posterior_exit_hazard{model_suffix}.csv", index=False
+            )
+
+            exit_age_sample_df_obs = posterior_player_scalar_to_df(
+                surv_posterior["exit_age_sample"],
+                id_df["id"],
+                "exit_age_sample",
+            )
+            exit_age_sample_df_obs = exit_age_sample_df_obs.merge(observed_surv_df, on="player", how="left")
+            exit_age_sample_df_obs["scenario"] = "observed"
+            exit_age_sample_df_cf = posterior_player_scalar_to_df(
+                surv_posterior_counterfactual["exit_age_sample"],
+                id_df["id"],
+                "exit_age_sample",
+            )
+            exit_age_sample_df_cf = exit_age_sample_df_cf.merge(observed_surv_df, on="player", how="left")
+            exit_age_sample_df_cf["scenario"] = "counterfactual"
+            pd.concat([exit_age_sample_df_obs, exit_age_sample_df_cf], ignore_index=True).to_csv(
+                f"posterior_exit_age_sample{model_suffix}.csv", index=False
+            )
+    else:
+        surv_posterior = make_survival_linear_mcmc(
+                X=results_mcmc["X"],
+                entrance=results_mcmc["entrance"],
+                entrance_global_offset=results_mcmc["entrance_global_offset"],
+                exit_global_offset=results_mcmc["exit_global_offset"],
+                sigma_entrance=results_mcmc["sigma_entrance"],
+                entrance_latent_raw=results_mcmc["entrance_latent"],
+                exit=results_mcmc["exit"],
+                exit_rate=results_mcmc["exit_rate"],
+                entrance_times=Y_surv[:, 0] - 18 + 1e-6,
+                left_censor=surv_masks[:, 0],
+                basis=basis,
+                entry_shift=0.0,
+            )
+
+        observed_surv_df = pd.DataFrame(
+            {
+                "player": id_df["id"].to_numpy(),
+                "observed_entrance_age": np.asarray(Y_surv[:, 0]),
+                "observed_exit_age": np.asarray(Y_surv[:, 1]),
+                "entrance_censored": np.asarray(surv_masks[:, 0]).astype(np.int32),
+                "exit_censored": np.asarray(surv_masks[:, 1]).astype(np.int32),
+            }
+        )
+
+        entrance_survival_df = posterior_survival_to_df(
+            surv_posterior["entrance_survival"],
+            id_df["id"],
+            range(18, 39),
+            "entrance_survival",
+        )
+        entrance_survival_df = entrance_survival_df.merge(observed_surv_df, on="player", how="left")
+        entrance_survival_df["scenario"] = "observed"
+        entrance_survival_df.to_csv(f"posterior_entrance_survival{model_suffix}.csv", index=False)
+
+        entrance_hazard_df = posterior_survival_to_df(
+            surv_posterior["entrance_hazard"],
+            id_df["id"],
+            range(18, 39),
+            "entrance_hazard",
+        )
+        entrance_hazard_df = entrance_hazard_df.merge(observed_surv_df, on="player", how="left")
+        entrance_hazard_df["scenario"] = "observed"
+        entrance_hazard_df.to_csv(f"posterior_entrance_hazard{model_suffix}.csv", index=False)
+
+        entrance_latent_df = posterior_player_scalar_to_df(
+            surv_posterior["entrance_latent"],
+            id_df["id"],
+            "entrance_latent_duration",
+        )
+        entrance_latent_df = entrance_latent_df.merge(observed_surv_df, on="player", how="left")
+        entrance_latent_df["scenario"] = "observed"
+        entrance_latent_df.to_csv(f"posterior_entrance_latent{model_suffix}.csv", index=False)
+
+        
+
+
+        exit_survival_df_obs = posterior_survival_to_df(
+            surv_posterior["exit_survival"],
+            id_df["id"],
+            range(18, 39),
+            "exit_survival",
+        )
+        exit_survival_df_obs = exit_survival_df_obs.merge(observed_surv_df, on="player", how="left")
+        exit_survival_df_obs["scenario"] = "observed"
+        
+        exit_survival_df_obs.to_csv(
+            f"posterior_exit_survival{model_suffix}.csv", index=False
+        )
+
+        exit_hazard_df_obs = posterior_survival_to_df(
+            surv_posterior["exit_hazard"],
+            id_df["id"],
+            range(18, 39),
+            "exit_hazard",
+        )
+        exit_hazard_df_obs = exit_hazard_df_obs.merge(observed_surv_df, on="player", how="left")
+        exit_hazard_df_obs["scenario"] = "observed"
+        
+        exit_hazard_df_obs.to_csv(
+            f"posterior_exit_hazard{model_suffix}.csv", index=False
+        )
+
+        exit_age_sample_df_obs = posterior_player_scalar_to_df(
+            surv_posterior["exit_age_sample"],
+            id_df["id"],
+            "exit_age_sample",
+        )
+        exit_age_sample_df_obs = exit_age_sample_df_obs.merge(observed_surv_df, on="player", how="left")
+        exit_age_sample_df_obs["scenario"] = "observed"
+        
+        exit_age_sample_df_obs.to_csv(
+            f"posterior_exit_age_sample{model_suffix}.csv", index=False
+        )
+        
+
     players = id_df[id_df["name"].isin(predict_players)].index
     player_names = id_df[id_df["name"].isin(predict_players)]["name"].tolist()
     idata = az.from_dict(
@@ -380,67 +647,70 @@ if __name__ == "__main__":
     })
     summary = az.summary(idata)
     summary.to_csv(f"model_output/posterior_latent_ar{model_suffix}_summary.csv")
-    # print(jnp.mean(results_mcmc["sigma_beta"], (0, 1)), jnp.mean(results_mcmc["sigma_negative_binomial"], (0, 1)), jnp.mean(results_mcmc["tau"], (0, 1)))
-    # print_summary({k:results_mcmc[k] for k in results_mcmc if k in ["sigma_beta", "tau", "sigma_negative_binomial"]})
-    # raise ValueError 
 
-    summary = az.summary(results_mcmc, var_names = ["sigma_beta", "sigma_negative_binomial", "tau"])
+
+    _summary_vars = ["sigma_beta", "sigma_beta_binomial"]
+    _summary_subset = {k: results_mcmc[k] for k in _summary_vars if k in results_mcmc}
+    summary = az.summary(_summary_subset)
     summary.to_csv(f"model_output/posterior_variance{model_suffix}_summary.csv")
 
     peaks = tmax_mcmc + basis.mean()
     peak_val = cmax_mcmc 
     
-    _, pos = create_metric_trajectory_all(mu_mcmc + AR, Y, exposures, 
-                                            metric_output, metrics, exposure_list, 
-                                            jnp.transpose(results_mcmc["sigma"]),
+    _neg_bin_samples = jnp.transpose(results_mcmc["sigma_negative_binomial"], (2, 0, 1)) if "sigma_negative_binomial" in results_mcmc else None
+    _, pos = create_metric_trajectory_all(latent_val, Y, exposures,
+                                            metric_output, metrics, exposure_list,
+                                            jnp.transpose(results_mcmc["sigma"], (2, 0, 1)),
                                             jnp.transpose(results_mcmc["sigma_beta"],(2, 0, 1)),
-                                            # jnp.transpose(results_mcmc["sigma_beta_binomial"], (2, 0, 1)),
-                                            posterior_neg_bin_samples=jnp.transpose(results_mcmc["sigma_negative_binomial"], (2, 0, 1)),
-                                            posterior_tau_samples=jnp.transpose(results_mcmc["tau"], (2,0,1))
-                                            ) 
-    _, pos_no_ar = create_metric_trajectory_all(mu_mcmc, Y, exposures, 
-                                            metric_output, metrics, exposure_list, 
-                                            jnp.transpose(results_mcmc["sigma"]),
+                                            posterior_kappa_samples=jnp.transpose(results_mcmc["sigma_beta_binomial"], (2, 0, 1)),
+                                            posterior_neg_bin_samples=_neg_bin_samples,
+                                            )
+    _, pos_mu = create_metric_trajectory_all(mu_mcmc + de_trend_adjusted, Y, exposures,
+                                            metric_output, metrics, exposure_list,
+                                            jnp.transpose(results_mcmc["sigma"], (2, 0, 1)),
                                             jnp.transpose(results_mcmc["sigma_beta"],(2, 0, 1)),
-                                            # jnp.transpose(results_mcmc["sigma_beta_binomial"], (2, 0, 1)),
-                                            posterior_neg_bin_samples=jnp.transpose(results_mcmc["sigma_negative_binomial"], (2, 0, 1)),
-                                            posterior_tau_samples=jnp.transpose(results_mcmc["tau"], (2,0,1))
-                                            ) 
+                                            posterior_kappa_samples=jnp.transpose(results_mcmc["sigma_beta_binomial"], (2, 0, 1)),
+                                            posterior_neg_bin_samples=_neg_bin_samples,
+                                            )
     
 
     posterior_df = posterior_to_df(pos, id_df["id"], metrics, range(18,39))
-    
-    
     posterior_df.to_csv(f"posterior_ar{model_suffix}.csv", index = False)
     
     posterior_peaks = posterior_peaks_to_df(peaks, id_df["id"], metrics)
     posterior_peaks.to_csv(f"posterior_peaks_ar{model_suffix}.csv", index = False)
-    if not injury:
-
-        posterior_df_no_ar = posterior_to_df(pos_no_ar, id_df["id"], metrics, range(18,39))
-        posterior_df_no_ar.to_csv(f"posterior_no_ar{model_suffix}.csv", index = False)
+    
+    if injury and ("counterfactual" not in model_name):
+        _, pos_counterfactual = create_metric_trajectory_all(mu_mcmc + AR + de_trend_adjusted, Y, exposures,
+                                        metric_output, metrics, exposure_list,
+                                        jnp.transpose(results_mcmc["sigma"], (2, 0, 1)),
+                                        jnp.transpose(results_mcmc["sigma_beta"],(2, 0, 1)),
+                                        posterior_kappa_samples=jnp.transpose(results_mcmc["sigma_beta_binomial"], (2, 0, 1)),
+                                        posterior_neg_bin_samples=_neg_bin_samples,
+                                        )
+        posterior_counterfactual_df = posterior_to_df(pos_counterfactual, id_df["id"], metrics, range(18,39))
+        posterior_counterfactual_df.to_csv(f"posterior_counterfactual_ar{model_suffix}.csv", index = False)
         
 
-    
-        posterior_mu_df = posterior_to_df(jnp.transpose(mu_mcmc, (0, 1, 3, 4, 2)), id_df["id"], metrics, range(18,39))
-        posterior_mu_df.to_csv(f"posterior_mu_ar{model_suffix}.csv", index = False)
+    posterior_mu_df = posterior_to_df(jnp.transpose(mu_mcmc + de_trend_adjusted, (0, 1, 3, 4, 2)), id_df["id"], metrics, range(18,39))
+    posterior_mu_df.to_csv(f"posterior_mu_ar{model_suffix}.csv", index = False)
 
-        posterior_third_deriv = posterior_peaks_to_df(third_deriv, id_df["id"], metrics)
-        posterior_third_deriv.to_csv(f"posterior_third_deriv_ar{model_suffix}.csv", index = False)
+    posterior_third_deriv = posterior_peaks_to_df(third_deriv, id_df["id"], metrics)
+    posterior_third_deriv.to_csv(f"posterior_third_deriv_ar{model_suffix}.csv", index = False)
 
-        posterior_first_deriv = posterior_to_df(jnp.transpose(first_deriv, (0, 1, 3, 4, 2)), id_df["id"], metrics, range(18,39))
-        posterior_first_deriv.to_csv(f"posterior_first_deriv_ar{model_suffix}.csv", index = False)
+    posterior_first_deriv = posterior_to_df(jnp.transpose(first_deriv, (0, 1, 3, 4, 2)), id_df["id"], metrics, range(18,39))
+    posterior_first_deriv.to_csv(f"posterior_first_deriv_ar{model_suffix}.csv", index = False)
 
-        posterior_peak_vals = posterior_peaks_to_df(peak_val, id_df["id"], metrics)
-        posterior_peak_vals.to_csv(f"posterior_peak_vals_ar{model_suffix}.csv", index = False)
+    posterior_peak_vals = posterior_peaks_to_df(peak_val, id_df["id"], metrics)
+    posterior_peak_vals.to_csv(f"posterior_peak_vals_ar{model_suffix}.csv", index = False)
 
 
     latent_space_df = pd.DataFrame(results_map["X"], columns = [f"Dim {i+1}" for i in range(results_map["X"].shape[1])])
     latent_space_df = pd.concat([latent_space_df, id_df], axis = 1)
     latent_space_df.to_csv(f"latent_space{model_suffix}.csv", index = False)
 
-    df = posterior_X_to_df(results_mcmc["X"], id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], player_indices)
-    df.to_csv(f"latent_X{model_suffix}.csv", index = False)
+    # df = posterior_X_to_df(results_mcmc["X"], id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], player_indices)
+    # df.to_csv(f"latent_X{model_suffix}.csv", index = False)
 
     if "hsgp" in model_name:
         phi_x = eigenfunctions_multivariate(results_map["X"],  2 * jnp.ones(basis_dims)[..., None] , approx_x_dim)
@@ -473,16 +743,15 @@ if __name__ == "__main__":
         wTx = jnp.einsum("nr,mr -> nm", results_map["X"], results_map["W"]  * jnp.sqrt(results_map["lengthscale"]))
         phi_x_latent = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(approx_x_dim))  
     elif "linear" in model_name:
-        phi_x_latent = results_map["X"][:, basis_dims // 3 : ]
-        phi_x_t = results_map["X"][:, 0: basis_dims // 3]
-        phi_x_c = results_map["X"][:, basis_dims // 3 : 2 * basis_dims // 3]
+        phi_x_latent = results_map["X"]
+
 
 
 
     phi_X_df = pd.DataFrame(phi_x_latent, columns = [f"Dim {i+1}" for i in range(phi_x_latent.shape[1])])
     phi_X_df = pd.concat([phi_X_df, id_df], axis = 1)
     phi_X_df.to_csv(f"phi_X{model_suffix}.csv", index = False)
-    if ("hsgplvm" in model_name or "linear" in model_name) and "spectral" not in model_name:
+    if ("hsgplvm" in model_name) and "spectral" not in model_name:
         phi_X_df = pd.DataFrame(phi_x_t, columns = [f"Dim {i+1}" for i in range(phi_x_t.shape[1])])
         phi_X_df = pd.concat([phi_X_df, id_df], axis = 1)
         phi_X_df.to_csv(f"phi_X_peak_age{model_suffix}.csv", index = False)

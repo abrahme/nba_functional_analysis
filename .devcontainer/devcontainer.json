@@ -19,7 +19,10 @@
         "--name=jax-cuda", // needs to be unique
         "--hostname=jax-cuda_container", // needs to be unique
         "--device=nvidia.com/gpu=all",
-        "--security-opt=label=disable"
+        "--security-opt=label=disable",
+        "--pids-limit=8192",
+        "--ulimit=nproc=65535:65535",
+        "--shm-size=2g"
     ],
 
     "customizations": {

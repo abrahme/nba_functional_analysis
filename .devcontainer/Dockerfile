@@ -57,6 +57,9 @@ RUN pip install \
         html5lib
 
 # RUN pip install --upgrade "jax[cuda12]"
+ENV XLA_FLAGS="--xla_cpu_multi_thread_eigen=true"
+ENV OMP_NUM_THREADS=16
+ENV MKL_NUM_THREADS=16
 
 ## GitHub CLI Installation
 RUN (type -p wget >/dev/null || ( apt update &&  apt-get install wget -y)) \

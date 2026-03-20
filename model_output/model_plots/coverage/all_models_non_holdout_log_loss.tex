@@ -1,0 +1,27 @@
+\begin{table}
+\caption{Non-holdout average log loss by metric across models (bold = lowest value)}
+\label{tab:non_holdout_log_loss_all_models}
+\begin{tabular}{lllll}
+\toprule
+Metric & concave & concave + AR & concave + AR + injury & naive \\
+\midrule
+games & 3.8125 & \textbf{3.3912} & 3.4826 & 3.8915 \\
+usg & -2.3640 & \textbf{-2.8664} & -2.6732 & -2.0192 \\
+pct_minutes & -0.9291 & \textbf{-1.3960} & -1.3090 & -0.7178 \\
+obpm & 1.8590 & \textbf{1.4636} & 1.5283 & 2.1416 \\
+dbpm & 1.3019 & \textbf{0.8501} & 0.9362 & 1.3089 \\
+blk & 2.8165 & \textbf{2.0719} & 2.2634 & 3.1577 \\
+stl & 3.0610 & \textbf{2.4342} & 2.5860 & 3.1745 \\
+ast & 4.1420 & \textbf{2.8352} & 3.4352 & 5.2426 \\
+dreb & 4.1486 & \textbf{3.1297} & 3.5983 & 4.5867 \\
+oreb & 3.4302 & \textbf{2.5713} & 2.8791 & 3.9623 \\
+tov & 3.5512 & \textbf{2.7422} & 2.9422 & 3.8617 \\
+fta & 4.5637 & \textbf{2.9201} & 3.5536 & 6.8205 \\
+fg2a & 5.2783 & \textbf{3.4477} & 4.5061 & 8.5123 \\
+fg3a & 4.4707 & \textbf{2.4150} & 4.7905 & 8.6654 \\
+ftm & 2.8437 & \textbf{2.1656} & 2.3301 & 2.9535 \\
+fg2m & 3.4258 & \textbf{2.7665} & 2.9572 & 3.4767 \\
+fg3m & 2.4123 & \textbf{1.9779} & 2.1101 & 2.4156 \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -486,15 +486,29 @@ $$
 
 # Injury Impact Estimation 
 
-![Derrick Rose injury treatment effect by metric.](../../model_output/model_plots/causal/Derrick%20Rose_metrics_itt.png){width="82%"}
+We define the causal estimand of interest as the mean effect of injury on a given metric, averaged across all injured time-points and players. 
 
+We make the following causal assumptions (which may or may not be true in our data, but are necessary for identification of the estimand):
 
+1. No unmeasured confounding: all confounders of the injury-outcome relationship are observed and included in the model (e.g. age, position, prior performance).
+2. Consistency: the potential outcome under the observed injury status is equal to the observed outcome.
+3. Positivity: there is a non-zero probability of being injured or not injured for all combinations of confounders.
 
----
+# Average Injury Treatment Effect
 
-# Injury Impact Estimation: Population Posterior
+ATE is the average difference in the metric of interest between the injured and counterfactual non-injured state, averaged across all injured time-points and players. In our model, the posterior of $\tau_{mk}$ represents the ATE of injury on each metric.
 
 ![Posterior interval of injury mean effect by metric.](../../model_output/model_plots/causal/injury_mean_posterior_interval_by_metric.png){width="82%"}
+
+# Modeling Counterfactual Trajectories
+
+ Adjust the predicted trajectories for injured time-points by subtracting the estimated injury effect from the full prediction
+
+![](../../model_output/model_plots/causal/Derrick%20Rose_metrics_itt.png){fig-align="center" width="70%"}
+
+
+
+
 
 
 
@@ -504,5 +518,6 @@ $$
 1. Model Validation
 2. Time Decay of Injury Effects
 3. Injury Heterogeneity Analysis
+4. Extending a survival model to assess impact of injury on career longevity.
 
 

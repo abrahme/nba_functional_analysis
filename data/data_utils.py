@@ -109,7 +109,7 @@ def process_data(df, output_metric, exposure, model, input_metrics, player_indic
         metric_array = metric_df.to_numpy()
         if normalize:
             metric_array = (metric_array - np.nanmean(metric_array)) / (np.nanstd(metric_array))
-        adj_exp_array = jnp.sqrt(exposure_array)
+        adj_exp_array = jnp.sqrt(1 + exposure_array)
         de_trend_array = jnp.log(de_trend_array / (1 - de_trend_array))
     if injury:  
         injury_array = df[["injury_period", "id", "age"]].pivot(columns = "age", values = "injury_period", index = "id").reindex(columns=range(18,39))

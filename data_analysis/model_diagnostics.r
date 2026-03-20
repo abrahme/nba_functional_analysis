@@ -91,7 +91,7 @@ injury_data <-  data |>
 print("pivoted the original data")
 
 
-empirical_player_plt <- injury_data |> filter(metric != "retirement") |> filter(name %in% c("Kobe Bryant", "Dwight Howard", "LeBron James")) |> mutate(metric = toupper(metric),
+empirical_player_plt <- injury_data |> filter(name %in% c("Kobe Bryant", "Dwight Howard", "LeBron James")) |> mutate(metric = toupper(metric),
            metric = case_when(metric == "GAMES" ~ "GP%",
                               metric == "FG2M" ~ "FG2%",
                               metric == "FG3M" ~ "FG3%",
@@ -112,7 +112,7 @@ empirical_player_plt <- injury_data |> filter(metric != "retirement") |> filter(
 
 ggsave("model_output/model_plots/empirical_production_player.png", empirical_player_plt)    
 
-empirical_plt <- injury_data  |> filter(metric != "retirement") |> mutate(metric = toupper(metric),
+empirical_plt <- injury_data |> mutate(metric = toupper(metric),
            metric = case_when(metric == "GAMES" ~ "GP%",
                               metric == "FG2M" ~ "FG2%",
                               metric == "FG3M" ~ "FG3%",
@@ -130,7 +130,6 @@ ggsave("model_output/model_plots/empirical_production.png", empirical_plt)
 
 posterior_data <- read.csv("posterior_ar_linear.csv") |> mutate(value = if_else(metric == "pct_minutes", value * 48, value))
 posterior_mu_data <- read.csv("posterior_mu_ar_linear.csv") 
-posterior_data_no_ar <- read.csv("posterior_no_ar_linear.csv") |> mutate(value = if_else(metric == "pct_minutes", value * 48, value))
 print("loaded the posterior data")
 posterior_peaks <- read.csv("posterior_peaks_ar_linear.csv")
 posterior_peak_vals <- read.csv("posterior_peak_vals_ar_linear.csv")
@@ -138,6 +137,8 @@ latent_space <- read.csv("latent_space_linear.csv")
 phi_X <- read.csv("phi_X_linear.csv")
 third_deriv <- read.csv("posterior_third_deriv_ar_linear.csv")
 first_deriv = read.csv("posterior_first_deriv_ar_linear.csv")
+posterior_retirement_data <- read.csv("posterior_exit_age_sample_linear.csv")
+posterior_survival_data <- read.csv("posterior_exit_survival_linear.csv")
 
 
 # obpm_curves <- posterior_mu_data |> filter(metric == "dbpm") |> group_by(player, age) |> summarize(value = mean(value)) |> ungroup() |> group_by(player) |> arrange(age, .by_group = TRUE) |>
@@ -165,7 +166,7 @@ first_deriv = read.csv("posterior_first_deriv_ar_linear.csv")
 
 # cluster_curves_plt <- ggplot(obpm_curves_cluster, aes(x = age, y = mean_value, color = cluster)) + geom_line() + theme_bw() +  scale_colour_brewer(palette = "Set1") + 
 #                               ggtitle("Clustered Normalized OBPM Curves") +xlab("Age") + ylab("Metric Value")
-# ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_max_cluster.png", cluster_curves_plt) 
+# ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_ar_max_cluster.png", cluster_curves_plt) 
 
 
 
@@ -224,7 +225,7 @@ peak_2019_class <- peaks_plt_df |> rename(peak_age = value) |> inner_join(peak_v
                   max.overlaps = 5) + theme_bw() + 
   scale_colour_brewer(palette = "Set1") + ggtitle("Posterior Mean of Peak OBPM Age, Value for 2016 Draft Class") + labs(x = "Peak Age", color = "Position Group", y = "Peak OBPM Value")
 
-ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_max_2018.png", peak_2019_class)
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_ar_max_2018.png", peak_2019_class)
 
 
 
@@ -277,7 +278,7 @@ ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_max_2018.png"
 
 peaks_players <- peaks_plt_df %>% group_by(metric, player) %>% summarize(value = mean(value)) %>% ungroup() %>% pivot_wider(names_from = metric, values_from = value) %>% inner_join(latent_space %>% filter(minutes >= quantile(minutes, .75, na.rm = TRUE)) %>% select(id), by = c("player" = "id"))
 
-peaks_pca <- prcomp(peaks_players  %>% select(-c(player,RETIREMENT)) %>% data.matrix() , scale. = TRUE, center = TRUE)
+peaks_pca <- prcomp(peaks_players  %>% select(-c(player)) %>% data.matrix() , scale. = TRUE, center = TRUE)
 
 peaks_pca_df <- tibble(PC1 = peaks_pca$x[,1], PC2 = peaks_pca$x[,2], id = peaks_players$player) %>% inner_join(latent_space %>% select(id, name, position_group, minutes))
 
@@ -303,7 +304,7 @@ peaks_pca_plot  <-filter(peaks_pca_df, name %in% pca_outlier_names) %>% ggplot(a
   ylim(-max_range, max_range) + 
   theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("PCA Visualization of Learned Metric Peaks") + labs(x = "PC 1", y = "PC 2")
 
-ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_max_pca.png", peaks_pca_plot)
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_ar_max_pca.png", peaks_pca_plot)
 
 # Extract loadings
 loadings <- as.data.frame(peaks_pca$rotation[, 1:2])
@@ -323,12 +324,12 @@ peaks_pca_loadings_plt <- ggplot(loadings, aes(x = PC1, y = PC2)) +
   coord_cartesian(xlim = c(-max(abs(loadings$PC1)), max(abs(loadings$PC1))), 
                   ylim = c(-max(abs(loadings$PC2)), max(abs(loadings$PC2)))) +
   ggtitle("PCA Visualization of Learned Metric Peaks Factor Loadings") + labs(x = "PC 1", y = "PC 2", color = "Metric Group")
-ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_max_pca_loadings.png", peaks_pca_loadings_plt)
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_ar_max_pca_loadings.png", peaks_pca_loadings_plt)
 
 
 peak_vals_players <- peak_vals_plt_df %>% group_by(metric, player) %>% summarize(value = mean(value)) %>% ungroup() %>% pivot_wider(names_from = metric, values_from = value) %>% inner_join(latent_space %>% filter(minutes >= quantile(minutes, .75, na.rm = TRUE)) %>% select(id), by = c("player" = "id"))
 
-peak_vals_pca <- prcomp(peak_vals_players  %>% select(-c(player,RETIREMENT)) %>% data.matrix() , scale. = TRUE, center = TRUE)
+peak_vals_pca <- prcomp(peak_vals_players  %>% select(-c(player)) %>% data.matrix() , scale. = TRUE, center = TRUE)
 
 peak_vals_pca_df <- tibble(PC1 = peak_vals_pca$x[,1], PC2 = peak_vals_pca$x[,2], id = peak_vals_players$player) %>% inner_join(latent_space %>% select(id, name, position_group, minutes))
 
@@ -346,7 +347,7 @@ peak_vals_pca_plot  <-  peak_vals_pca_df %>% ggplot(aes(x = PC1, y = PC2)) +  ge
                       inherit.aes = FALSE) + 
   theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("PCA Visualization of Learned Metric Peak Values") + labs(x = "PC 1", y = "PC 2", color = "Position Group", alpha = "Minutes")
 
-ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_max_pca_vals.png", peak_vals_pca_plot)
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_ar_max_pca_vals.png", peak_vals_pca_plot)
 
 # Extract loadings
 loadings_vals <- as.data.frame(peak_vals_pca$rotation[, 1:2])
@@ -365,7 +366,7 @@ peak_vals_pca_loadings_plt <- ggplot(loadings_vals, aes(x = PC1, y = PC2)) +
   coord_cartesian(xlim = c(-max(abs(loadings_vals$PC1)), max(abs(loadings_vals$PC1))), 
                   ylim = c(-max(abs(loadings_vals$PC2)), max(abs(loadings_vals$PC2)))) +
   ggtitle("PCA Visualization of Learned Metric Peak Values Factor Loadings") + labs(x = "PC 1", y = "PC 2")
-ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_max_pca_vals_loadings.png", peak_vals_pca_loadings_plt)
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_ar_max_pca_vals_loadings.png", peak_vals_pca_loadings_plt)
 
 
 skew_plt_df <- posterior_peaks |> inner_join(
@@ -404,7 +405,7 @@ skew_plt <- ggplot(skew_plt_df, aes( x = first_deriv_pre / first_deriv_post, col
   ) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) 
 
 
-ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_max_skew.png", skew_plt)
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_ar_max_skew.png", skew_plt)
 
 
 peaks_plt <- ggplot(peaks_plt_df |> inner_join(loadings, by = "metric") |> group_by(metric, player) |> summarize(minutes = first(minutes), metric_group = first(metric_group), value = mean(value)) |> ungroup() |>   mutate(
@@ -426,7 +427,7 @@ peaks_plt <- ggplot(peaks_plt_df |> inner_join(loadings, by = "metric") |> group
 
 
 
-ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_max.png", peaks_plt)
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_ar_max.png", peaks_plt)
 
 
 
@@ -451,7 +452,7 @@ third_deriv_plt <- ggplot(third_deriv |> inner_join(data |> group_by(id) |> summ
   theme_bw() + scale_fill_brewer(palette = "Set1") + scale_color_brewer(palette = "Set1") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) 
 
 
-ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_max_third_deriv.png", third_deriv_plt)
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_ar_max_third_deriv.png", third_deriv_plt)
 
 
 
@@ -460,14 +461,12 @@ curve_third_deriv_plt <- ggplot(third_deriv |> filter(metric == "obpm") |> mutat
                                 inner_join(posterior_mu_data) |> mutate(value = value - value[age == 18]) , aes(x = age, y = value, group = interaction(chain, sample, player, metric), color = quantile)) + geom_line(alpha = .9)  + theme_bw() + scale_fill_brewer(palette = "Set1") +
                                 labs(x = "Age", y = "Latent Curve Value", color = "Skew Type") + ggtitle("Illustration of Third Derivative Influence on Latent Curve Symmetry")
 
-ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_max_third_deriv_curves.png", curve_third_deriv_plt)
+ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_ar_max_third_deriv_curves.png", curve_third_deriv_plt)
 
 posterior_data <- posterior_data  |> 
                                     inner_join(posterior_peaks |> 
                                     rename(peak_age = value), by = c("player", "chain", "sample", "metric"))
-posterior_data_no_ar <- posterior_data_no_ar |> 
-                                    inner_join(posterior_peaks |> 
-                                    rename(peak_age = value), by = c("player", "chain", "sample", "metric"))
+
 joined_data <- posterior_data |> 
                 left_join(injury_data |> inner_join(player_year_bounds) |>
                                 semi_join(posterior_data, by = c("id" = "player")
@@ -494,35 +493,11 @@ joined_data <- posterior_data |>
                   )
                 ) |>
                 select(-first_obs, -last_obs)
-joined_data_no_ar <- posterior_data_no_ar |> 
-                left_join(injury_data |> 
-                                semi_join(posterior_data, by = c("id" = "player")
-                                ),
-                                 by = c("player" = "id", "metric", "age")
-                                 ) |> inner_join(player_year_bounds, by = c("player" = "id")) |>
-                group_by(player, chain, sample, metric) |> 
-                arrange(age) |> fill(name, .direction  = "downup") |> 
-                mutate(
-                  base_age = if_else(!is.na(year), age, NA_integer_),
-                  base_year = if_else(!is.na(year), year, NA_integer_)) |>
-                
-                fill(base_age, base_year, .direction = "downup") |>
-                mutate(
-                  year = if_else(is.na(year), base_year + (age - base_age), year)) |> 
-                select(-base_age, -base_year) |> ungroup() |> mutate(
-                  obs_value = case_when(
-                    # Rule A: year <= target_year & year >= last_obs for the target metric
-                    metric == "retirement" & is.na(obs_value) & year <= 2026  & year > last_obs  ~ 0,
-                    # Rule B: year >= target_min_year & year <= first_obs for the target metric
-                    metric == "retirement" & is.na(obs_value) & year > 1997 & year < first_obs ~ 0,
-                    TRUE ~ obs_value
-                  )
-                ) |>
-                select(-first_obs, -last_obs)
-print("joined the data with predictions")
 
-validation_coverage_df <- joined_data |> filter(year >= 2022 & year <= 2025 & metric != "retirement") |> group_by(metric, player, age) |> summarize(lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
-    upper = HDInterval::hdi(value, credMass = 0.95)["upper"], obs_value = first(obs_value), year = min(year), posterior_mean = mean(value, na.rm = TRUE) ) |> ungroup() |>
+
+validation_coverage_df <- joined_data |> filter(year >= 2022 & year <= 2025) |> group_by(metric, player, age) |> 
+                          summarize(lower = HDInterval::hdi(value, credMass = 0.95)["lower"], upper = HDInterval::hdi(value, credMass = 0.95)["upper"], obs_value = first(obs_value), year = min(year), posterior_mean = mean(value, na.rm = TRUE) ) |> 
+                          ungroup() |>
 
     mutate(
     validation_coverage = between(obs_value, lower, upper)) |> filter(!is.na(obs_value)) |> 
@@ -533,9 +508,8 @@ validation_coverage_df <- joined_data |> filter(year >= 2022 & year <= 2025 & me
                               metric == "FTM" ~ "FT%",
                               metric == "PCT_MINUTES" ~ "MPG",
                               .default = metric))
-validation_coverage_df_retirement <- joined_data |> filter(year >= 2022 & year <= 2025 & metric == "retirement") %>% mutate(metric = toupper(metric)) %>% filter(!is.na(obs_value)) %>% group_by(metric) %>% summarize(validation_coverage = mean(if_else(obs_value == 1, value, 1 - value))) %>% ungroup()
 
-in_sample_coverage_df <- joined_data |> filter(year <= 2021 & metric != "retirement") |> group_by(metric, player, age) |> summarize(lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
+in_sample_coverage_df <- joined_data |> filter(year <= 2021) |> group_by(metric, player, age) |> summarize(lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
     upper = HDInterval::hdi(value, credMass = 0.95)["upper"], obs_value = first(obs_value), year = min(year)) |> ungroup() |>  
     mutate(
     in_sample_coverage = between(obs_value, lower, upper)) |> ungroup() |> filter(!is.na(obs_value)) |> 
@@ -547,23 +521,74 @@ in_sample_coverage_df <- joined_data |> filter(year <= 2021 & metric != "retirem
                               metric == "PCT_MINUTES" ~ "MPG",
                               .default = metric))
 
-in_sample_coverage_df_retirement <- joined_data |> filter(year <= 2021 & metric == "retirement") %>% mutate(metric = toupper(metric)) %>% filter(!is.na(obs_value)) %>% group_by(metric) %>% summarize(in_sample_coverage = mean(if_else(obs_value == 1, value, 1 - value))) %>% ungroup()
+player_exit_meta <- data |> 
+  group_by(id) |> 
+  summarize(observed_exit_year = max(year, na.rm = TRUE),
+            years_played = n(),
+            .groups = "drop")
+
+exit_age_coverage_df <- posterior_retirement_data |>
+  filter(measure == "exit_age_sample", scenario == "observed", exit_censored == 0) |>
+  group_by(player) |>
+  summarize(
+    lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
+    upper = HDInterval::hdi(value, credMass = 0.95)["upper"],
+    obs_value = first(observed_exit_age),
+    posterior_mean = mean(value, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  inner_join(player_exit_meta, by = c("player" = "id")) |>
+  mutate(
+    metric = "EXIT_AGE",
+    exit_age_coverage = between(obs_value, lower, upper)
+  )
+
+retirement_validation_summary <- joined_data |>
+  filter(year >= 2022 & year <= 2025 & metric == "retirement") |>
+  filter(!is.na(obs_value)) |>
+  group_by(metric) |>
+  summarize(validation_coverage = mean(if_else(obs_value == 1, value, 1 - value), na.rm = TRUE), .groups = "drop") |>
+  mutate(metric = toupper(metric))
+
+retirement_in_sample_summary <- joined_data |>
+  filter(year <= 2021 & metric == "retirement") |>
+  filter(!is.na(obs_value)) |>
+  group_by(metric) |>
+  summarize(in_sample_coverage = mean(if_else(obs_value == 1, value, 1 - value), na.rm = TRUE), .groups = "drop") |>
+  mutate(metric = toupper(metric))
+
+exit_age_validation_summary <- exit_age_coverage_df |>
+  filter(observed_exit_year >= 2022 & observed_exit_year <= 2025) |>
+  summarize(metric = "EXIT_AGE", validation_coverage = mean(exit_age_coverage, na.rm = TRUE))
+
+exit_age_in_sample_summary <- exit_age_coverage_df |>
+  filter(observed_exit_year <= 2021) |>
+  summarize(metric = "EXIT_AGE", in_sample_coverage = mean(exit_age_coverage, na.rm = TRUE))
+
+validation_coverage_summary <- validation_coverage_df |>
+  group_by(metric) |>
+  summarize(validation_coverage = mean(validation_coverage, na.rm = TRUE), .groups = "drop") |>
+  bind_rows(retirement_validation_summary, exit_age_validation_summary)
+
+in_sample_coverage_summary <- in_sample_coverage_df |>
+  group_by(metric) |>
+  summarize(in_sample_coverage = mean(in_sample_coverage, na.rm = TRUE), .groups = "drop") |>
+  bind_rows(retirement_in_sample_summary, exit_age_in_sample_summary)
 
 
-coverage_plt_basic <- validation_coverage_df |> group_by(metric) |> summarize(validation_coverage = mean(validation_coverage, na.rm = TRUE)) |> ungroup() |>
-                      bind_rows(validation_coverage_df_retirement) |> 
-                      inner_join(in_sample_coverage_df |> group_by(metric) |> summarize(in_sample_coverage = mean(in_sample_coverage, na.rm = TRUE)) |> ungroup() |> bind_rows(in_sample_coverage_df_retirement)) |> 
+
+coverage_plt_basic <- validation_coverage_summary |>
+                      inner_join(in_sample_coverage_summary, by = "metric") |> 
                       pivot_longer(cols = c(in_sample_coverage,validation_coverage),  names_to = "coverage_type", values_to = "Coverage") |>
                       mutate(coverage_type = case_when(coverage_type == "in_sample_coverage" ~ "In-Sample Coverage",
                                                         coverage_type == "validation_coverage" ~ "Validation Coverage")) |>
                       ggplot(aes(x  = coverage_type, y = Coverage, fill = coverage_type)) + geom_col(position = "dodge") +facet_wrap(~ metric, scales = "fixed") +
                       coord_cartesian(ylim = c(0, 1)) +
                       theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Coverage (In-Sample vs. Validation)") + labs(x = NULL, fill = "Coverage Type") + theme(axis.text.x = element_blank())
-ggsave("model_output/model_plots/coverage/nba_convex_tvlinearlvm_max_ar.png", coverage_plt_basic)
+ggsave("model_output/model_plots/coverage/nba_convex_tvlinearlvm_ar_max.png", coverage_plt_basic)
 
-latex_code <- validation_coverage_df |> group_by(metric) |> summarize(validation_coverage = mean(validation_coverage, na.rm = TRUE)) |> ungroup() |>
-                      bind_rows(validation_coverage_df_retirement) |> 
-                      inner_join(in_sample_coverage_df |> group_by(metric) |> summarize(in_sample_coverage = mean(in_sample_coverage, na.rm = TRUE)) |> ungroup() |> bind_rows(in_sample_coverage_df_retirement)) |>
+latex_code <- validation_coverage_summary |>
+            inner_join(in_sample_coverage_summary, by = "metric") |>
                       mutate(
                           in_sample_coverage = paste0(round(in_sample_coverage * 100, 1), "%"),
                           validation_coverage = paste0(round(validation_coverage * 100, 1), "%")) |> gt() |>
@@ -574,14 +599,106 @@ latex_code <- validation_coverage_df |> group_by(metric) |> summarize(validation
                         ) |>
                         tab_header(title = "Coverage Summary") |>
                         as_latex()
-writeLines(latex_code, "model_output/model_plots/coverage/nba_convex_tvlinearlvm_max_ar.tex")
+writeLines(latex_code, "model_output/model_plots/coverage/nba_convex_tvlinearlvm_ar_max.tex")
 
-coverage_plt_yearly <- validation_coverage_df |> group_by(metric, year) |> summarize(Coverage = mean(validation_coverage, na.rm = TRUE)) |> ungroup() |> 
-                        bind_rows(joined_data %>% filter(year >= 2022 & year <= 2025 & metric == "retirement") %>% mutate(metric = toupper(metric)) %>% filter(!is.na(obs_value)) %>% group_by(metric, year) %>% summarize(Coverage = mean(if_else(obs_value == 1, value, 1 - value))) %>% ungroup()) |> ggplot(aes(x = year, y = Coverage)) + 
+# Posterior Bias Table (mean [95% HDI]) — rows: metrics, cols: in-sample / validation
+# Compute per-sample mean bias for continuous metrics
+validation_bias_samples <- joined_data |>
+  filter(year >= 2022 & year <= 2025, metric != "retirement") |>
+  filter(!is.na(obs_value)) |>
+  group_by(chain, sample, metric) |>
+  summarize(mean_bias = mean(value - obs_value, na.rm = TRUE), .groups = "drop") |>
+  mutate(metric = toupper(metric),
+         metric = case_when(metric == "GAMES" ~ "GP%",
+                            metric == "FG2M" ~ "FG2%",
+                            metric == "FG3M" ~ "FG3%",
+                            metric == "FTM" ~ "FT%",
+                            metric == "PCT_MINUTES" ~ "MPG",
+                            .default = metric))
+
+in_sample_bias_samples <- joined_data |>
+  filter(year <= 2021, metric != "retirement") |>
+  filter(!is.na(obs_value)) |>
+  group_by(chain, sample, metric) |>
+  summarize(mean_bias = mean(value - obs_value, na.rm = TRUE), .groups = "drop") |>
+  mutate(metric = toupper(metric),
+         metric = case_when(metric == "GAMES" ~ "GP%",
+                            metric == "FG2M" ~ "FG2%",
+                            metric == "FG3M" ~ "FG3%",
+                            metric == "FTM" ~ "FT%",
+                            metric == "PCT_MINUTES" ~ "MPG",
+                            .default = metric))
+
+validation_bias_summary <- validation_bias_samples |>
+  group_by(metric) |>
+  summarize(
+    val_mean  = mean(mean_bias, na.rm = TRUE),
+    val_lower = HDInterval::hdi(mean_bias, credMass = 0.95)["lower"],
+    val_upper = HDInterval::hdi(mean_bias, credMass = 0.95)["upper"],
+    .groups = "drop"
+  ) |>
+  mutate(validation_bias = paste0(round(val_mean, 3), " [", round(val_lower, 3), ", ", round(val_upper, 3), "]")) |>
+  select(metric, validation_bias)
+
+in_sample_bias_summary <- in_sample_bias_samples |>
+  group_by(metric) |>
+  summarize(
+    is_mean  = mean(mean_bias, na.rm = TRUE),
+    is_lower = HDInterval::hdi(mean_bias, credMass = 0.95)["lower"],
+    is_upper = HDInterval::hdi(mean_bias, credMass = 0.95)["upper"],
+    .groups = "drop"
+  ) |>
+  mutate(in_sample_bias = paste0(round(is_mean, 3), " [", round(is_lower, 3), ", ", round(is_upper, 3), "]")) |>
+  select(metric, in_sample_bias)
+
+# Exit age bias (already has posterior_mean and obs_value per player)
+exit_age_bias_validation <- exit_age_coverage_df |>
+  filter(observed_exit_year >= 2022 & observed_exit_year <= 2025) |>
+  summarize(
+    metric        = "EXIT_AGE",
+    val_mean      = mean(posterior_mean - obs_value, na.rm = TRUE),
+    val_lower     = HDInterval::hdi(posterior_mean - obs_value, credMass = 0.95)["lower"],
+    val_upper     = HDInterval::hdi(posterior_mean - obs_value, credMass = 0.95)["upper"]
+  ) |>
+  mutate(validation_bias = paste0(round(val_mean, 3), " [", round(val_lower, 3), ", ", round(val_upper, 3), "]")) |>
+  select(metric, validation_bias)
+
+exit_age_bias_in_sample <- exit_age_coverage_df |>
+  filter(observed_exit_year <= 2021) |>
+  summarize(
+    metric    = "EXIT_AGE",
+    is_mean   = mean(posterior_mean - obs_value, na.rm = TRUE),
+    is_lower  = HDInterval::hdi(posterior_mean - obs_value, credMass = 0.95)["lower"],
+    is_upper  = HDInterval::hdi(posterior_mean - obs_value, credMass = 0.95)["upper"]
+  ) |>
+  mutate(in_sample_bias = paste0(round(is_mean, 3), " [", round(is_lower, 3), ", ", round(is_upper, 3), "]")) |>
+  select(metric, in_sample_bias)
+
+bias_latex_code <- in_sample_bias_summary |>
+  bind_rows(exit_age_bias_in_sample) |>
+  inner_join(
+    bind_rows(validation_bias_summary, exit_age_bias_validation),
+    by = "metric"
+  ) |>
+  gt() |>
+  cols_label(
+    metric         = "Metric",
+    in_sample_bias = "In-Sample Bias (95\\% HDI)",
+    validation_bias = "Validation Bias (95\\% HDI)"
+  ) |>
+  tab_header(title = "Posterior Bias Summary: Mean [95\\% HDI]") |>
+  as_latex()
+
+writeLines(bias_latex_code, "model_output/model_plots/coverage/nba_convex_tvlinearlvm_ar_max_bias.tex")
+
+coverage_plt_yearly <- validation_coverage_df |> group_by(metric, year) |> summarize(Coverage = mean(validation_coverage, na.rm = TRUE), .groups = "drop") |> 
+                        bind_rows(joined_data %>% filter(year >= 2022 & year <= 2025 & metric == "retirement") %>% mutate(metric = toupper(metric)) %>% filter(!is.na(obs_value)) %>% group_by(metric, year) %>% summarize(Coverage = mean(if_else(obs_value == 1, value, 1 - value), na.rm = TRUE), .groups = "drop")) |>
+                        bind_rows(exit_age_coverage_df %>% filter(observed_exit_year >= 2022 & observed_exit_year <= 2025) %>% mutate(year = observed_exit_year, Coverage = as.numeric(exit_age_coverage)) %>% group_by(metric, year) %>% summarize(Coverage = mean(Coverage, na.rm = TRUE), .groups = "drop")) |>
+                        ggplot(aes(x = year, y = Coverage)) + 
                         geom_col() + facet_wrap(~metric, scales = "free_y") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
                         theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Validation Coverage by Time Horizon") +xlab("Year")
-ggsave("model_output/model_plots/coverage/nba_convex_tvlinearlvm_max_ar_validation_yearly.png", coverage_plt_yearly)
-coverage_plt_minutes <- validation_coverage_df |> inner_join(data |> filter(year <= 2021) |> group_by(id) |> summarize(years_played = n()) |> ungroup(), by = c("player" = "id")) |> group_by(metric, years_played) |> summarize(Coverage = mean(validation_coverage, na.rm = TRUE)) |> ungroup() |> bind_rows(
+ggsave("model_output/model_plots/coverage/nba_convex_tvlinearlvm_ar_max_validation_yearly.png", coverage_plt_yearly)
+coverage_plt_minutes <- validation_coverage_df |> inner_join(data |> filter(year <= 2021) |> group_by(id) |> summarize(years_played = n(), .groups = "drop") |> ungroup(), by = c("player" = "id")) |> group_by(metric, years_played) |> summarize(Coverage = mean(validation_coverage, na.rm = TRUE), .groups = "drop") |> ungroup() |> bind_rows(
   joined_data %>% 
   filter(year >= 2022 & year <= 2025 & metric == "retirement") %>% 
   mutate(metric = toupper(metric)) %>% 
@@ -589,15 +706,31 @@ coverage_plt_minutes <- validation_coverage_df |> inner_join(data |> filter(year
   inner_join(data %>% 
   filter(year <= 2021) %>% 
   group_by(id) %>% 
-  summarize(years_played = n()) %>% 
+  summarize(years_played = n(), .groups = "drop") %>% 
   ungroup(), by = c("player" = "id")) %>% 
-  group_by(metric, years_played) %>% summarize(Coverage = mean(if_else(obs_value == 1, value, 1 - value))) %>% ungroup()) %>%
+  group_by(metric, years_played) %>% summarize(Coverage = mean(if_else(obs_value == 1, value, 1 - value), na.rm = TRUE), .groups = "drop") %>% ungroup()) |>
+                        bind_rows(exit_age_coverage_df %>% filter(observed_exit_year >= 2022 & observed_exit_year <= 2025) %>% mutate(Coverage = as.numeric(exit_age_coverage)) %>% group_by(metric, years_played) %>% summarize(Coverage = mean(Coverage, na.rm = TRUE), .groups = "drop")) %>%
                         ggplot(aes(x = years_played, y = Coverage)) + 
                         geom_point() + facet_wrap(~metric, scales = "free_y") +
                         theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Validation Coverage by Years of Training Data Available") + xlab("Years Played")
-ggsave("model_output/model_plots/coverage/nba_convex_tvlinearlvm_max_ar_validation_minutes.png", coverage_plt_minutes)
+ggsave("model_output/model_plots/coverage/nba_convex_tvlinearlvm_ar_max_validation_minutes.png", coverage_plt_minutes)
 
-
+coverage_plt_minutes <- in_sample_coverage_df |> inner_join(data |> filter(year <= 2021) |> group_by(id) |> summarize(years_played = n(), .groups = "drop") |> ungroup(), by = c("player" = "id")) |> group_by(metric, years_played) |> summarize(Coverage = mean(in_sample_coverage, na.rm = TRUE), .groups = "drop") |> ungroup() |> bind_rows(
+  joined_data %>% 
+  filter(year <= 2021 & metric == "retirement") %>% 
+  mutate(metric = toupper(metric)) %>% 
+  filter(!is.na(obs_value)) %>% 
+  inner_join(data %>% 
+  filter(year <= 2021) %>% 
+  group_by(id) %>% 
+  summarize(years_played = n(), .groups = "drop") %>% 
+  ungroup(), by = c("player" = "id")) %>% 
+  group_by(metric, years_played) %>% summarize(Coverage = mean(if_else(obs_value == 1, value, 1 - value), na.rm = TRUE), .groups = "drop") %>% ungroup()) |>
+                        bind_rows(exit_age_coverage_df %>% filter(observed_exit_year <= 2021) %>% mutate(Coverage = as.numeric(exit_age_coverage)) %>% group_by(metric, years_played) %>% summarize(Coverage = mean(Coverage, na.rm = TRUE), .groups = "drop")) %>%
+                        ggplot(aes(x = years_played, y = Coverage)) + 
+                        geom_point() + facet_wrap(~metric, scales = "free_y") +
+                        theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric In-Sample Coverage by Years of Training Data Available") + xlab("Years Played")
+ggsave("model_output/model_plots/coverage/nba_convex_tvlinearlvm_ar_max_in_sample_minutes.png", coverage_plt_minutes)
 
 
 
@@ -614,7 +747,7 @@ latent_space_plot  <- latent_space_umap |> ggplot(aes(x = UMAP1, y = UMAP2)) + g
                       inherit.aes = FALSE) +
   theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("UMAP Visualization of Learned Latent Embedding") + labs(x = "UMAP 1", y = "UMAP 2", alpha = "Minutes", color = "Position Group")
 
-ggsave("model_output/model_plots/latent_space/map/nba_convex_tvlinearlvm_max.png", latent_space_plot)
+ggsave("model_output/model_plots/latent_space/map/nba_convex_tvlinearlvm_ar_max.png", latent_space_plot)
 
 functional_pca_result <-  posterior_mu_data %>% group_by(age, player, metric) %>% summarize(value = mean(value, na.rm = TRUE)) %>% ungroup() %>% pivot_wider(
   names_from = c(metric, age),
@@ -645,7 +778,7 @@ functional_pca_plt <- functional_pca_embedding %>% filter(PCA1 <= 20 & PCA2 <=20
                       max.overlaps = 20,
                       inherit.aes = FALSE) +
   theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("PCA Visualization of Learned Metric Functionals") + labs(x = "PC 1", y = "PC 2", alpha = "Minutes", color = "Position Group")
-ggsave("model_output/model_plots/latent_space/map/nba_convex_tvlinearlvm_max_functional.png", functional_pca_plt)
+ggsave("model_output/model_plots/latent_space/map/nba_convex_tvlinearlvm_ar_max_functional.png", functional_pca_plt)
 
 
 
@@ -705,25 +838,59 @@ plot_posterior_mu_spaghetti <- function(grouped_data_set){
   return(plt)
 }
 
-plots_list <- joined_data |> 
-              group_by(metric, player, age) |> 
-              summarize(lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
-              upper = HDInterval::hdi(value, credMass = 0.95)["upper"], 
-              obs_value = first(obs_value), 
-              year = min(year), 
-              posterior_mean = mean(value, na.rm = TRUE)) |> ungroup() |> inner_join(posterior_mu_data |> group_by(metric, player, age) |> summarize(mu = mean(value)) |> ungroup() |> 
-              mutate(mu = case_when(metric %in% c("fg2m", "ftm", "games", "fg3m", "retirement") ~ plogis(mu),
-                                                                                 metric %in% c("obpm", "dbpm") ~ mu, 
-                                                                                 metric %in% c("pct_minutes") ~ plogis(mu) * 48,
-                                                                                 metric %in% c("usg") ~ plogis(mu),
-                                                                                 .default = exp(mu) * 36)) ) |>
-            mutate(metric = toupper(metric),
-                    metric = case_when(metric == "GAMES" ~ "GP%",
-                    metric == "FG2M" ~ "FG2%",
-                    metric == "FG3M" ~ "FG3%",
-                    metric == "FTM" ~ "FT%",
-                    metric == "PCT_MINUTES" ~ "MPG",
-                    .default = metric)) |> inner_join(latent_space |> filter(name %in% posterior_plot_names) |> select(name,id), by = c("player" = "id")) %>%
+player_age_year_map <- data |> 
+  group_by(id) |> 
+  summarize(base_year = min(year, na.rm = TRUE),
+            base_age = min(age, na.rm = TRUE),
+            .groups = "drop")
+
+metric_plot_df <- joined_data |> filter(metric != "retirement") |>
+  group_by(metric, player, age) |> 
+  summarize(lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
+            upper = HDInterval::hdi(value, credMass = 0.95)["upper"], 
+            obs_value = first(obs_value), 
+            year = min(year), 
+            posterior_mean = mean(value, na.rm = TRUE),
+            .groups = "drop") |>
+  inner_join(posterior_mu_data |> group_by(metric, player, age) |> summarize(mu = mean(value), .groups = "drop") |> 
+               mutate(mu = case_when(metric %in% c("fg2m", "ftm", "games", "fg3m", "retirement") ~ plogis(mu),
+                                     metric %in% c("obpm", "dbpm") ~ mu, 
+                                     metric %in% c("pct_minutes") ~ plogis(mu) * 48,
+                                     metric %in% c("usg") ~ plogis(mu),
+                                     .default = exp(mu) * 36))) |>
+  mutate(metric = toupper(metric),
+         metric = case_when(metric == "GAMES" ~ "GP%",
+                            metric == "FG2M" ~ "FG2%",
+                            metric == "FG3M" ~ "FG3%",
+                            metric == "FTM" ~ "FT%",
+                            metric == "PCT_MINUTES" ~ "MPG",
+                            .default = metric))
+
+survival_plot_df <- posterior_survival_data |>
+  filter(measure == "exit_survival", scenario == "observed") |>
+  filter(!is.na(value)) |>
+  group_by(player, age) |>
+  summarize(lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
+            upper = HDInterval::hdi(value, credMass = 0.95)["upper"],
+            posterior_mean = mean(value, na.rm = TRUE),
+            observed_exit_age = first(observed_exit_age),
+            exit_censored = first(exit_censored),
+            .groups = "drop") |>
+  inner_join(player_age_year_map, by = c("player" = "id")) |>
+  mutate(
+    metric = "EXIT_SURVIVAL",
+    obs_value = case_when(
+      age <= observed_exit_age ~ 1,
+      exit_censored == 1 ~ NA_real_,
+      TRUE ~ 0
+    ),
+    year = base_year + (age - base_age),
+    mu = posterior_mean
+  ) |>
+  select(metric, player, age, lower, upper, obs_value, year, posterior_mean, mu)
+
+plots_list <- bind_rows(metric_plot_df, survival_plot_df) |>
+  inner_join(latent_space |> filter(name %in% posterior_plot_names) |> select(name,id), by = c("player" = "id")) %>%
   group_by(player) %>%
   group_split() %>%               # splits into a list of grouped tibbles
   map(~ {
@@ -731,13 +898,13 @@ plots_list <- joined_data |>
     name <- unique(.x$name)
     # Save the plot to disk (change path as needed)
     ggsave(
-      filename = glue("model_output/model_plots/player_plots/predictions/mcmc/nba_convex_tvlinearlvm_max_AR_{name}.png"),
+      filename = glue("model_output/model_plots/player_plots/predictions/mcmc/nba_convex_tvlinearlvm_ar_max_{name}.png"),
       plot = plt
     )
     })
 
 
-plots_list <- joined_data |> 
+plots_list <- joined_data |> filter(metric != "retirement") |>
               group_by(metric, player, age) |> 
               summarize(lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
               upper = HDInterval::hdi(value, credMass = 0.95)["upper"], 
@@ -764,7 +931,7 @@ plots_list <- joined_data |>
     name <- unique(.x$name)
     # Save the plot to disk (change path as needed)
     ggsave(
-      filename = glue("model_output/model_plots/player_plots/predictions/mcmc/nba_convex_tvlinearlvm_max_AR_{name}_spaghetti.png"),
+      filename = glue("model_output/model_plots/player_plots/predictions/mcmc/nba_convex_tvlinearlvm_ar_max_{name}_spaghetti.png"),
       plot = plt
     )
     })
@@ -794,7 +961,7 @@ pheatmap(mat_subset,
          labels_row = labels_subset,
          labels_col = labels_subset,
          main = "Clustered Covariance of the Learned Latent Embedding",
-         filename =  "model_output/model_plots/latent_space/nba_tvlinearlvm_max_K_X.png")
+         filename =  "model_output/model_plots/latent_space/nba_tvlinearlvm_ar_max_K_X.png")
 
 
 
