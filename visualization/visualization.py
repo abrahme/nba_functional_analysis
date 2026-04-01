@@ -8,6 +8,98 @@ import numpy as np
 import arviz as az
 from model.inference_utils import create_metric_trajectory, create_metric_trajectory_map, create_metric_trajectory_prior, create_metric_trajectory_mu, create_hazard_trajectory_map
 
+
+
+def make_diagnostic_heatmap(
+    samples,
+    n_players_sel,
+    n_ages,
+    ages,
+    output_path,
+    player_labels=None,
+    top_bottom_n=20,
+):
+    # samples shape: (chains, draws, n_metrics, n_players, n_ages)
+    arr_np = np.array(samples)
+    ess_arr = az.ess({"theta": arr_np})["theta"]    # (n_metrics, n_players, n_ages)
+    rhat_arr = az.rhat({"theta": arr_np})["theta"]  # (n_metrics, n_players, n_ages)
+    min_ess = np.nanmin(ess_arr, axis=0)   # (n_players, n_ages)
+    max_rhat = np.nanmax(rhat_arr, axis=0)  # (n_players, n_ages)
+
+    def _select_top_bottom(data, n):
+        """Aggregate per player (worst-case over ages), return sorted indices of top-n and bottom-n."""
+        player_score = np.nanmean(data, axis=-1)  # (n_players,)
+        n = min(n, len(player_score) // 2)
+        bottom_idx = np.argsort(player_score)[:n]          # worst (lowest ESS / highest R-hat)
+        top_idx = np.argsort(player_score)[-(n):][::-1]    # best
+        combined = np.union1d(bottom_idx, top_idx)
+        return np.sort(combined)
+
+    ess_idx = _select_top_bottom(min_ess, top_bottom_n)
+    rhat_idx = _select_top_bottom(-max_rhat, top_bottom_n)  # negate so "bottom" = highest R-hat
+
+    subsets = [
+        (ess_idx,  min_ess,  "Min ESS (over metrics) — top/bottom players",   "viridis"),
+        (rhat_idx, max_rhat, "Max R-hat (over metrics) — top/bottom players", "coolwarm"),
+    ]
+
+    n_rows = max(len(ess_idx), len(rhat_idx))
+    fig, axes = plt.subplots(1, 2, figsize=(24, max(6, n_rows * 0.35)))
+
+    for ax, (idx, data, title, cmap) in zip(axes, subsets):
+        subset_data = data[idx, :]
+        n_sub = len(idx)
+        im = ax.imshow(subset_data, aspect="auto", cmap=cmap, interpolation="nearest")
+        ax.set_xticks(range(n_ages))
+        ax.set_xticklabels(ages, rotation=45, ha="right", fontsize=7)
+        ax.set_yticks(range(n_sub))
+        if player_labels is not None:
+            ax.set_yticklabels([player_labels[i] for i in idx], fontsize=6)
+        else:
+            ax.set_yticklabels(idx, fontsize=6)
+        ax.set_xlabel("Age")
+        ax.set_ylabel("Player")
+        ax.set_title(title)
+        plt.colorbar(im, ax=ax)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    
+def make_rhat_summary_barchart(
+    samples,
+    output_path,
+    metric_labels=None,
+    rhat_threshold=1.05,
+):
+    """Bar chart showing % of (player, age) cells with R-hat > threshold, per metric."""
+    arr_np = np.array(samples)
+    rhat_arr = np.array(az.rhat({"theta": arr_np})["theta"])  # (n_metrics, n_players, n_ages)
+    n_metrics = rhat_arr.shape[0]
+
+    bad_frac = np.array([
+        np.nanmean(rhat_arr[m] > rhat_threshold) * 100
+        for m in range(n_metrics)
+    ])
+
+    labels = metric_labels if metric_labels is not None else [str(i) for i in range(n_metrics)]
+    order = np.argsort(bad_frac)[::-1]
+
+    fig, ax = plt.subplots(figsize=(max(8, n_metrics * 0.6), 5))
+    bars = ax.bar(range(n_metrics), bad_frac[order], color="steelblue")
+    ax.set_xticks(range(n_metrics))
+    ax.set_xticklabels([labels[i] for i in order], rotation=45, ha="right", fontsize=8)
+    ax.set_ylabel(f"% cells with R-hat > {rhat_threshold}")
+    ax.set_title(f"Fraction of (player × age) cells with R-hat > {rhat_threshold} by metric")
+    ax.axhline(0, color="black", linewidth=0.8)
+    for bar, val in zip(bars, bad_frac[order]):
+        ax.text(bar.get_x() + bar.get_width() / 2, val + 0.3, f"{val:.1f}%",
+                ha="center", va="bottom", fontsize=7)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+
 def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str], metric_outputs: list[str], exposure_names: list[str],  posterior_mean_samples, observations, exposures, posterior_variance_samples, posterior_dispersion_samples, posterior_kappa_samples):
     """
     plots the posterior predictive career trajectory 
@@ -372,10 +464,10 @@ def plot_scatter(df, title= "", player_index:int = 0 ):
 
 
 
-        
 
 
 
 
-            
+
+
 

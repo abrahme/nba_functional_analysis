@@ -1,3 +1,4 @@
+import os
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
@@ -5,6 +6,15 @@ import argparse
 import time
 import sys
 import re
+
+
+def parse_height_to_inches(height_str):
+    if not height_str or height_str == "NA":
+        return None
+    match = re.match(r'^(\d+)-(\d+)$', str(height_str).strip())
+    if match:
+        return int(match.group(1)) * 12 + int(match.group(2))
+    return None
 
 
 def _extract_height_from_soup(soup, meta_div=None):
@@ -142,14 +152,34 @@ def get_draft_position_and_height(input_csv, output_csv=None, id_column='id', sl
         )
     }
 
+    if output_csv is None:
+        if input_csv.lower().endswith('.csv'):
+            output_csv = input_csv[:-4] + '_id_draft_height.csv'
+        else:
+            output_csv = input_csv + '_id_draft_height.csv'
+
     unique_player_ids = collect_unique_player_ids(input_csv, id_column=id_column)
     print(f"Collected {len(unique_player_ids)} unique player IDs from {input_csv}")
+
+    # Resume: if output already exists, only fetch players missing height
+    existing = None
+    if os.path.exists(output_csv):
+        existing = pd.read_csv(output_csv, dtype=str)
+        already_done = set(
+            existing.loc[
+                existing["height"].notna() & (existing["height"] != "NA"), "id"
+            ].tolist()
+        )
+        ids_to_fetch = [pid for pid in unique_player_ids if pid not in already_done]
+        print(f"Resuming: {len(already_done)} players already have height, fetching {len(ids_to_fetch)} remaining")
+    else:
+        ids_to_fetch = unique_player_ids
 
     rows = []
 
     with requests.Session() as session:
-        total_unique = len(unique_player_ids)
-        for idx, player_id in enumerate(unique_player_ids, start=1):
+        total = len(ids_to_fetch)
+        for idx, player_id in enumerate(ids_to_fetch, start=1):
             draft_pos, height = fetch_player_draft_and_height(
                 player_id,
                 session=session,
@@ -161,18 +191,27 @@ def get_draft_position_and_height(input_csv, output_csv=None, id_column='id', sl
                 'height': height
             })
 
-            if idx % 25 == 0 or idx == total_unique:
-                print(f"Fetched draft/height for {idx}/{total_unique} unique IDs")
+            if idx % 25 == 0 or idx == total:
+                print(f"Fetched draft/height for {idx}/{total} IDs")
 
             time.sleep(sleep_seconds)
 
-    df = pd.DataFrame(rows, columns=['id', 'draft_position', 'height'])
+    new_df = pd.DataFrame(rows, columns=['id', 'draft_position', 'height'])
 
-    if output_csv is None:
-        if input_csv.lower().endswith('.csv'):
-            output_csv = input_csv[:-4] + '_id_draft_height.csv'
-        else:
-            output_csv = input_csv + '_id_draft_height.csv'
+    if existing is not None and len(new_df) > 0:
+        # Update existing rows with freshly fetched data, then append any new ids
+        existing = existing.set_index('id')
+        new_df = new_df.set_index('id')
+        existing.update(new_df)
+        truly_new = new_df[~new_df.index.isin(existing.index)]
+        df = pd.concat([existing, truly_new] if len(truly_new) > 0 else [existing]).reset_index()
+        df = df.rename(columns={'id': 'id'})  # index name is already 'id'
+    elif existing is not None:
+        df = existing
+    else:
+        df = new_df
+
+    df['height_inches'] = df['height'].apply(parse_height_to_inches)
 
     df.to_csv(output_csv, index=False, na_rep='NA')
     print(f"Saved id-level draft/height CSV to {output_csv}")

@@ -139,6 +139,7 @@ third_deriv <- read.csv("posterior_third_deriv_ar_linear.csv")
 first_deriv = read.csv("posterior_first_deriv_ar_linear.csv")
 posterior_retirement_data <- read.csv("posterior_exit_age_sample_linear.csv")
 posterior_survival_data <- read.csv("posterior_exit_survival_linear.csv")
+posterior_latent_X <- read.csv("posterior_latent_X_linear.csv")
 
 
 # obpm_curves <- posterior_mu_data |> filter(metric == "dbpm") |> group_by(player, age) |> summarize(value = mean(value)) |> ungroup() |> group_by(player) |> arrange(age, .by_group = TRUE) |>
@@ -758,6 +759,7 @@ ids <- functional_pca_result$player
 
 
 
+
 functional_pca_embedding <- functional_pca_result %>% 
   select(-player) %>% 
   prcomp(center = TRUE, scale. = TRUE) %>%       # perform PCA
@@ -826,7 +828,8 @@ plot_posterior_mu_spaghetti <- function(grouped_data_set){
   
   plt <- raw_plt |>
     ggplot(aes(x = age))  +
-    geom_line(aes(x = age, y = mu, group = sample),  color = "grey", alpha = .2) + 
+    geom_line(aes(x = age, y = mu, group = interaction(chain, sample), color = factor(chain)),  alpha = .2) +
+    scale_color_brewer(palette = "Set1", name = "Chain") +
     geom_point(aes(x = age, y = obs_value), color = "black") + 
     geom_vline(aes(xintercept = age_of_holdout),
                linetype = "dashed",
@@ -1066,7 +1069,62 @@ stephen_curry <- player_plot_df |> filter(name == "Stephen Curry") |> ggplot(aes
     facet_wrap(~ metric, scales = "free") + theme_bw() +
     labs(x = "Age", y = "") 
 
-player_plots <- (derrick_rose / kevin_durant / stephen_curry) + plot_annotation(title = "Posterior Predictive Production Curves", tag_levels = list(c("Derrick Rose", "Kevin Durant", "Stephen Curry"))) 
+player_plots <- (derrick_rose / kevin_durant / stephen_curry) + plot_annotation(title = "Posterior Predictive Production Curves", tag_levels = list(c("Derrick Rose", "Kevin Durant", "Stephen Curry")))
 
 
-ggsave("test_plot.png", player_plots)
+##### LATENT SPACE MCMC DIAGNOSTICS (trace plots per player colored by chain)
+
+# Helper: compute R-hat (Gelman-Rubin) for a single parameter
+compute_rhat <- function(chain, value) {
+  chains <- split(value, chain)
+  n <- min(lengths(chains))
+  chains <- lapply(chains, function(x) x[seq_len(n)])
+  W <- mean(sapply(chains, var))
+  B <- n * var(sapply(chains, mean))
+  sqrt(((n - 1) / n * W + B / n) / W)
+}
+
+# 1. Pivot long, filter to players of interest
+trace_df <- posterior_latent_X |>
+  filter(name %in% posterior_plot_names) |>
+  mutate(chain = factor(chain)) |>
+  pivot_longer(cols = starts_with("Dim"), names_to = "dimension", values_to = "value")
+
+# 2. Compute R-hat per player x dimension, build strip label
+rhat_df <- trace_df |>
+  group_by(name, id, dimension) |>
+  summarise(rhat = compute_rhat(chain, value), .groups = "drop") |>
+  mutate(strip_label = glue("{dimension} (R-hat = {round(rhat, 3)})"))
+
+trace_df <- trace_df |>
+  left_join(rhat_df |> select(name, dimension, strip_label), by = c("name", "dimension")) |>
+  mutate(strip_label = factor(strip_label, levels = unique(rhat_df$strip_label)))
+
+# 3. Plot function: trace plots faceted by dimension for a single player
+plt_trace <- function(player_trace_df) {
+  player_name <- unique(player_trace_df$name)
+  ggplot(player_trace_df, aes(x = sample, y = value, color = chain)) +
+    geom_line(alpha = 0.6, linewidth = 0.3) +
+    facet_wrap(~ strip_label, scales = "free_y", ncol = 3) +
+    theme_bw() +
+    theme(strip.text = element_text(size = 7)) +
+    labs(title = glue("MCMC Trace Plots: {player_name}"), x = "Sample", y = "Value", color = "Chain")
+}
+
+# 4. Generate and save plots for all posterior_plot_names
+dir.create("model_output/model_plots/latent_space/mcmc", recursive = TRUE, showWarnings = FALSE)
+
+trace_df |>
+  group_by(id) |>
+  group_split() |>
+  walk(~ {
+    plt <- plt_trace(.x)
+    player_name <- unique(.x$name)
+    ggsave(
+      filename = glue("model_output/model_plots/latent_space/mcmc/trace_{player_name}.png"),
+      plot = plt,
+      width = 14,
+      height = 18
+    )
+  })
+
