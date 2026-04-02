@@ -11,11 +11,6 @@ from numpyro.distributions import Normal, Poisson, BinomialLogits, BetaProportio
 # jax.config.update('jax_platform_name', 'cuda')
 
 
-import numpy as np
-import pandas as pd
-
-import numpy as np
-import pandas as pd
 
 def posterior_X_to_df(posterior_samples, ids, names, minutes, position_group, labels):
     """
@@ -44,7 +39,7 @@ def posterior_X_to_df(posterior_samples, ids, names, minutes, position_group, la
     flat_minutes = np.array(minutes)[flat_n]
     flat_position_group = np.array(position_group)[flat_n]
     # Label based on id membership
-    flat_label = np.where(np.isin(flat_n, labels), "sampled", "fixed")
+    flat_label = np.where(np.isin(flat_n, labels), "fixed", "sampled")
 
     # Build DataFrame
     df = pd.DataFrame(flat_values, columns=[f"Dim {str(i+1)}" for i in range(D)])

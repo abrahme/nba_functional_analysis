@@ -630,7 +630,7 @@ class RFLVMBase(LinearPredictorCompositionMixin, ABC):
                         num_chains = num_chains,
                         chain_method="parallel",
                         thinning=thinning)
-            mcmc.run(key, **model_args)
+            mcmc.run(key, extra_fields=("potential_energy",), **model_args)
             return mcmc.get_samples(group_by_chain=True), mcmc
     @abstractmethod
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_values:dict = {}, sample_shape = (4, 2000), debug_nan: bool = False):
@@ -3375,9 +3375,9 @@ class ConvexMaxARTVLinearLVM(ConvexMaxTVLinearLVM):
         super().__init__(latent_rank, output_shape, basis)
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
-        self.prior["rho_ar"] = Uniform(-.1, .1)
-        self.prior["sigma_ar"] = HalfNormal(.1)
-        self.prior["beta_ar"] = Normal(0, 0.5)
+        self.prior["rho_ar"] = Uniform(-.5, .5)
+        self.prior["sigma_ar"] = HalfNormal(1)
+        self.prior["beta_ar"] = StudentT(3)
         self.prior["ar_0"] = Normal(0, 1)
 
     def _compute_family_linear_predictor(self, family: str, mu, family_data: dict, **context):
@@ -3570,7 +3570,7 @@ class ConvexMaxARTVLinearLVM(ConvexMaxTVLinearLVM):
 
 
 class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
-    def __init__(self, latent_rank: int, output_shape: tuple, basis, injury_rank:int, num_injury_types:int) -> None:
+    def __init__(self, latent_rank: int, output_shape: tuple, basis, injury_rank: int, num_injury_types: int) -> None:
         super().__init__(latent_rank, output_shape, basis)
         self.i = num_injury_types
         self.p = injury_rank
@@ -3582,13 +3582,8 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
         self.prior["injury_global_offset"] = Normal(0, 1)
         self.prior["injury_raw"] = Normal()
         self.prior["sigma_injury"] = HalfNormal()
-        self.prior["injury_x_loading"] = Normal(0, 0.2)
-        self.prior["sigma_ar"] = HalfNormal(.05)
         self.prior["sigma_c"] = HalfNormal()
         self.prior["sigma_t"] = HalfNormal()
-        self.prior["rho_ar"] = Uniform(-.1, .1)
-        self.prior["beta_ar"] = Normal(0, 0.5)
-        self.prior["ar_0"] = Normal(0, 1)
         self.prior["injury_exit_loading"] = Normal(0, 1)
         self.prior["injury_exit_global_offset"] = Normal(0, 1)
         self.prior["sigma_injury_exit"] = HalfNormal()
@@ -3650,7 +3645,8 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
         ).squeeze(-1)
 
         exit_rate_base = make_psi_gamma(X, exit_rate)[:, None]
-        exit_rate_raw = exit_rate_base + injury_effect_exit
+        exit_global_offset = self._resolve_prior("exit_global_offset")
+        exit_rate_raw = exit_rate_base + exit_global_offset + injury_effect_exit
         concentration = 1.0 + 2.0 * jax.nn.sigmoid(exit_rate_raw)
         scale_min = 8
         scale_max = 15
@@ -3766,15 +3762,12 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
         injury_factor = self._resolve_prior("injury_factor", sample_shape=(self.i, self.p))
         injury_global_offset = self._resolve_prior("injury_global_offset", sample_shape=(self.k,))
         sigma_injury = self._resolve_prior("sigma_injury", sample_shape=(self.k,))
-        injury_x_loading = self._resolve_prior("injury_x_loading", sample_shape=(self.k, self.i, self.r))
-        injury_mean_prior = jnp.einsum("ip, kp -> ki", injury_factor, injury_loading )
+        injury_mean_prior = jnp.einsum("ip, kp -> ki", injury_factor, injury_loading)
         injury_raw = self._resolve_prior("injury_raw", sample_shape=(self.k, self.n, self.t, self.i))
-        injury_x_effect = jnp.einsum("nr,kir->kni", X, injury_x_loading)
         injury_effect_raw = (
             injury_global_offset[:, None, None, None]
             + injury_mean_prior[:, None, None, :]
             + injury_raw * sigma_injury[:, None, None, None]
-            + injury_x_effect[:, :, None, :]
         )
         injury_indicator = offsets["injury_indicator"]
         injury_type = offsets["injury_type"] 
@@ -3815,43 +3808,6 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
         
     
     def run_map_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_state = None):
-        # guide = AutoDelta(self.model_fn, prefix="", **guide_kwargs)
-        # print("Setup guide")
-        # svi = SVI(self.model_fn, guide, optim=adam(.0003), loss=Trace_ELBO(num_particles=1)
-        #           )
-        # print("Setup MAP")
-        # # result = svi.run(jax.random.PRNGKey(0),
-        # #                 num_steps = num_steps,progress_bar = True, init_state = initial_state, stable_update=True, **model_args)
-        # # return result.params, result.state
-        
-        # state = svi.init(jax.random.PRNGKey(0), **model_args)
-        # if initial_state is not None:
-        #     # your unpickled SVIState object
-        #     state = ser.from_bytes(state, initial_state)
-
-        # result = svi.run(jax.random.PRNGKey(0),
-        #                 num_steps = num_steps,progress_bar = True, init_state = state, stable_update=True, **model_args)
-        # try:
-        #     losses = np.asarray(result.losses)
-        #     nonfinite_steps = np.where(~np.isfinite(losses))[0]
-        #     if len(nonfinite_steps) > 0:
-        #         first_bad = int(nonfinite_steps[0])
-        #         print(
-        #             f"[MAP DEBUG] Non-finite MAP loss at step {first_bad + 1}/{len(losses)}; "
-        #             f"loss={losses[first_bad]}"
-        #         )
-        #         self._debug_map_nonfinite_run(guide=guide, params=result.params, model_args=model_args)
-        # except Exception as error:
-        #     print(f"[MAP DEBUG] Could not evaluate MAP loss diagnostics: {error}")
-        # _print_svi_loss_breakdown(
-        #     model_fn=self.model_fn,
-        #     guide=guide,
-        #     params=result.params,
-        #     model_args=model_args,
-        #     rng_key=jax.random.PRNGKey(1),
-        #     debug_label=f"{type(self).__name__} MAP",
-        # )
-        # return result.params, result.state
         return super().run_map_inference(num_steps, guide_kwargs, model_args, initial_state)
 
     def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_state: dict = {}, sample_shape=(4, 2000), debug_nan: bool = False):
@@ -3883,3 +3839,308 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
         return super().predict(posterior_samples, model_args, num_samples)
 
 
+
+class ConvexMaxDecayInjuryTVLinearLVM(ConvexMaxInjuryTVLinearLVM):
+    """Injury effects with pure exponential decay back to baseline.
+
+    Replaces the static per-season injury effect of ConvexMaxInjuryTVLinearLVM
+    with a two-parameter decay:
+
+        delta_{k,n,t} = beta0_{k,n,i} * exp(-lambda_{k,i} * (t - T0_n))
+                        for t >= T0_n, else 0
+
+    where
+        beta0_{k,n,i} -- initial performance shock, player- and injury-type-specific
+        lambda_{k,i}  -- decay rate > 0, shared across players (per metric x injury type)
+        T0_n          -- time-index of first injury for player n
+
+    Both beta_0 and lambda are shared across players (per metric x injury type
+    only) so they are jointly identified: beta_0 sets the average initial shock
+    and lambda controls the recovery speed. Per-player heterogeneity in injury
+    response is absorbed by the baseline LVM trajectory.
+    """
+
+    def initialize_priors(self, *args, **kwargs) -> None:
+        super().initialize_priors(*args, **kwargs)
+        # Performance decay-rate priors (log-scale; softplus maps to R+)
+        self.prior["lambda_global_offset"] = Normal(0, 1)       # (k, i) -- per metric x injury type
+        # Exit-hazard decay-rate priors
+        self.prior["lambda_exit_global_offset"] = Normal(0, 1)  # (i,) -- per injury type
+        # beta_0 is (k, i) in this model -- nullify per-player noise sites from parent
+        self.prior["injury_raw"] = None
+        self.prior["sigma_injury"] = None
+
+    def compute_survival_likelihood(self, X, injury_factor, offsets={}) -> None:
+        required_keys = ("entrance_times", "exit_times", "left_censor", "right_censor", "injury_indicator", "injury_type")
+        if not all(key in offsets for key in required_keys):
+            return
+
+        # ---- Entrance model (unchanged from parent) ---- #
+        entrance = self._resolve_prior("entrance", sample_shape=(self.r,))
+        lc = jnp.ravel(offsets["left_censor"].astype(bool))
+        entrance_times = jnp.ravel(jnp.asarray(offsets["entrance_times"]))
+        entrance_valid = jnp.isfinite(entrance_times)
+        observed_mask = (~lc & entrance_valid).astype(entrance_times.dtype)
+        observed_count = jnp.maximum(observed_mask.sum(), 1.0)
+        empirical_log_mean = jnp.sum(jnp.log(entrance_times) * observed_mask) / observed_count
+        sigma_entrance = self._resolve_prior("sigma_entrance")
+        entrance_global_offset = self._resolve_prior("entrance_global_offset")
+        entrance_raw = make_psi_gamma(X, entrance)
+        entrance_loc = entrance_global_offset + entrance_raw + empirical_log_mean
+        entrance_dist = LogNormal(entrance_loc, sigma_entrance + .35)
+        entrance_latent_sampled = numpyro.sample("entrance_latent", entrance_dist)
+        z_entrance = (jnp.log(entrance_times) - entrance_loc) / (sigma_entrance + .35)
+        log_cdf_entrance = jsci.stats.norm.logcdf(z_entrance)
+        log_pdf_entrance = entrance_dist.log_prob(entrance_times)
+        with mask(mask=(lc & entrance_valid)):
+            numpyro.factor("log_lik_entrance_censored", log_cdf_entrance)
+        with mask(mask=(~lc & entrance_valid)):
+            numpyro.factor("log_lik_entrance_observed", log_pdf_entrance)
+
+        lc_float = lc.astype(entrance_times.dtype)
+        entrance_latent = lc_float * entrance_latent_sampled + (1.0 - lc_float) * jax.lax.stop_gradient(entrance_times)
+
+        # ---- Exit hazard: decayed injury effect ---- #
+        exit = self._resolve_prior("exit", sample_shape=(self.r,))
+        exit_rate = self._resolve_prior("exit_rate", sample_shape=(self.r,))
+        exit_raw = make_psi_gamma(X, exit)
+
+        injury_exit_loading = self._resolve_prior("injury_exit_loading", sample_shape=(self.p,))
+        injury_exit_global_offset = self._resolve_prior("injury_exit_global_offset")
+        sigma_injury_exit = self._resolve_prior("sigma_injury_exit")
+
+        injury_indicator = offsets["injury_indicator"]
+        injury_type = offsets["injury_type"]
+        if injury_indicator.ndim == 3:
+            injury_indicator = injury_indicator[0]
+        if injury_type.ndim == 3:
+            injury_type = injury_type[0]
+
+        # beta0_exit: initial exit-hazard shock — (n, i)
+        # Reuses "injury_exit_raw" site at shape (n, i) instead of parent's (n, t, i)
+        injury_exit_raw_beta0 = self._resolve_prior("injury_exit_raw", sample_shape=(self.n, self.i))
+        beta0_exit = (
+            injury_exit_global_offset
+            + jnp.einsum("ip,p->i", injury_factor, injury_exit_loading)[None, :]  # (1, i)
+            + injury_exit_raw_beta0 * sigma_injury_exit
+        )  # (n, i)
+
+        # lambda_exit: exit-hazard decay rate — (i,), constrained > 0 via softplus
+        lambda_exit_global_offset = self._resolve_prior("lambda_exit_global_offset", sample_shape=(self.i,))
+        lambda_exit = jax.nn.softplus(lambda_exit_global_offset)  # (i,), strictly > 0
+
+        # Time since injury: delta_t[n, t] = max(t - T0_n, 0)
+        t0_index = jnp.argmax(injury_indicator, axis=-1).astype(jnp.float32)  # (n,)
+        t_grid = jnp.arange(self.t, dtype=jnp.float32)                        # (t,)
+        delta_t = jnp.maximum(t_grid[None, :] - t0_index[:, None], 0.0)       # (n, t)
+
+        # Decayed exit effect: beta0 * exp(-lambda * delta_t) -> (n, t, i)
+        exit_decay_factor = jnp.exp(-lambda_exit[None, None, :] * delta_t[:, :, None])  # (n, t, i)
+        injury_exit_raw_decayed = beta0_exit[:, None, :] * exit_decay_factor             # (n, t, i)
+
+        # Select active injury type; zeros at index 0 handle uninjured players
+        injury_effect_exit = jnp.take_along_axis(
+            jnp.concatenate([jnp.zeros_like(injury_indicator)[..., None], injury_exit_raw_decayed], -1),
+            injury_type[..., None],
+            -1,
+        ).squeeze(-1)  # (n, t)
+
+        # ---- Weibull hazard (unchanged from parent) ---- #
+        exit_rate_base = make_psi_gamma(X, exit_rate)[:, None]
+        exit_global_offset = self._resolve_prior("exit_global_offset")
+        exit_rate_raw = exit_rate_base + exit_global_offset + injury_effect_exit
+        concentration = 1.0 + 2.0 * jax.nn.sigmoid(exit_rate_raw)
+        scale_min = 8
+        scale_max = 15
+        scale = scale_min + (scale_max - scale_min) * jax.nn.sigmoid(exit_raw)[:, None]
+        rc = jnp.ravel(offsets["right_censor"].astype(bool))
+        exit_times = jnp.ravel(jnp.asarray(offsets["exit_times"]))
+
+        interval_starts = jnp.arange(self.t, dtype=exit_times.dtype)[None, :]
+        interval_ends = interval_starts + 1.0
+        entry = entrance_latent[:, None]
+        stop = exit_times[:, None]
+        seg_start = jnp.maximum(interval_starts, entry)
+        seg_end = jnp.minimum(interval_ends, stop)
+        valid_seg = seg_end > seg_start
+        seg_start_safe = jnp.where(valid_seg, seg_start, 1.0)
+        seg_end_safe = jnp.where(valid_seg, seg_end, 1.0)
+        log_scale = jnp.log(scale)
+        seg_start_exp = concentration * (jnp.log(seg_start_safe) - log_scale)
+        seg_end_exp = concentration * (jnp.log(seg_end_safe) - log_scale)
+        valid_seg_float = valid_seg.astype(exit_times.dtype)
+        delta_H = valid_seg_float * (jnp.exp(seg_end_exp) - jnp.exp(seg_start_exp))
+        cumulative_H = delta_H.sum(axis=-1)
+
+        event_time = exit_times
+        event_interval = jnp.clip(jnp.floor(event_time).astype(jnp.int32), 0, self.t - 1)
+        concentration_event = jnp.take_along_axis(concentration, event_interval[:, None], axis=1).squeeze(-1)
+        scale_event = scale.squeeze(-1)
+
+        log_h_event = (
+            jnp.log(concentration_event)
+            - concentration_event * jnp.log(scale_event)
+            + (concentration_event - 1.0) * jnp.log(event_time)
+        )
+
+        log_lik_exit_event = log_h_event - cumulative_H
+        log_lik_exit_censored = -cumulative_H
+        with mask(mask=rc):
+            numpyro.factor("log_lik_exit_censored", log_lik_exit_censored)
+        with mask(mask=(~rc)):
+            numpyro.factor("log_lik_exit_observed", log_lik_exit_event)
+
+    def model_fn(
+        self,
+        data_set,
+        hsgp_params,
+        offsets={},
+        inference_method: str = "prior",
+        sample_free_indices: jnp.ndarray = jnp.array([]),
+        sample_fixed_indices: jnp.ndarray = jnp.array([]),
+    ) -> None:
+        prior = inference_method == "prior"
+        num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
+        num_neg_bins = data_set["negative-binomial"]["Y"].shape[0] if "negative-binomial" in data_set else 0
+        num_beta = data_set["beta"]["Y"].shape[0] if "beta" in data_set else 0
+        num_beta_bins = data_set["beta-binomial"]["Y"].shape[0] if "beta-binomial" in data_set else 0
+
+        phi_time = hsgp_params["phi_x_time"]
+        L_time = hsgp_params["L_time"]
+        M_time = hsgp_params["M_time"]
+        shifted_x_time = hsgp_params["shifted_x_time"]
+
+        alpha_time = self._resolve_prior("alpha", sample_shape=(self.k, 1))
+        ls_deriv = 3 + self._resolve_prior("lengthscale_deriv", sample_shape=(self.k, 1))
+        spd_time = jnp.squeeze(
+            jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(
+                alpha_time, ls_deriv
+            )
+        )
+        sigma_c_max = self._resolve_prior("sigma_c", sample_shape=(self.k,))
+        sigma_t_max = self._resolve_prior("sigma_t", sample_shape=(self.k,))
+        t_max_raw, c_max_raw = self._sample_max_raw_parameters(self.r)
+
+        if num_gaussians > 0:
+            expanded_sigmas = self._sample_gaussian_sigmas(num_gaussians)
+        if num_beta > 0:
+            sigma_beta = self._resolve_prior("sigma_beta", sample_shape=(num_beta,))
+            expanded_sigma_beta = jnp.tile(sigma_beta[:, None, None], (1, self.n, self.j))
+        if num_neg_bins > 0:
+            sigma_negative_binomial = self._resolve_prior("sigma_negative_binomial", sample_shape=(num_neg_bins,))
+            expanded_sigma_neg_bin = jnp.tile(sigma_negative_binomial[:, None, None], (1, self.n, self.j))
+        if num_beta_bins > 0:
+            sigma_beta_binomial = self._resolve_prior("sigma_beta_binomial", sample_shape=(num_beta_bins,))
+            expanded_sigma_beta_bin = jnp.tile(sigma_beta_binomial[:, None, None], (1, self.n, self.j))
+
+        X = self._resolve_latent_X(sample_free_indices, sample_fixed_indices)
+        psi_x = self._project_X(X)
+
+        t_offset = self._resolve_prior("t_offset", sample_shape=(self.n, self.k))
+        if t_offset is None:
+            t_offset = offsets["t_max"]
+        c_offset = self._resolve_prior("c_offset", sample_shape=(self.n, self.k))
+        if c_offset is None:
+            c_offset = offsets["c_max"]
+
+        t_max, c_max = self._build_max_curves(
+            psi_x, t_max_raw, c_max_raw, sigma_t_max, sigma_c_max, t_offset, c_offset, prior
+        )
+        phi_t_max, phi_prime_t_max = self._compute_phi_at_max(t_max, L_time, M_time)
+
+        weights = self._resolve_prior("beta", sample_shape=(self.r, M_time, self.k))
+        weights *= spd_time.T[None]
+
+        sigma_ar = self._resolve_prior("sigma_ar", sample_shape=(self.k, 1))
+        rho_ar = self._resolve_prior("rho_ar", sample_shape=(self.k, 1))
+        z = self._resolve_prior("beta_ar", sample_shape=(self.j, self.k, self.n))
+        ar_0 = (
+            self._resolve_prior("ar_0", sample_shape=(self.k, self.n), site_name="AR_0")
+            * (sigma_ar / jnp.sqrt(1 - rho_ar**2))
+        )
+        AR = self._build_ar_process(sigma_ar=sigma_ar, rho_ar=rho_ar, z=z, ar_0=ar_0)
+
+        # ------------------------------------------------------------------ #
+        # Injury effect: exponential decay                                    #
+        # ------------------------------------------------------------------ #
+
+        injury_loading = self._resolve_prior("injury_loading", sample_shape=(self.k, self.p))
+        injury_factor = self._resolve_prior("injury_factor", sample_shape=(self.i, self.p))
+        injury_global_offset = self._resolve_prior("injury_global_offset", sample_shape=(self.k,))
+        sigma_injury = self._resolve_prior("sigma_injury", sample_shape=(self.k,))
+
+        # Shared low-rank structure across injury types: (k, i)
+        injury_mean_prior = jnp.einsum("ip,kp->ki", injury_factor, injury_loading)
+
+        # --- beta_0: initial shock -- (k, i), shared across players ---
+        # No per-player noise so that lambda receives a genuine gradient from
+        # within-player temporal recovery patterns. Player heterogeneity in
+        # injury response is captured by the baseline LVM trajectory.
+        beta_0 = injury_global_offset[:, None] + injury_mean_prior  # (k, i)
+
+        # --- lambda: decay rate -- (k, i), constrained > 0 via softplus ---
+        lambda_global_offset = self._resolve_prior("lambda_global_offset", sample_shape=(self.k, self.i))
+        decay_rate = jax.nn.softplus(lambda_global_offset)     # (k, i), strictly > 0
+
+        # --- Time since injury: delta_t[n, t] = max(t - T0_n, 0) ---
+        injury_indicator = offsets["injury_indicator"]
+        injury_type = offsets["injury_type"]
+        if injury_indicator.ndim == 3:
+            injury_indicator = injury_indicator[0]
+        if injury_type.ndim == 3:
+            injury_type = injury_type[0]
+
+        # argmax over the time axis gives the first injured step per player.
+        # For uninjured players argmax returns 0, but injury_type stays 0 so
+        # the effect is zeroed out by the take_along_axis selection below.
+        t0_index = jnp.argmax(injury_indicator, axis=-1).astype(jnp.float32)  # (n,)
+        t_grid = jnp.arange(self.t, dtype=jnp.float32)                        # (t,)
+        delta_t = jnp.maximum(t_grid[None, :] - t0_index[:, None], 0.0)       # (n, t)
+
+        # --- Pure exponential decay: beta_0 * exp(-lambda * delta_t) ---
+        # beta_0: (k, i), decay_rate: (k, i), delta_t: (n, t)
+        decay_factor = jnp.exp(
+            -decay_rate[:, None, None, :] * delta_t[None, :, :, None]
+        )  # (k, n, t, i)
+        injury_effect_decayed = beta_0[:, None, None, :] * decay_factor  # (k, n, t, i)
+
+        # Select active injury type; zeros prepended at index 0 handle d=0 (uninjured)
+        # injury_effect_decayed: (k, n, t, i); need zeros (k, n, t, 1) and index (k, n, t, 1)
+        zeros_ktni = jnp.zeros(injury_effect_decayed.shape[:-1] + (1,), dtype=injury_effect_decayed.dtype)
+        injury_effect = jnp.take_along_axis(
+            jnp.concatenate([zeros_ktni, injury_effect_decayed], -1),
+            injury_type[None, :, :, None],   # (1, n, t, 1) broadcasts to (k, n, t, i+1)
+            -1,
+        ).squeeze(-1)  # (k, n, t)
+
+        # ------------------------------------------------------------------ #
+        # Base trajectory + likelihoods + survival                           #
+        # ------------------------------------------------------------------ #
+
+        mu_base = self._compute_convex_mu(
+            psi_x, weights, phi_t_max, phi_prime_t_max, phi_time, shifted_x_time, L_time, t_max, c_max, False
+        )
+        mu = self._build_mu_from_base(mu_base, prior, injury_effect, AR)
+        self._sample_family_likelihoods(
+            data_set,
+            mu,
+            prior=prior,
+            expanded_sigmas=expanded_sigmas if num_gaussians > 0 else None,
+            expanded_taus=None,
+            expanded_sigma_beta=expanded_sigma_beta if num_beta > 0 else None,
+            expanded_sigma_beta_bin=expanded_sigma_beta_bin if num_beta_bins > 0 else None,
+            expanded_sigma_neg_bin=expanded_sigma_neg_bin if num_neg_bins > 0 else None,
+        )
+        self.compute_survival_likelihood(X, injury_factor, offsets=offsets)
+
+    def run_inference(self, num_warmup, num_samples, num_chains, vectorized, model_args, initial_values={}, thinning=1):
+        return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args, initial_values, thinning=thinning)
+
+    def run_map_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_state=None):
+        return super().run_map_inference(num_steps, guide_kwargs, model_args, initial_state)
+
+    def run_svi_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_state: dict = {}, sample_shape=(4, 2000), debug_nan: bool = False):
+        return super().run_svi_inference(num_steps, guide_kwargs, model_args, initial_state, sample_shape, debug_nan)
+
+    def predict(self, posterior_samples: dict, model_args, num_samples=1000):
+        return super().predict(posterior_samples, model_args, num_samples)

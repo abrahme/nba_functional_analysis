@@ -1,7 +1,9 @@
 import pandas as pd
 import pickle
+import os
 import re
 import numpy as np
+import matplotlib.pyplot as plt
 import argparse
 import arviz as az
 from jax import config, vmap
@@ -13,7 +15,7 @@ import jax.numpy as jnp
 from model.model_utils import make_mu_rflvm, make_mu_hsgp, make_mu_linear, make_mu_rflvm_mcmc_AR, make_mu_hsgp_mcmc_AR, make_mu_linear_mcmc_AR, make_mu_linear_mcmc, compute_residuals_map, compute_priors, make_survival_linear_injury_mcmc, apply_detrend_for_offsets, make_survival_linear_mcmc
 from model.inference_utils import posterior_peaks_to_df, posterior_to_df, posterior_X_to_df, posterior_injury_to_df, posterior_injury_prior_mean_to_df, posterior_survival_to_df, posterior_player_scalar_to_df
 from model.hsgp import vmap_make_convex_phi, eigenfunctions_multivariate, make_spectral_mixture_density, diag_spectral_density, sqrt_eigenvalues
-
+from visualization.visualization import make_diagnostic_heatmap, make_rhat_summary_barchart
 from model.inference_utils import create_metric_trajectory_all, create_metric_trajectory_map
 
 
@@ -215,6 +217,7 @@ if __name__ == "__main__":
                                     "Devin Booker", "Paul Pierce", "Allen Iverson", 
                                     "Carmelo Anthony", "Dwyane Wade", "Derrick Rose", "Chris Bosh", "Karl-Anthony Towns", "Kristaps Porzingis", 
                                     "Giannis Antetokounmpo", "Jrue Holiday", "No Name"]
+    all_player_labels = id_df["name"].tolist()
     print("setup data")
     offset_dict = {"t_max": offset_peak, "c_max": offset_max, "boundary_r": offset_boundary_r, "boundary_l": offset_boundary_l, "t_max_var": offset_peak_var, "c_max_var": offset_max_var}
 
@@ -228,6 +231,9 @@ if __name__ == "__main__":
             results_mcmc = {key: val[:, ::thin, ...] for key, val in results_mcmc.items()}
     f.close()
     results_mcmc = {**results_map, **results_mcmc}
+    
+    df = posterior_X_to_df(results_mcmc["X"], id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], [])
+    df.to_csv(f"posterior_latent_X{model_suffix}.csv", index = False)
     _summary_vars = ["sigma_beta", "sigma_beta_binomial", "sigma", "sigma_ar", "sigma_negative_binomial"]
     _summary_subset = {k: results_mcmc[k] for k in _summary_vars if k in results_mcmc}
     summary = az.summary(_summary_subset)
@@ -327,7 +333,7 @@ if __name__ == "__main__":
                             # AR_0_raw = jnp.zeros((len(metrics), covariate_X.shape[0])),
                              orthogonalize=False)
     elif "linear" in model_name: 
-        if "AR" in model_name:
+        if ("AR" in model_name) or injury:
             wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv, first_deriv = make_mu_linear_mcmc_AR(results_mcmc["X"], 3 + results_mcmc["lengthscale_deriv"], 
                                 results_mcmc["alpha"], results_mcmc["beta"],
                                 results_mcmc["c_max"], results_mcmc["t_max_raw"], results_mcmc["sigma_t"],
@@ -346,9 +352,6 @@ if __name__ == "__main__":
                                 results_mcmc["c_max"], results_mcmc["t_max_raw"], results_mcmc["sigma_t"],
                                 results_mcmc["sigma_c"], L_time, M_time, phi_time, x_time + L_time, basis_dims, offset_dict)
 
-    if "intercept" in results_mcmc:
-        print("added offset")
-        mu_mcmc += (results_mcmc["intercept"] * results_mcmc["sigma_intercept"][None, None])[..., None]
     latent_val = mu_mcmc + AR + de_trend_adjusted
     if injury:
         injury_loading = results_mcmc["injury_loading"]
@@ -393,7 +396,7 @@ if __name__ == "__main__":
     else:
         injury_effect = jnp.zeros_like(latent_val)
 
-    if has_survival_injury and injury and ("counterfactual" not in model_name):
+    if has_survival_injury and injury:
             surv_posterior = make_survival_linear_injury_mcmc(
                 X=results_mcmc["X"],
                 entrance=results_mcmc["entrance"],
@@ -633,20 +636,44 @@ if __name__ == "__main__":
 
     players = id_df[id_df["name"].isin(predict_players)].index
     player_names = id_df[id_df["name"].isin(predict_players)]["name"].tolist()
-    idata = az.from_dict(
-    posterior={
-        "theta": latent_val[:, :, :, jnp.array(players)]
-    },
-    coords={
-        "players": predict_players,
-        "age": range(18,39),
-        "observable": metrics,
-    },
-    dims={
-        "theta": ["chain", "draw", "observable", "players", "age"]
-    })
-    summary = az.summary(idata)
-    summary.to_csv(f"model_output/posterior_latent_ar{model_suffix}_summary.csv")
+
+    os.makedirs("model_output/model_plots/coverage", exist_ok=True)
+
+    players_idx = jnp.array(id_df.index)
+    ages = list(range(18, 39))
+    n_players_sel = len(id_df)
+    n_ages = len(ages)
+
+
+
+    make_diagnostic_heatmap(
+        latent_val,
+        n_players_sel,
+        n_ages,
+        ages,
+        f"model_output/model_plots/coverage/posterior_latent_ar{model_suffix}.png",
+        player_labels=all_player_labels,
+    )
+    make_diagnostic_heatmap(
+        mu_mcmc,
+        n_players_sel,
+        n_ages,
+        ages,
+        f"model_output/model_plots/coverage/posterior_mu_ar{model_suffix}.png",
+        player_labels=all_player_labels,
+    )
+    make_rhat_summary_barchart(
+        latent_val,
+        f"model_output/model_plots/coverage/rhat_summary_latent_ar{model_suffix}.png",
+        metric_labels=metrics,
+    )
+    make_rhat_summary_barchart(
+        mu_mcmc,
+        f"model_output/model_plots/coverage/rhat_summary_mu_ar{model_suffix}.png",
+        metric_labels=metrics,
+    )
+
+
 
 
     _summary_vars = ["sigma_beta", "sigma_beta_binomial"]
@@ -709,8 +736,7 @@ if __name__ == "__main__":
     latent_space_df = pd.concat([latent_space_df, id_df], axis = 1)
     latent_space_df.to_csv(f"latent_space{model_suffix}.csv", index = False)
 
-    # df = posterior_X_to_df(results_mcmc["X"], id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], player_indices)
-    # df.to_csv(f"latent_X{model_suffix}.csv", index = False)
+
 
     if "hsgp" in model_name:
         phi_x = eigenfunctions_multivariate(results_map["X"],  2 * jnp.ones(basis_dims)[..., None] , approx_x_dim)

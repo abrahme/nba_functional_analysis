@@ -12,6 +12,9 @@ _xla_flags = os.environ.get("XLA_FLAGS", "")
 for _flag in ["--xla_force_host_platform_device_count=1", "--xla_cpu_multi_thread_eigen=false"]:
     if _flag not in _xla_flags:
         _xla_flags = f"{_xla_flags} {_flag}".strip()
+# for _flag in [f"--xla_force_host_platform_device_count={os.cpu_count()}"]:
+#     if _flag not in _xla_flags:
+#         _xla_flags = f"{_xla_flags} {_flag}".strip()
 os.environ["XLA_FLAGS"] = _xla_flags
 
 import pandas as pd
@@ -45,7 +48,7 @@ jax.config.update("jax_enable_x64", True)
 from model.inference_utils import get_latent_sites, create_metric_trajectory_map
 from model.model_utils import make_mu_rflvm, make_mu_linear, make_mu_hsgp, compute_residuals_map, compute_priors, apply_detrend_for_offsets, compute_linear_predictor_mean_offsets, summarize_metric_error_observed_substitutions, summarize_metric_error_injury_splits, summarize_normalized_weighted_metric_residuals_by_age
 from data.data_utils import create_fda_data, create_surv_data
-from model.models import  ConvexMaxInjuryTVLinearLVM, ConvexMaxTVLinearLVM, ConvexMaxTVRFLVM, NaiveLinearLVM, ConvexMaxBoundaryTVRFLVM, ConvexMaxBoundaryARTVRFLVM, ConvexMaxARTVRFLVM, ConvexMaxARTVLinearLVM
+from model.models import  ConvexMaxInjuryTVLinearLVM, ConvexMaxTVLinearLVM, ConvexMaxDecayInjuryTVLinearLVM, ConvexMaxTVRFLVM, NaiveLinearLVM, ConvexMaxBoundaryTVRFLVM, ConvexMaxBoundaryARTVRFLVM, ConvexMaxARTVRFLVM, ConvexMaxARTVLinearLVM
 from visualization.visualization import plot_posterior_predictive_career_trajectory_map, plot_prior_predictive_career_trajectory, plot_prior_mean_trajectory
 
 
@@ -220,8 +223,10 @@ if __name__ == "__main__":
     elif "linear" in model_name:
         covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, [], injury=injury, validation_year=validation_year)
         model = ConvexMaxTVLinearLVM(latent_rank=basis_dims, output_shape=(covariate_X.shape[0], len(basis), len(metrics)), basis = basis)
-        if injury and ("counterfactual" not in model_name) and ("injury" in model_name):
+        if injury and ("injury" in model_name):
             model = ConvexMaxInjuryTVLinearLVM(latent_rank=basis_dims, output_shape=(covariate_X.shape[0], len(basis), len(metrics)), basis = basis, injury_rank=5, num_injury_types=int(data["injury_code"].max()))
+            if "decay" in model_name:
+                model = ConvexMaxDecayInjuryTVLinearLVM(latent_rank=basis_dims, output_shape=(covariate_X.shape[0], len(basis), len(metrics)), basis = basis, injury_rank=5, num_injury_types=int(data["injury_code"].max()))
         elif "AR" in model_name:
             model = ConvexMaxARTVLinearLVM(latent_rank=basis_dims, output_shape=(covariate_X.shape[0], len(basis), len(metrics)), basis = basis)
         elif "naive" in model_name:
@@ -513,19 +518,25 @@ if __name__ == "__main__":
                     print(avg_sd, autocorr)
                         
         if map_inference:
-            samples, state = model.run_map_inference(num_steps = 50000, model_args=model_args, initial_state=initial_map_init)
+            samples, state = model.run_map_inference(num_steps = 100000, model_args=model_args, initial_state=initial_map_init)
         elif prior_predictive:
             print("sampling from prior")
             samples = model.predict({}, model_args, num_samples = num_samples)
         elif mcmc_inference:
             samples, mcmc_model = model.run_inference(num_chains=num_chains, num_samples=num_samples, num_warmup=num_warmup, vectorized=vectorized, 
-            model_args=model_args, initial_values=initial_params, thinning = int(num_samples / 500))
+            model_args=model_args, initial_values=initial_params, thinning = int(num_samples / 250))
 
         elif svi_inference:
             samples = model.run_svi_inference(num_steps=30000, guide_kwargs={}, model_args=model_args, initial_values=initial_params, 
                                                         sample_shape = (num_chains, num_samples), debug_nan=debug_nan)
-    if mcmc_inference:
-        mcmc_model.print_summary()
+    # if mcmc_inference:
+        # mcmc_model.print_summary()
+
+    if mcmc_inference and mcmc_model is not None:
+        extra = mcmc_model.get_extra_fields()
+        if "potential_energy" in extra:
+            lpd = -extra["potential_energy"]
+            pd.DataFrame(lpd).to_csv(f"{output_path}_LPD.csv", index=False)
 
     if map_inference and len(map_fixed_params_loc) > 0:
         samples = dict(samples)
@@ -621,22 +632,23 @@ if __name__ == "__main__":
                     injury_global_offset = samples.get("injury_global_offset__loc")
                     if injury_global_offset is None:
                         injury_global_offset = jnp.zeros((injury_mean_prior.shape[0],))
-                    injury_raw = samples["injury_raw__loc"]
-                    sigma_injury = samples["sigma_injury__loc"]
-                    injury_x_loading = samples.get("injury_x_loading__loc")
                     injury_indicator = model_args["offsets"]["injury_indicator"]
-                    injury_type = model_args["offsets"]["injury_type"] 
-                    if injury_x_loading is not None:
-                        injury_x_effect = jnp.einsum("nr,kir->kni", X, injury_x_loading)
+                    injury_type = model_args["offsets"]["injury_type"]
+                    is_decay_model = "decay" in model_name
+                    if is_decay_model:
+                        # beta_0 is (k, i) — no per-player noise
+                        injury_effect_component = (
+                            injury_global_offset[:, None] + injury_mean_prior
+                        )  # (k, i)
                     else:
-                        injury_x_effect = jnp.zeros((len(metrics), X.shape[0], injury_mean_prior.shape[-1]))
-                    injury_effect_component = injury_global_offset[:, None, None, None] + injury_mean_prior[:, None, None, :] + injury_x_effect[:, :, None, :] + injury_raw * sigma_injury[:, None, None, None]
-                    injury_effect_raw = jnp.concatenate([jnp.zeros_like(injury_indicator)[..., None], injury_effect_component], -1)
-                    full_mask = (injury_indicator * masks)[..., None]
-                    avg_injury_effect =  (injury_effect_raw * full_mask).sum(axis = (1,2)) / full_mask.sum(axis = (1,2))
-                    print(avg_injury_effect.shape)
-                    injury_effect = jnp.take_along_axis(injury_effect_raw, injury_type[..., None], -1).squeeze(-1) * injury_indicator
-                    print(injury_effect.shape)
+                        injury_raw = samples["injury_raw__loc"]
+                        sigma_injury = samples["sigma_injury__loc"]
+                        # static model: injury_raw is (k, n, t, i)
+                        injury_effect_component = injury_global_offset[:, None, None, None] + injury_mean_prior[:, None, None, :] + injury_raw * sigma_injury[:, None, None, None]
+                        injury_effect_raw = jnp.concatenate([jnp.zeros_like(injury_indicator)[..., None], injury_effect_component], -1)
+                        full_mask = (injury_indicator * masks)[..., None]
+                        avg_injury_effect = (injury_effect_raw * full_mask).sum(axis=(1, 2)) / full_mask.sum(axis=(1, 2))
+                        injury_effect = jnp.take_along_axis(injury_effect_raw, injury_type[..., None], -1).squeeze(-1) * injury_indicator
                     injuries = data["first_major_injury"].cat.categories[1:]
                     injury_effect_data = pd.DataFrame(injury_mean_prior + injury_global_offset[:, None], columns = injuries, index = metrics)
                     plot_metric_names = list(metrics)
@@ -805,6 +817,60 @@ if __name__ == "__main__":
                     ax.set_title("PCA Visualization of Injury")
                     fig.savefig(f"model_output/model_plots/injury/{model_name}_injury_pca.png", format = "png")
                     plt.close()
+
+                    # ---- Decay-model-specific plots ---- #
+                    if "decay" in model_name and "lambda_global_offset__loc" in samples:
+                        lambda_global_offset_decay = samples["lambda_global_offset__loc"]   # (k, i)
+                        avg_lambda = np.asarray(jax.nn.softplus(lambda_global_offset_decay))  # (k, i)
+
+                        avg_beta0 = np.asarray(injury_effect_component)                      # (k, i)
+
+                        ncols_d = 4
+                        nrows_d = (num_metrics + ncols_d - 1) // ncols_d
+
+                        # Plot 1: avg decay rate (lambda) by injury type
+                        fig, axes = plt.subplots(nrows=nrows_d, ncols=ncols_d, figsize=(5 * ncols_d, 4 * nrows_d))
+                        axes = axes.flatten()
+                        for idx, metric in enumerate(plot_metric_names):
+                            ax = axes[idx]
+                            pd.Series(avg_lambda[idx], index=injuries).plot(kind="bar", ax=ax, title=metric)
+                            ax.set_ylabel("Avg Decay Rate (λ)")
+                            ax.set_xlabel("Injury")
+                            ax.set_xticklabels(injuries, rotation=90, ha="right")
+                        for j in range(num_metrics, len(axes)):
+                            fig.delaxes(axes[j])
+                        fig.tight_layout()
+                        fig.suptitle("Average Injury Decay Rate (λ) by Injury Type", fontsize=16)
+                        fig.savefig(f"model_output/model_plots/injury/{model_name}_decay_rate.png", dpi=300, bbox_inches="tight")
+                        plt.close()
+
+                        # Plot 2: avg initial shock (beta0) by injury type
+                        fig, axes = plt.subplots(nrows=nrows_d, ncols=ncols_d, figsize=(5 * ncols_d, 4 * nrows_d))
+                        axes = axes.flatten()
+                        for idx, metric in enumerate(plot_metric_names):
+                            ax = axes[idx]
+                            metric_type = plot_metric_types[idx]
+                            if metric_type == "gaussian":
+                                shock_link = lambda x: x
+                                shock_label = "Change in Outcome"
+                            elif metric_type in ["poisson", "negative-binomial"]:
+                                shock_link = lambda x: np.exp(x) - 1
+                                shock_label = "% Change in Rate"
+                            else:
+                                shock_link = lambda x: np.exp(x) - 1
+                                shock_label = "% Change in Odds"
+                            pd.Series(shock_link(avg_beta0[idx]), index=injuries).plot(kind="bar", ax=ax, title=metric)
+                            ax.set_ylabel(f"Avg Initial Shock ({shock_label})")
+                            ax.set_xlabel("Injury")
+                            ax.set_xticklabels(injuries, rotation=90, ha="right")
+                        for j in range(num_metrics, len(axes)):
+                            fig.delaxes(axes[j])
+                        fig.tight_layout()
+                        fig.suptitle("Average Injury Initial Shock (β₀) by Injury Type", fontsize=16)
+                        fig.savefig(f"model_output/model_plots/injury/{model_name}_initial_shock.png", dpi=300, bbox_inches="tight")
+                        plt.close()
+
+
         elif "naive" in model_name:
             mu = jnp.repeat(samples.get("c_offset__loc", 0), repeats = len(basis) , axis = - 1)
             print(mu.shape)

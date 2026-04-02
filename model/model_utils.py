@@ -758,8 +758,8 @@ def make_mu_linear_mcmc_AR(X, ls_deriv, alpha_time, weights, c_max, t_max_raw, s
     spd_time = jnp.squeeze(jnp.sqrt(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(alpha_time, ls_deriv)))
     weights = weights * spd_time.T[None] 
     psi_x = X
-    t_max = jnp.tanh(jnp.einsum("ijnm, ijm... -> ijn...", X, t_max_raw * sigma_t_max)   + jnp.arctanh(offset_dict["t_max"]/10)) * 10 
-    c_max = jnp.einsum("ijnm, ijm... -> ijn...", X, c_max * sigma_c_max)  + offset_dict["c_max"]
+    t_max = jnp.tanh(jnp.einsum("ijnm, ijm... -> ijn...", X, t_max_raw * sigma_t_max[..., None, :])   + jnp.arctanh(offset_dict["t_max"]/10)) * 10 
+    c_max = jnp.einsum("ijnm, ijm... -> ijn...", X, c_max * sigma_c_max[..., None, :])  + offset_dict["c_max"]
     phi_prime_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))))(t_max)
     phi_double_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))))(t_max)
     phi_triple_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))))(t_max)
@@ -1207,7 +1207,7 @@ def make_survival_linear_injury_mcmc(
     observed_count = jnp.maximum(observed_mask.sum(), 1.0)
     empirical_log1p_mean = jnp.sum(jnp.log(entrance_times + entry_shift) * observed_mask) / observed_count
 
-    entrance_raw = jnp.einsum("nr,...r->...n", X, entrance)
+    entrance_raw = jnp.einsum("...nr,...r->...n", X, entrance)
     entrance_loc = entrance_global_offset[..., None] + entrance_raw + empirical_log1p_mean
     entrance_dist = dist.LogNormal(entrance_loc, 0.35 + sigma_entrance[..., None])
     entrance_latent = jnp.where(
@@ -1223,8 +1223,8 @@ def make_survival_linear_injury_mcmc(
 
     scale_min = 8
     scale_max = 15
-    exit_raw = jnp.einsum("nr,...r->...n", X, exit) 
-    scale = scale_min + (scale_max - scale_min) * jax.nn.sigmoid(exit_raw)[:, None]
+    exit_raw = jnp.einsum("...nr,...r->...n", X, exit) 
+    scale = scale_min + (scale_max - scale_min) * jax.nn.sigmoid(exit_raw)[..., None]
     injury_exit_mean = jnp.einsum("...ip,...p->...i", injury_factor, injury_exit_loading)
     injury_exit_total = (
         injury_exit_global_offset[..., None, None, None]
@@ -1237,7 +1237,7 @@ def make_survival_linear_injury_mcmc(
         injury_type[None, None, ..., None],
         axis=-1,
     ).squeeze(-1)
-    exit_rate_base = jnp.einsum("nr,...r->...n", X, exit_rate)[..., None]
+    exit_rate_base = jnp.einsum("...nr,...r->...n", X, exit_rate)[..., None]
     exit_rate_raw = exit_rate_base + injury_effect_exit + exit_global_offset
     concentration = 1.0 + 2*jax.nn.sigmoid(exit_rate_raw)
     concentration_is_time_varying = jnp.any(
