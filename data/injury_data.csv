@@ -12,6 +12,7 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 6096,2003-10-27,Spurs,, Alex Garcia,placed on IL with broken toe on left foot,Alex Garcia,2004,2003-04,Foot Fracture
 6882,2004-12-21,Hornets,, Alex Garcia,placed on IL with torn ACL in left knee (out for season),Alex Garcia,2005,2004-05,ACL
 11552,2007-12-20,Heat,, Alonzo Mourning,placed on IL with torn patellar tendon in right knee,Alonzo Mourning,2008,2007-08,Patellar Tendon
+545,1987-04-03,Sonics,, Alton Lister,placed on IL with broken bone in foot,Alton Lister,1987,1986-87,Foot Fracture
 19084,2013-02-08,Pistons,, Andre Drummond,placed on IL with stress fracture in back,Andre Drummond,2013,2012-13,Back/Spine
 27008,2018-01-28,Thunder,, Andre Roberson,placed on IL recovering from surgery on left knee to repair torn patellar tendon (out for season),Andre Roberson,2018,2017-18,Patellar Tendon
 28007,2018-10-01,Thunder,, Andre Roberson,placed on IL recovering from surgery on left knee to repair torn patellar tendon (out for season) (date approximate),Andre Roberson,2019,2018-19,Patellar Tendon
@@ -20,6 +21,8 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 25124,2017-03-09,Cavaliers,, Andrew Bogut,placed on IL with fractured tibia in left / right leg,Andrew Bogut,2017,2016-17,Lower Body Fracture
 13563,2009-02-02,Lakers,, Andrew Bynum,placed on IL with torn MCL in right knee,Andrew Bynum,2009,2008-09,ACL
 3233,1999-02-04,Mavericks,, Ansu Sesay,placed on IL with fractured right foot (out for season),Ansu Sesay,1999,1998-99,Foot Fracture
+785,1990-10-31,Kings,, Anthony Bonner,placed on IL with stress fracture in left foot,Anthony Bonner,1991,1990-91,Foot Fracture
+2115,1996-10-31,Warriors,, Anthony Harris,placed on IR with hairline fracture in right ankle,Anthony Harris,1997,1996-97,Foot Fracture
 3255,1999-02-16,76ers,, Anthony Parker,placed on IL with fractured bone in left foot,Anthony Parker,1999,1998-99,Foot Fracture
 3119,1998-04-13,Pacers,, Austin Croshere,placed on IR with fractured left foot,Austin Croshere,1998,1997-98,Foot Fracture
 18379,2012-05-09,Knicks,, Baron Davis,"placed on IL with torn ACL, MCL, and patella tendon in right knee (out for season)",Baron Davis,2012,2011-12,ACL
@@ -27,9 +30,13 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 25649,2017-10-17,Grizzlies,, Ben McLemore,placed on IL recovering from surgery on right foot to repair fracture,Ben McLemore,2018,2017-18,Foot Fracture
 23790,2016-10-26,76ers,, Ben Simmons,placed on IL recovering from surgery on right foot to repair fracture (out for season),Ben Simmons,2017,2016-17,Foot Fracture
 13735,2009-02-27,Cavaliers,, Ben Wallace,placed on IL with fractured right fibula,Ben Wallace,2009,2008-09,Lower Body Fracture
+439,1985-10-29,Suns,, Bernard Thompson,placed on IL with stress fracture in left ankle,Bernard Thompson,1986,1985-86,Foot Fracture
+549,1987-11-01,Suns,, Bernard Thompson,placed on IL with stress fracture in foot (date approximate),Bernard Thompson,1988,1987-88,Foot Fracture
+395,1984-11-26,Knicks,, Bill Cartwright,placed on IL with fractured metatarsal bone in left foot,Bill Cartwright,1985,1984-85,Foot Fracture
 14116,2009-10-27,Clippers,, Blake Griffin,placed on IL with stress fracture in left kneecap (out for season),Blake Griffin,2010,2009-10,Lower Body Fracture
 22839,2015-12-26,Clippers,, Blake Griffin,placed on IL with torn left quadriceps tendon,Blake Griffin,2016,2015-16,Quad Tendon
 4787,2001-04-10,Blazers,, Bonzi Wells,placed on IL with torn ACL in left knee (out for season),Bonzi Wells,2001,2000-01,ACL
+1122,1994-11-03,Cavaliers,, Brad Daugherty,placed on IR with surgery to repair herniated discs in back,Brad Daugherty,1995,1994-95,Back/Spine
 4015,2000-02-23,Hornets,, Brad Miller,placed on IL with torn meniscus cartilage in left knee,Brad Miller,2000,1999-00,Meniscus
 7209,2005-03-13,Kings,, Brad Miller,placed on IL with broken left leg,Brad Miller,2005,2004-05,Lower Body Fracture
 12412,2008-04-08,Kings,, Brad Miller,placed on IL with stress fracture in left leg and bone chip in right elbow,Brad Miller,2008,2007-08,Lower Body Fracture
@@ -41,6 +48,9 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 15483,2010-04-12,Blazers,, Brandon Roy,placed on IL with torn meniscus in right knee,Brandon Roy,2010,2009-10,Meniscus
 18468,2012-11-03,Warriors,, Brandon Rush,placed on IL with torn ACL in left knee (out for season),Brandon Rush,2013,2012-13,ACL
 19638,2013-10-30,Bobcats,, Brendan Haywood,placed on IL recovering from surgery on left foot to repair stress fracture (out for season),Brendan Haywood,2014,2013-14,Foot Fracture
+1116,1994-11-03,Bullets,, Brent Price,placed on IR with torn ACL (out for season),Brent Price,1995,1994-95,ACL
+2456,1997-03-03,Rockets,, Brent Price,placed on IR with torn ACL in right knee,Brent Price,1997,1996-97,ACL
+2190,1996-11-28,Pacers,, Brent Scott,placed on IL with stress fracture in left leg,Brent Scott,1997,1996-97,Lower Body Fracture
 4923,2001-10-29,Nets,, Brian Scalabrine,placed on IL with broken right foot,Brian Scalabrine,2002,2001-02,Foot Fracture
 17388,2011-12-26,Nets,, Brook Lopez,placed on IL recovering from surgery on right foot to repair stress fracture,Brook Lopez,2012,2011-12,Foot Fracture
 20040,2013-12-23,Nets,, Brook Lopez,placed on IL with fractured right foot (out for season),Brook Lopez,2014,2013-14,Foot Fracture
@@ -54,6 +64,7 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 20397,2014-02-28,Kings,, Carl Landry,placed on IL with torn medial meniscus in right knee (out for season),Carl Landry,2014,2013-14,Meniscus
 19587,2013-05-03,Rockets,, Carlos Delfino,placed on IL with fractured right foot (out for season),Carlos Delfino,2013,2012-13,Foot Fracture
 16322,2011-01-02,Mavericks,, Caron Butler,placed on IL with torn patella tendon in right knee (out for season),Caron Butler,2011,2010-11,Patellar Tendon
+2142,1996-11-14,Lakers,, Cedric Ceballos,placed on IR with partially torn patella tendon in right knee,Cedric Ceballos,1997,1996-97,Patellar Tendon
 25213,2017-03-18,Grizzlies,, Chandler Parsons,placed on IL with torn meniscus in left knee (out for season),Chandler Parsons,2017,2016-17,Meniscus
 3830,1999-12-10,Rockets,, Charles Barkley,placed on IR with ruptured quadriceps tendon in left knee (out for season),Charles Barkley,2000,1999-00,Quad Tendon
 37318,2023-03-15,Spurs,, Charles Bassey,placed on IL with fractured patella in left knee (out for season),Charles Bassey,2023,2022-23,Lower Body Fracture
@@ -64,10 +75,12 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 18411,2012-10-31,Clippers,, Chauncey Billups,placed on IL recovering from surgery to repair turn left Achilles tendon,Chauncey Billups,2013,2012-13,Achilles
 15625,2010-10-27,Nuggets,, Chris Andersen,placed on IL recovering from surgery on right knee to repair partially torn patella tendon,Chris Andersen,2011,2010-11,Patellar Tendon
 24365,2016-12-17,Cavaliers,, Chris Andersen,placed on IL with torn ACL in right knee,Chris Andersen,2017,2016-17,ACL
+2059,1996-10-30,Knicks,, Chris Childs,placed on IR with broken right leg,Chris Childs,1997,1996-97,Lower Body Fracture
 4985,2001-11-13,Hawks,, Chris Crawford (Lee),placed on IL with a torn ACL in left knee,Chris Crawford,2002,2001-02,ACL
 6627,2004-11-01,Hawks,, Chris Crawford (Lee),placed on IL with a torn ACL in right knee (out for season),Chris Crawford,2005,2004-05,ACL
 3001,1998-02-25,Knicks,, Chris Dudley,placed on IL with fractured bone in right foot,Chris Dudley,1998,1997-98,Foot Fracture
 2800,1997-12-17,Nets,, Chris Gatling,placed on IR with stress fracture in right leg,Chris Gatling,1998,1997-98,Lower Body Fracture
+1105,1994-10-27,Warriors,, Chris Mullin,"placed on IR with chip fracture and strained ligament in left knee, and pulled hamstring (out 6-8 weeks) (date 11/3 per Stats)",Chris Mullin,1995,1994-95,Lower Body Fracture
 14962,2010-02-05,Hornets,, Chris Paul,placed on IL recovering from surgery on left knee to repair torn meniscus,Chris Paul,2010,2009-10,Meniscus
 19675,2013-10-30,Wizards,, Chris Singleton,placed on IL recovering from surgery on left foot to repair fractured bone,Chris Singleton,2014,2013-14,Foot Fracture
 3238,1999-02-04,Pistons,, Christian Laettner,placed on IL with torn right Achilles tendon,Christian Laettner,1999,1998-99,Achilles
@@ -89,15 +102,20 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 19661,2013-10-30,Nuggets,, Danilo Gallinari,placed on IL recovering from surgery on left knee to repair torn ACL,Danilo Gallinari,2014,2013-14,ACL
 21269,2014-12-22,Nuggets,, Danilo Gallinari,placed on IL recovering from surgery on right knee to repair torn meniscus,Danilo Gallinari,2015,2014-15,Meniscus
 3654,1999-11-01,Celtics,, Danny Fortson,placed on IL with stress fracture in right foot,Danny Fortson,2000,1999-00,Foot Fracture
+1320,1995-02-06,Suns,, Danny Manning,placed on IL with torn ACL in left knee,Danny Manning,1995,1994-95,ACL
+1564,1995-10-31,Suns,, Danny Manning,placed on IL with torn ACL,Danny Manning,1996,1995-96,ACL
 3115,1998-04-09,Suns,, Danny Manning,placed on IL with torn ACL in right knee (out for season),Danny Manning,1998,1997-98,ACL
 22247,2015-10-28,Jazz,, Dante Exum,placed on IL recovering from surgery on left knee to repair torn ACL (out for season),Dante Exum,2016,2015-16,ACL
 33059,2021-07-07,Suns,, Dario Saric,placed on IL with torn ACL in right knee (out for season),Dario Saric,2021,2020-21,ACL
 19663,2013-10-30,Pelicans,, Darius Miller,placed on IL recovering from surgery on left foot to repair stress fracture,Darius Miller,2014,2013-14,Foot Fracture
 8664,2006-03-11,Bulls,, Darius Songaila,placed on IL with stress fracture in right foot (out 6-8 weeks),Darius Songaila,2006,2005-06,Foot Fracture
+298,1983-01-07,Blazers,, Darnell Valentine,placed on IL with broken left foot,Darnell Valentine,1983,1982-83,Foot Fracture
 17381,2011-12-26,Grizzlies,, Darrell Arthur,placed on IL with ruptured right Achilles tendon (out for season),Darrell Arthur,2012,2011-12,Achilles
 18414,2012-10-31,Grizzlies,, Darrell Arthur,placed on IL with fractured bone in left leg,Darrell Arthur,2013,2012-13,Lower Body Fracture
+2094,1996-10-31,Nets,, David Benoit,placed on IL with torn right Achilles tendon,David Benoit,1997,1996-97,Achilles
 25639,2017-05-22,Spurs,, David Lee,placed on IL with torn patellar tendon in left knee (out for season),David Lee,2017,2016-17,Patellar Tendon
 30223,2019-12-21,Rockets,, David Nwaba,placed on IL with torn right Achilles tendon (out for season),David Nwaba,2020,2019-20,Achilles
+2259,1996-12-24,Spurs,, David Robinson,placed on IR with broken left foot,David Robinson,1997,1996-97,Foot Fracture
 17084,2011-03-25,Hornets,, David West,placed on IL with torn ACL in left knee (out for season),David West,2011,2010-11,ACL
 25719,2017-10-18,Suns,, Davon Reed,placed on IL recovering from surgery on left knee to repair torn meniscus,Davon Reed,2018,2017-18,Meniscus
 27030,2018-01-30,Pelicans,, DeMarcus Cousins,placed on IL recovering from surgery to repair torn left Achilles tendon (out for season),DeMarcus Cousins,2018,2017-18,Achilles
@@ -109,32 +127,40 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 32649,2021-04-22,Wizards,, Deni Avdija,placed on IL with fractured right ankle (out for season),Deni Avdija,2021,2020-21,Foot Fracture
 4247,2000-10-30,Lakers,, Derek Fisher,placed on IL with stress fracture in right foot,Derek Fisher,2001,2000-01,Foot Fracture
 4915,2001-10-29,Lakers,, Derek Fisher,placed on IL with fractured right foot,Derek Fisher,2002,2001-02,Foot Fracture
+2396,1997-02-12,Pacers,, Derrick McKey,placed on IL with stress fracture in left foot,Derrick McKey,1997,1996-97,Foot Fracture
 2609,1997-10-28,Pacers,, Derrick McKey,placed on IL with ruptured right Achilles tendon,Derrick McKey,1998,1997-98,Achilles
 18365,2012-05-01,Bulls,, Derrick Rose,placed on IL with torn ACL in left knee (out for season),Derrick Rose,2012,2011-12,ACL
 18410,2012-10-31,Bulls,, Derrick Rose,placed on IL recovering from surgery on left knee to repair torn ACL (out for season),Derrick Rose,2013,2012-13,ACL
 19854,2013-11-24,Bulls,, Derrick Rose,placed on IL with torn meniscus in right knee (out for season),Derrick Rose,2014,2013-14,Meniscus
 21783,2015-02-25,Bulls,, Derrick Rose,placed on IL with torn medial meniscus in righ tknee,Derrick Rose,2015,2014-15,Meniscus
 25319,2017-03-29,Knicks,, Derrick Rose,placed on IL with torn meniscus in left knee / sore right foot (out for season),Derrick Rose,2017,2016-17,Meniscus
+1702,1995-12-12,Sonics,, Detlef Schrempf,placed on IR with fractured bone in left leg (out 6 weeks),Detlef Schrempf,1996,1995-96,Lower Body Fracture
 32712,2021-04-26,Magic,, Devin Cannady,placed on IL recovering from surgery to repair fractured right ankle,Devin Cannady,2021,2020-21,Foot Fracture
 25723,2017-10-18,Wizards,, Devin Robinson,placed on IL with stress fracture in left foot,Devin Robinson,2018,2017-18,Foot Fracture
 10203,2007-02-08,Mavericks,, Didier Ilunga-Mbenga / Didier Mbenga / D.J. Mbenga,placed on IL with torn ACL in right knee (out for season),Didier Ilunga-Mbenga / Didier Mbenga / D.J. Mbenga,2007,2006-07,ACL
 4235,2000-10-30,Hawks,, Dion Glover,placed on IR with a stress fracture in left foot,Dion Glover,2001,2000-01,Foot Fracture
 16742,2011-02-16,Mavericks,, Dominique Jones,placed on IL with stress fracture in right foot (out for season),Dominique Jones,2011,2010-11,Foot Fracture
+2101,1996-10-31,Pistons,, Don Reid,placed on IR with torn meniscus in left knee (arthroscopic surgery per Stats),Don Reid,1997,1996-97,Meniscus
 5580,2002-10-28,Pistons,, Don Reid,placed on IL with ruptured right Achilles tendon,Don Reid,2003,2002-03,Achilles
+1567,1995-11-01,Hawks,, Donnie Boyce,placed on IL with fractured leg (out indefinitely),Donnie Boyce,1996,1995-96,Lower Body Fracture
 12198,2008-03-08,Heat,, Dorell Wright,placed on IL recovering from surgery on left knee to repair torn meniscus,Dorell Wright,2008,2007-08,Meniscus
 21098,2014-12-02,Bulls,, Doug McDermott,placed on IL with torn meniscus in right knee,Doug McDermott,2015,2014-15,Meniscus
 3412,1999-03-23,Grizzlies,, Doug West,placed on IL with fractured toe on right foot,Doug West,1999,1998-99,Foot Fracture
+1838,1996-02-21,Pacers,, Duane Ferrell,placed on IR with torn right calf muscle (lower back spasms per Stats),Duane Ferrell,1996,1995-96,Back/Spine
 30546,2020-01-22,Mavericks,, Dwight Powell,placed on IL with torn right Achilles tendon (out for season),Dwight Powell,2020,2019-20,Achilles
+462,1986-02-27,Bucks,, Earl Jones,placed on IL with stress fracture in right foot,Earl Jones,1986,1985-86,Foot Fracture
 15633,2010-10-27,Raptors,, Ed Davis (Adam),placed on IL recovering from arthroscopic surgery on right kene to repair torn meniscus,Ed Davis,2011,2010-11,Meniscus
 29787,2019-11-02,Jazz,, Ed Davis (Adam),placed on IL with fractured fibula in left leg,Ed Davis,2020,2019-20,Lower Body Fracture
 3874,1999-12-22,Hornets,, Eddie Jones,placed on IR with torn MCL in left elbow (out 3-4 weeks),Eddie Jones,2000,1999-00,ACL
 18408,2012-10-31,Blazers,, Elliot Williams,placed on IL recovering from surgery to repair torn left Achilles tendon (out for season),Elliot Williams,2013,2012-13,Achilles
 5901,2003-03-07,Clippers,, Elton Brand,placed on IL with stress fracture in left leg,Elton Brand,2003,2002-03,Lower Body Fracture
 6150,2003-11-15,Clippers,, Elton Brand,placed on IR with hairline fracture of right foot,Elton Brand,2004,2003-04,Foot Fracture
+2183,1996-11-26,Rockets,, Emanual Davis,placed on IL with torn ACL in right knee,Emanual Davis,1997,1996-97,ACL
 5195,2002-01-14,Hawks,, Emanual Davis,placed on IR with a broken navicular bone in left wrist,Emanual Davis,2002,2001-02,Foot Fracture
 5724,2002-12-23,Hawks,, Emanual Davis,placed on IR with a torn right Achilles tendon,Emanual Davis,2003,2002-03,Achilles
 13978,2009-04-07,Spurs,, Emanuel Ginobili / Manu Ginobili,placed on IL with stress fracture in right ankle/fibula (out for season),Emanuel Ginobili / Manu Ginobili,2009,2008-09,Lower Body Fracture
 19633,2013-10-29,Suns,, Emeka Okafor,placed on IL recovering from surgery on neck to repair herniated disc (out for season),Emeka Okafor,2014,2013-14,Back/Spine
+934,1991-10-29,Blazers,, Ennis Whatley,placed on IL with broken right ankle,Ennis Whatley,1992,1991-92,Foot Fracture
 17456,2012-01-04,Clippers,, Eric Bledsoe,placed on IL with torn lateral meniscus in right knee,Eric Bledsoe,2012,2011-12,Meniscus
 17493,2012-01-08,Thunder,, Eric Maynor,placed on IL with torn ACL in right knee (out for season),Eric Maynor,2012,2011-12,ACL
 5582,2002-10-28,Raptors,, Eric Montross,placed on IL with stress fracture in left foot,Eric Montross,2003,2002-03,Foot Fracture
@@ -143,20 +169,30 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 7135,2005-02-23,Mavericks,, Erick Dampier,placed on IL with stress fracture in right foot,Erick Dampier,2005,2004-05,Foot Fracture
 6872,2004-12-16,Bucks,, Erick Strickland,placed on IL with torn lateral meniscus in right knee,Erick Strickland,2005,2004-05,Meniscus
 13451,2009-01-19,Wizards,, Etan Thomas,placed on IL with torn MCL in left knee (out for season),Etan Thomas,2009,2008-09,ACL
+1286,1995-01-17,Jazz,, Felton Spencer,place on IR with torn left Achilles tendon (out for season),Felton Spencer,1995,1994-95,Achilles
 25654,2017-10-17,Pelicans,, Frank Jackson,placed on IL with fractured right foot (out for season),Frank Jackson,2018,2017-18,Foot Fracture
+413,1985-02-13,Bullets,, Frank Johnson,placed on IL with fractured fourth metatarsal bone in left foot,Frank Johnson,1985,1984-85,Foot Fracture
+472,1986-09-13,Kings,, Franklin Edwards,placed on IL with fractured right foot,Franklin Edwards,1986,1985-86,Foot Fracture
 3748,1999-11-17,Bulls,, Fred Hoiberg,"placed on IR with small tear in right quadricep (strained tendon in right knee per Stats, right quad tendon strain per Bulls media guide)",Fred Hoiberg,2000,1999-00,Quad Tendon
 16392,2011-01-09,Suns,, Gani Lawal,placed on IL with torn ACL and partially torn MCL in right knee (out for season),Gani Lawal,2011,2010-11,ACL
+477,1986-10-30,Bulls,, Gene Banks,placed on IL with broken right foot,Gene Banks,1987,1986-87,Foot Fracture
+1373,1995-02-28,Lakers,, George Lynch,placed on IL with stress fracture in right foot,George Lynch,1995,1994-95,Foot Fracture
 20454,2014-03-09,Celtics,, Gerald Wallace,"placed on IL recovering from arthroscopic surgery on left knee to repair torn meniscus, and ankle (out for season)",Gerald Wallace,2014,2013-14,Meniscus
+1123,1994-11-03,Cavaliers,, Gerald Wilkins,placed on IL with torn Achilles tendon,Gerald Wilkins,1995,1994-95,Achilles
 19082,2013-02-08,Magic,, Glen Davis,placed on IL with fractured left foot (out for season),Glen Davis,2013,2012-13,Foot Fracture
 19630,2013-10-29,Magic,, Glen Davis,placed on IL recovering from surgery to repair fractured left foot,Glen Davis,2014,2013-14,Foot Fracture
 25673,2017-10-18,Celtics,, Gordon Hayward,placed on IL with fractured tibia in left leg and dislocated left ankle (out for season),Gordon Hayward,2018,2017-18,Lower Body Fracture
 4475,2000-12-27,Magic,, Grant Hill,placed on IL with broken left ankle (out for season),Grant Hill,2001,2000-01,Foot Fracture
 2979,1998-02-19,Pistons,, Grant Long,placed on IL with fractured right foot,Grant Long,1998,1997-98,Foot Fracture
+2219,1996-12-09,Grizzlies,, Greg Anthony,placed on IR with stress fracture in left ankle,Greg Anthony,1997,1996-97,Foot Fracture
 5231,2002-01-26,Bulls,, Greg Anthony,placed on IR with partially torn right Achilles tendon,Greg Anthony,2002,2001-02,Achilles
+2072,1996-10-31,Celtics,, Greg Minor,placed on IR with a stress fracture in right foot,Greg Minor,1997,1996-97,Foot Fracture
 14562,2009-12-17,Blazers,, Greg Oden,placed on IL recovering from surgery on left knee to repair fractured kneecap (out for season),Greg Oden,2010,2009-10,Lower Body Fracture
 2954,1998-02-13,Jazz,, Greg Ostertag,placed on IL with stress fracture in left leg (out 3-6 weeks),Greg Ostertag,1998,1997-98,Lower Body Fracture
 17385,2011-12-26,Kings,, Hassan Whiteside,placed on IL recovering from surgery on left knee to repair torn patella tendon,Hassan Whiteside,2012,2011-12,Patellar Tendon
+2143,1996-11-14,Pacers,, Haywoode Workman,placed on IL with torn ACL in left knee,Haywoode Workman,1997,1996-97,ACL
 10982,2007-10-29,76ers,, Herbert Hill,placed on IL with torn meniscus in left knee,Herbert Hill,2008,2007-08,Meniscus
+1765,1996-01-12,Magic,, Horace Grant,placed on IL with stress fracture in left leg (right foot per Stats),Horace Grant,1996,1995-96,Lower Body Fracture
 23837,2016-10-27,Wizards,, Ian Mahinmi,placed on IL recovering from surgery on left knee to repair torn medial meniscus,Ian Mahinmi,2017,2016-17,Meniscus
 18362,2012-04-30,Knicks,, Iman Shumpert,placed on IL with torn lateral meniscus / ACL (CBC) / ACL and MCL (P) in left knee (out for season),Iman Shumpert,2012,2011-12,ACL
 18440,2012-11-02,Knicks,, Iman Shumpert,placed on IL recovering from surgery on left knee to repair torn lateral meniscus / ACL,Iman Shumpert,2013,2012-13,ACL
@@ -196,7 +232,10 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 18207,2012-04-05,Knicks,, Jeremy Lin,placed on IL recovering from surgery on left knee to repair torn meniscus (out for season),Jeremy Lin,2012,2011-12,Meniscus
 25765,2017-10-20,Nets,, Jeremy Lin,placed on IL recovering from surgery on right knee to repair ruptured patella tendon (out for season),Jeremy Lin,2018,2017-18,Patellar Tendon
 13919,2009-03-28,Warriors,, Jermareo Davidson,placed on IL recovering from surgery on left foot to repair fractured bone (out for season),Jermareo Davidson,2009,2008-09,Foot Fracture
+2087,1996-10-31,Lakers,, Jerome Kersey,placed on IR with fractured left foot,Jerome Kersey,1997,1996-97,Foot Fracture
 2749,1997-12-02,Sonics,, Jerome Kersey,placed on IR with left foot stress fracture,Jerome Kersey,1998,1997-98,Foot Fracture
+1055,1993-12-20,Pacers,, Jerome Richardson / Pooh Richardson,placed on IL with stress fracture in right leg (date approximate),Jerome Richardson / Pooh Richardson,1994,1993-94,Lower Body Fracture
+1576,1995-11-02,Clippers,, Jerome Richardson / Pooh Richardson,placed on IL with stress fracture in left foot,Jerome Richardson / Pooh Richardson,1996,1995-96,Foot Fracture
 4555,2001-01-23,Nets,, Jim McIlvaine,placed on IL with strained right calf and partially torn Achilles tendon (out 4-6 weeks),Jim McIlvaine,2001,2000-01,Achilles
 20784,2014-10-29,Pistons,, Jodie Meeks,placed on IL with stress fracture in lower back,Jodie Meeks,2015,2014-15,Back/Spine
 22296,2015-10-30,Pistons,, Jodie Meeks,placed on IL with fractured right foot,Jodie Meeks,2016,2015-16,Foot Fracture
@@ -207,6 +246,7 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 14677,2010-01-04,Blazers,, Joel Przybilla,placed on IL recovering from surgery on right knee to repair ruptured patella tendon,Joel Przybilla,2010,2009-10,Patellar Tendon
 15577,2010-10-26,Blazers,, Joel Przybilla,placed on IL placed on IL recovering from surgery on right knee to repair ruptured patella tendon,Joel Przybilla,2011,2010-11,Patellar Tendon
 16133,2010-12-17,Cavaliers,, Joey Graham,placed on IL with partially torn right quadriceps,Joey Graham,2011,2010-11,Quad Tendon
+1565,1995-10-31,Suns,, John Coker,placed on IR with left foot stress fracture,John Coker,1996,1995-96,Foot Fracture
 28664,2018-12-28,Wizards,, John Wall (Hildred),placed on IL with torn left Achilles tendon (out for season),John Wall,2019,2018-19,Achilles
 29674,2019-10-01,Wizards,, John Wall (Hildred),placed on IL recovering from torn left Achilles tendon (out for season),John Wall,2020,2019-20,Achilles
 15631,2010-10-27,Pistons,, Jonas Jerebko,placed on IL recovering from surgery to repair torn right Achilles tendon (out for season),Jonas Jerebko,2011,2010-11,Achilles
@@ -223,12 +263,14 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 20290,2014-02-05,Pelicans,, Jrue Holiday,placed on IL with stress fracture in right ankle/tibia (out for season),Jrue Holiday,2014,2013-14,Lower Body Fracture
 4443,2000-12-17,Pistons,, Jud Buechler,placed on IR with chip fracture in right ankle,Jud Buechler,2001,2000-01,Foot Fracture
 7383,2005-10-31,Nuggets,, Julius Hodge,placed on IL with torn lateral meniscus in left knee,Julius Hodge,2006,2005-06,Meniscus
+1227,1994-12-10,Spurs,, Julius Nwosu,placed on IR with right tibia stress fracture,Julius Nwosu,1995,1994-95,Lower Body Fracture
 20947,2014-11-16,Lakers,, Julius Randle,placed on IL recovering from surgery on right leg to repair fractured tibia (out for season),Julius Randle,2015,2014-15,Lower Body Fracture
 25722,2017-10-18,Timberwolves,, Justin Patton,placed on IL frecovering from surgery on left foot to repair fracture,Justin Patton,2018,2017-18,Foot Fracture
 25350,2017-04-01,Blazers,, Jusuf Nurkic,placed on IL with fractured fibula in right leg,Jusuf Nurkic,2017,2016-17,Lower Body Fracture
 29455,2019-03-27,Blazers,, Jusuf Nurkic,placed on IL with fractured lower left leg (out for season),Jusuf Nurkic,2019,2018-19,Lower Body Fracture
 3038,1998-03-12,Heat,, Keith Askins,placed on IR with torn lateral meniscus in left knee,Keith Askins,1998,1997-98,Meniscus
 17774,2012-02-11,Nets,, Keith Bogans,placed on IL recovering from surgery on left ankle to repair fracture and torn ligament,Keith Bogans,2012,2011-12,Foot Fracture
+2096,1996-10-31,Nuggets,, Keith Jennings,placed on IL with torn ACL,Keith Jennings,1997,1996-97,ACL
 7614,2005-11-19,Jazz,, Keith McLeod,placed on IL with small fracture in lower back (out at least 2 weeks),Keith McLeod,2006,2005-06,Back/Spine
 4255,2000-10-30,Nets,, Keith Van Horn,placed on IL with broken left leg,Keith Van Horn,2001,2000-01,Lower Body Fracture
 21532,2015-01-24,Hornets,, Kemba Walker,placed on IL with torn lateral meniscus in left knee,Kemba Walker,2015,2014-15,Meniscus
@@ -236,6 +278,7 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 15573,2010-06-17,Celtics,, Kendrick Perkins,placed on IL with torn MCL in right knee (out for season),Kendrick Perkins,2010,2009-10,ACL
 15579,2010-10-26,Celtics,, Kendrick Perkins,placed on IL recovering from surgery on right knee to repair torn ACL,Kendrick Perkins,2011,2010-11,ACL
 29672,2019-06-13,Warriors,, Kevin Durant,placed on IL with torn right Achilles tendon (out for season),Kevin Durant,2019,2018-19,Achilles
+1201,1994-11-30,Nets,, Kevin Edwards,placed on IR with partially torn left Achilles tendon,Kevin Edwards,1995,1994-95,Achilles
 14438,2009-12-02,Thunder,, Kevin Ollie,placed on IL recovering from surgery on right knee to repair pain in patellar tendon,Kevin Ollie,2010,2009-10,Patellar Tendon
 22229,2015-10-27,Warriors,, Kevon Looney,placed on IL recovering from surgery on right hip to repair torn labrum,Kevon Looney,2016,2015-16,Hip
 31443,2021-01-06,Pistons,, Killian Hayes,placed on IL with torn labrum in right hip,Killian Hayes,2021,2020-21,Hip
@@ -246,19 +289,25 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 19629,2013-10-29,Lakers,, Kobe Bryant,placed on IL recovering from surgery to repair torn left Achilles tendon,Kobe Bryant,2014,2013-14,Achilles
 27154,2018-02-08,Knicks,, Kristaps Porzingis,placed on IL with torn ACL in left knee (out for season),Kristaps Porzingis,2018,2017-18,ACL
 31266,2020-08-25,Mavericks,, Kristaps Porzingis,placed on IL with torn meniscus in right knee (out for season),Kristaps Porzingis,2020,2019-20,Meniscus
+2155,1996-11-19,Heat,, Kurt Thomas,placed on IR with stress fracture in right ankle,Kurt Thomas,1997,1996-97,Foot Fracture
 2731,1997-11-24,Mavericks,, Kurt Thomas,placed on IR with fractured right ankle,Kurt Thomas,1998,1997-98,Foot Fracture
 8595,2006-03-03,Suns,, Kurt Thomas,placed on IL with stress fracture in right foot,Kurt Thomas,2006,2005-06,Foot Fracture
 6681,2004-11-01,Wizards,, Kwame Brown,placed on IL recovering from broken bone in right foot,Kwame Brown,2005,2004-05,Foot Fracture
 22221,2015-10-27,Cavaliers,, Kyrie Irving,placed on IL recovering from surgery on left knee to repair fractured kneecap,Kyrie Irving,2016,2015-16,Lower Body Fracture
 37143,2023-03-01,Hornets,, LaMelo Ball,placed on IL with fractured right ankle,LaMelo Ball,2023,2022-23,Foot Fracture
+1106,1994-11-01,Nuggets,, LaPhonso Ellis,placed on IR with stress fracture in right kneecap,LaPhonso Ellis,1995,1994-95,Lower Body Fracture
+2521,1997-04-05,Nuggets,, LaPhonso Ellis,placed on IL with ruptured right Achilles tendon,LaPhonso Ellis,1997,1996-97,Achilles
+643,1988-04-01,Kings,, LaSalle Thompson,placed on IL with torn lateral meniscus in right knee (out for season),LaSalle Thompson,1988,1987-88,Meniscus
 8002,2005-12-23,Lakers,, Laron Profit,placed on IL with ruptured left Achilles tendon,Laron Profit,2006,2005-06,Achilles
 19183,2013-02-27,Wizards,, Leandro Barbosa,placed on IL recovering from surgery on left knee to repair torn ACL (out for season),Leandro Barbosa,2013,2012-13,ACL
 14068,2009-04-23,Celtics,, Leon Powe,placed on IL with torn ACL and meniscus in left knee (out for season),Leon Powe,2009,2008-09,ACL
 16366,2011-01-07,Cavaliers,, Leon Powe,placed on IL recovering from surgery on right knee to repair torn meniscus (out indefinitely),Leon Powe,2011,2010-11,Meniscus
 17266,2011-04-11,Raptors,, Linas Kleiza,placed on IL recovering from microfracture surgery on right knee to repair cartilage damage (out for season),Linas Kleiza,2011,2010-11,Lower Body Fracture
 17394,2011-12-26,Raptors,, Linas Kleiza,placed on IL recovering from microfracture surgery on right knee to repair cartilage damage,Linas Kleiza,2012,2011-12,Lower Body Fracture
+1224,1994-12-10,Pistons,, Lindsey Hunter,placed on IL with fractured right foot / ankle (Stats),Lindsey Hunter,1995,1994-95,Foot Fracture
 5077,2001-12-06,Grizzlies,, Lorenzen Wright,placed on IR with fractured bone in left knee (out indefinitely),Lorenzen Wright,2002,2001-02,Lower Body Fracture
 18969,2013-01-19,Hawks,, Louis Williams / Lou Williams,placed on IL with torn ACL in right knee (out for season),Louis Williams / Lou Williams,2013,2012-13,ACL
+1172,1994-11-16,Bulls,, Luc Longley,placed on IL with stress fracture in left leg,Luc Longley,1995,1994-95,Lower Body Fracture
 13814,2009-03-11,Bulls,, Luol Deng,placed on IL with hairline fracture of right leg,Luol Deng,2009,2008-09,Lower Body Fracture
 19625,2013-10-29,Clippers,, Maalik Wayns,placed on IL recovering from surgery on left knee to repair torn meniscus,Maalik Wayns,2014,2013-14,Meniscus
 27087,2018-02-02,Bucks,, Malcolm Brogdon,placed on IL with partially torn quadriceps tendon in left leg,Malcolm Brogdon,2018,2017-18,Quad Tendon
@@ -268,6 +317,7 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 34812,2022-01-23,Pelicans,, Marcos Louzada Silva / Didi Louzada Silva / Didi Louzada,placed on IL with torn meniscus in left knee,Marcos Louzada Silva / Didi Louzada Silva / Didi Louzada,2022,2021-22,Meniscus
 16522,2011-01-24,Blazers,, Marcus Camby,placed on IL recovering from arthroscopic surgery on left knee to repair torn meniscus,Marcus Camby,2011,2010-11,Meniscus
 5812,2003-02-01,Bulls,, Marcus Fizer,placed on IL with torn ACL in right knee,Marcus Fizer,2003,2002-03,ACL
+2350,1997-01-23,Warriors,, Mark Price,placed on IR with fractured navicular bone in right wrist,Mark Price,1997,1996-97,Foot Fracture
 31463,2021-01-08,Magic,, Markelle Fultz,placed on IL with torn ACL in left knee (out for season),Markelle Fultz,2021,2020-21,ACL
 33082,2021-10-19,Magic,, Markelle Fultz,placed on IL with recovering from surgery on left knee to repair torn ACL,Markelle Fultz,2022,2021-22,ACL
 25724,2017-10-18,Wizards,, Markieff Morris,placed on IL recovering from surgery to repair sports hernia,Markieff Morris,2018,2017-18,Back/Spine
@@ -283,19 +333,23 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 15613,2010-10-27,Jazz,, Mehmet Okur,placed on IL recovering from surgery to repair torn left Achilles tendon,Mehmet Okur,2011,2010-11,Achilles
 23505,2016-03-30,Bucks,, Michael Carter-Williams,placed on IL with recovering from surgery on left hip to repair torn labrum (out for season),Michael Carter-Williams,2016,2015-16,Hip
 5061,2001-12-01,Cavaliers,, Michael Doleac,placed on IR with stress fracture of left ankle,Michael Doleac,2002,2001-02,Foot Fracture
+441,1985-11-05,Bulls,, Michael Jordan (Jeffrey),placed on IL with fractured navicular tarsal bone in left foot,Michael Jordan,1986,1985-86,Foot Fracture
 10754,2007-04-04,Celtics,, Michael Olowokandi,placed on IL with broken bone in left foot,Michael Olowokandi,2007,2006-07,Foot Fracture
 13508,2009-01-26,Bucks,, Michael Redd,placed on IL with torn ACL and MCL in left knee (out for season),Michael Redd,2009,2008-09,ACL
 14746,2010-01-11,Bucks,, Michael Redd,placed on IL with torn ACL and MCL in left knee (out for season),Michael Redd,2010,2009-10,ACL
 15597,2010-10-27,Bucks,, Michael Redd,placed on IL recovering from surgery on left knee to repair torn ACL,Michael Redd,2011,2010-11,ACL
+273,1982-10-28,Knicks,, Michael Russell / Campy Russell,placed on IL with recovering from surgery on right knee to repair torn ACL in right knee,Michael Russell / Campy Russell,1983,1982-83,ACL
 4019,2000-02-23,Wizards,, Michael Smith (John) (Providence),placed on IR with torn MCL in right elbow,Michael Smith,2000,1999-00,ACL
 5399,2002-03-17,Raptors,, Michael Stewart,placed on IL with surgery to repair hernia,Michael Stewart,2002,2001-02,Back/Spine
 4919,2001-10-29,Magic,, Mike Miller,placed on IL with chip fracture in right foot,Mike Miller,2002,2001-02,Foot Fracture
 17363,2011-12-25,Heat,, Mike Miller,placed on IL recovering from surgery to repair hernia,Mike Miller,2012,2011-12,Back/Spine
+2117,1996-10-31,Warriors,, Mike Peplowski,placed on IR with torn ACL (out for season),Mike Peplowski,1997,1996-97,ACL
 12611,2008-10-29,Magic,, Mike Wilks,placed on IL with torn ACL in right knee,Mike Wilks,2009,2008-09,ACL
 20791,2014-10-29,Thunder,, Mitch McGary,placed on IL with fractured left foot,Mitch McGary,2015,2014-15,Foot Fracture
 4389,2000-12-04,Wizards,, Mitch Richmond,placed on IR with partially torn MCL in left knee,Mitch Richmond,2001,2000-01,ACL
 32260,2021-03-28,Knicks,, Mitchell Robinson,placed on IL with fractured right foot (out for season),Mitchell Robinson,2021,2020-21,Foot Fracture
 12631,2008-10-29,Thunder,, Mouhamed Sene / Saer Sene,placed on IL recovering from microfracture surgery on right knee,Mouhamed Sene / Saer Sene,2009,2008-09,Lower Body Fracture
+2542,1997-04-19,Sonics,, Nate McMillan,placed on IL with partially torn meniscus in right knee,Nate McMillan,1997,1996-97,Meniscus
 2661,1997-10-30,Sonics,, Nate McMillan,placed on IL recovering from surgery on right knee to repair partially torn meniscus,Nate McMillan,1998,1997-98,Meniscus
 5602,2002-10-31,Hawks,, Nazr Mohammed,placed on IR with a stress fracture in right foot,Nazr Mohammed,2003,2002-03,Foot Fracture
 9710,2006-12-23,Nets,, Nenad Krstic,placed on IL with torn ACL in left knee (out for season),Nenad Krstic,2007,2006-07,ACL
@@ -305,7 +359,9 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 6055,2003-10-27,Hawks,, Obinna Ekezie,placed on IL with torn ACL in right knee,Obinna Ekezie,2004,2003-04,ACL
 26132,2017-11-17,Heat,, Okaro White,placed on IL with fractured left foot (surgery),Okaro White,2018,2017-18,Foot Fracture
 17348,2011-05-26,Bulls,, Omer Asik,placed on IL with stress fracture in left fibula (out for season),Omer Asik,2011,2010-11,Lower Body Fracture
+321,1983-03-23,Nets,, Otis Birdsong,placed on IL with stress fracture in pelvis,Otis Birdsong,1983,1982-83,Hip
 33518,2021-11-24,Nuggets,, P.J. Dozier,placed on IL with torn ACL in left knee,P.J. Dozier,2022,2021-22,ACL
+706,1989-03-22,Heat,, Pat Cummings,placed on IL with stress fracture of left tibia,Pat Cummings,1989,1988-89,Lower Body Fracture
 6074,2003-10-27,Magic,, Pat Garrity,placed on IL with torn ACL in knee (out indefinitely),Pat Garrity,2004,2003-04,ACL
 26211,2017-11-22,Clippers,, Patrick Beverley,placed on IL recovering from arthroscopic surgery on right knee to repair lateral meniscus (out for season),Patrick Beverley,2018,2017-18,Meniscus
 3672,1999-11-01,Knicks,, Patrick Ewing (Sr.),placed on IR with Achilles tendinitis / partially torn Achilles,Patrick Ewing,2000,1999-00,Achilles
@@ -328,7 +384,9 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 5560,2002-10-28,Jazz,, Raul Lopez,placed on IL with torn ACL in left knee,Raul Lopez,2003,2002-03,ACL
 24125,2016-11-25,Pistons,, Reggie Bullock,placed on IL with torn meniscus in left knee,Reggie Bullock,2017,2016-17,Meniscus
 15973,2010-12-01,Raptors,, Reggie Evans,placed on IL recovering from surgery to repair broken right foot,Reggie Evans,2011,2010-11,Foot Fracture
+2206,1996-12-05,Nets,, Reggie Williams,placed on IR with stress fracture in left tibia,Reggie Williams,1997,1996-97,Lower Body Fracture
 17376,2011-12-26,Bobcats,, Reggie Williams,placed on IL with surrgery on left knee to repair torn meniscus,Reggie Williams,2012,2011-12,Meniscus
+1983,1996-04-18,Grizzlies,, Rich Manning,placed on IR with stress fracture in lower right leg,Rich Manning,1996,1995-96,Lower Body Fracture
 4238,2000-10-30,Heat,, Ricky Davis,placed on IL with stress fracture in right foot,Ricky Davis,2001,2000-01,Foot Fracture
 17973,2012-03-10,Timberwolves,, Ricky Rubio,placed on IL with torn ACL in left knee (out for season),Ricky Rubio,2012,2011-12,ACL
 18450,2012-11-02,Timberwolves,, Ricky Rubio,placed on IL recovering from surgery on left knee to repair torn ACL,Ricky Rubio,2013,2012-13,ACL
@@ -341,32 +399,46 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 30086,2019-12-07,Blazers,, Rodney Hood,placed on IL with torn left Achilles tendon (out for season),Rodney Hood,2020,2019-20,Achilles
 25651,2017-10-17,Heat,, Rodney McGruder,placed on IL recovering from surgery on lower left leg to repair stress fracture,Rodney McGruder,2018,2017-18,Lower Body Fracture
 15620,2010-10-27,Mavericks,, Rodrigue Beaubois,placed on IL with fractured left foot,Rodrigue Beaubois,2011,2010-11,Foot Fracture
+388,1984-11-07,Cavaliers,, Ron Anderson,placed on IL with stress fracture in left femur,Ron Anderson,1985,1984-85,Lower Body Fracture
+740,1990-01-17,Clippers,, Ron Harper (Sr.),placed on IL with torn ACL in knee,Ron Harper,1990,1989-90,ACL
 2766,1997-12-07,Raptors,, Ronald Jones / Popeye Jones,placed on IL with torn ACL in left knee,Ronald Jones / Popeye Jones,1998,1997-98,ACL
 22704,2015-12-10,Nets,, Rondae Hollis-Jefferson,placed on IL recovering from surgery on right ankle to repair fractured bone,Rondae Hollis-Jefferson,2016,2015-16,Foot Fracture
+316,1983-03-06,Bulls,, Ronnie Lester,placed on IL with fractured right kneecap,Ronnie Lester,1983,1982-83,Lower Body Fracture
 3636,1999-07-17,Hawks,, Roshown McLeod,partial tear in MCL in right knee (out 6 weeks),Roshown McLeod,1999,1998-99,ACL
 24702,2017-01-20,Kings,, Rudy Gay,placed on IL recovering from surgery to repair torn left Achilles tendon (out for season),Rudy Gay,2017,2016-17,Achilles
 19572,2013-04-27,Thunder,, Russell Westbrook,placed on IL with torn lateral meniscus in right knee,Russell Westbrook,2013,2012-13,Meniscus
 19664,2013-10-30,Pelicans,, Ryan Anderson,placed on IL with fractured toe on right foot,Ryan Anderson,2014,2013-14,Foot Fracture
 30316,2019-12-31,Mavericks,, Ryan Broekhoff,placed on IL with fractured fibula in left leg,Ryan Broekhoff,2020,2019-20,Lower Body Fracture
 37000,2023-02-06,Warriors,, Ryan Rollins,placed on IL with surgery on right foot to repair Jones fracture in fifth metatarsal (out for season),Ryan Rollins,2023,2022-23,Foot Fracture
+558,1987-11-05,Blazers,, Sam Bowie,placed on IL with broken bone in right leg,Sam Bowie,1988,1987-88,Lower Body Fracture
 3087,1998-03-27,Grizzlies,, Sam Mack,placed on IR with fractured left ankle,Sam Mack,1998,1997-98,Foot Fracture
 2947,1998-02-11,Mavericks,, Samaki Walker,placed on IL with stress fracture in right foot,Samaki Walker,1998,1997-98,Foot Fracture
+1877,1996-03-04,Kings,, Sarunas Marciulionis,placed on IR with small tear in right quadricep,Sarunas Marciulionis,1996,1995-96,Quad Tendon
 5708,2002-12-13,Kings,, Scot Pollard,placed on IR with stress fracture in lower back,Scot Pollard,2003,2002-03,Back/Spine
+1448,1995-04-04,Hornets,, Scott Burrell,placed on IR with partial tear of right Achilles tendon (out for season),Scott Burrell,1995,1994-95,Achilles
+1584,1995-11-02,Hornets,, Scott Burrell,placed on IR with rehab of torn Achilles tendon (out 2 months),Scott Burrell,1996,1995-96,Achilles
+2319,1997-01-12,76ers,, Scott Williams,placed on IL with broken toe on left foot and lacerated left foot,Scott Williams,1997,1996-97,Foot Fracture
 3247,1999-02-09,76ers,, Scott Williams,placed on IR with stress fractures in both legs,Scott Williams,1999,1998-99,Lower Body Fracture
+1274,1995-01-09,Lakers,, Sedale Threatt,placed on IL with stress fracture in right foot,Sedale Threatt,1995,1994-95,Foot Fracture
 21852,2015-03-11,Nets,, Sergey Karasev,"placed on IL with torn MCL, disloated patella in right knee (out for season)",Sergey Karasev,2015,2014-15,ACL
+2276,1996-12-30,Jazz,, Shandon Anderson,placed on IL with stress fracture in left foot,Shandon Anderson,1997,1996-97,Foot Fracture
 19659,2013-10-30,Mavericks,, Shane Larkin,placed on IL recovering from surgery to repair fractured right ankle,Shane Larkin,2014,2013-14,Foot Fracture
 7353,2005-10-31,76ers,, Shavlik Randolph,placed on IL with stress fracture in left foot,Shavlik Randolph,2006,2005-06,Foot Fracture
 9426,2006-12-02,76ers,, Shavlik Randolph,placed on IL withi broken left ankle,Shavlik Randolph,2007,2006-07,Foot Fracture
 25726,2017-10-18,Wizards,, Sheldon McClellan / Sheldon Mac,placed on IL recovering from surgery to repair torn left Achilles tendon,Sheldon McClellan / Sheldon Mac,2018,2017-18,Achilles
 31360,2020-12-28,Nets,, Spencer Dinwiddie,placed on IL with torn ACL in right knee (out for season),Spencer Dinwiddie,2021,2020-21,ACL
 7375,2005-10-31,Magic,, Stacey Augmon,placed on IL with surgery to repair hernia,Stacey Augmon,2006,2005-06,Back/Spine
+1128,1994-11-03,Clippers,, Stanley Roberts,placed on IL with ruptured left Achilles tendon,Stanley Roberts,1995,1994-95,Achilles
+2222,1996-12-10,Clippers,, Stanley Roberts,placed on IR with ruptured disk in lower back,Stanley Roberts,1997,1996-97,Back/Spine
 2662,1997-10-30,Sonics,, Stephen Howard,placed on IR with stress fracture in right foot,Stephen Howard,1998,1997-98,Foot Fracture
+2073,1996-10-31,Celtics,, Steve Hamer,placed on IR with torn lateral meniscus in left knee,Steve Hamer,1997,1996-97,Meniscus
 18441,2012-11-02,Lakers,, Steve Nash,placed on IL with fractured left leg,Steve Nash,2013,2012-13,Lower Body Fracture
 5569,2002-10-28,Magic,, Steven Hunter,placed on IL with torn ACL in right knee,Steven Hunter,2003,2002-03,ACL
 9076,2006-10-31,Grizzlies,, Stromile Swift,placed on IL with torn ACL in right knee,Stromile Swift,2007,2006-07,ACL
 23295,2016-02-19,Suns,, T.J. Warren,placed on IL with stress fracture in right foot (out for season),T.J. Warren,2016,2015-16,Foot Fracture
 31376,2020-12-30,Pacers,, T.J. Warren,placed on IL with stress fracture in left foot (out for season),T.J. Warren,2021,2020-21,Foot Fracture
 33088,2021-10-19,Pacers,, T.J. Warren,placed on IL with recovering from surgery on left foot to repair stress fracture (out for season),T.J. Warren,2022,2021-22,Foot Fracture
+1453,1995-04-05,Cavaliers,, Terrell Brandon,placed on IL with stress fracture of right tibia,Terrell Brandon,1995,1994-95,Lower Body Fracture
 26305,2017-12-01,Magic,, Terrence Ross,placed on IL with sprained MCL in right knee and fractured right leg,Terrence Ross,2018,2017-18,Lower Body Fracture
 15632,2010-10-27,Pistons,, Terrico White,placed on IL recovering from surgery on right foot to repair broken fifth metatarsal (out for season),Terrico White,2011,2010-11,Foot Fracture
 22091,2015-04-10,Hawks,, Thabo Sefolosha,"placed on IL with fractured fibula, ligament damage in leg (out for season)",Thabo Sefolosha,2015,2014-15,Lower Body Fracture
@@ -376,11 +448,15 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 33097,2021-10-19,Wizards,, Thomas Bryant,placed on IL with recovering from surgery on left knee to repair torn ACL,Thomas Bryant,2022,2021-22,ACL
 34867,2022-01-26,Mavericks,, Tim Hardaway Jr.,placed on IL with fractured left foot (out for season),Tim Hardaway Jr.,2022,2021-22,Foot Fracture
 5440,2002-03-31,Nuggets,, Tim Hardaway Sr.,placed on IR with fractured bone in left foot,Tim Hardaway Sr.,2002,2001-02,Foot Fracture
+2066,1996-10-31,Bullets,, Tim Legler,placed on IL recovering from surgery on knee to repair torn ACL,Tim Legler,1997,1996-97,ACL
+1890,1996-03-07,Nets,, Tim Perry,placed on IR with torn right lateral meniscus,Tim Perry,1996,1995-96,Meniscus
+209,1980-10-09,Knicks,, Toby Knight,placed on IL with torn ACL in left knee,Toby Knight,1981,1980-81,ACL
 4082,2000-03-13,Suns,, Tom Gugliotta,"placed on IL with torn ACL, MCL in left knee",Tom Gugliotta,2000,1999-00,ACL
 4277,2000-10-30,Suns,, Tom Gugliotta,"placed on IL recovering from surgery on left knee to repair torn ACL, MCL",Tom Gugliotta,2001,2000-01,ACL
 5401,2002-03-18,Suns,, Tom Gugliotta,placed on IL with stress fracture in right foot,Tom Gugliotta,2002,2001-02,Foot Fracture
 9936,2007-01-12,Celtics,, Tony Allen,placed on IL with torn ACL in left knee (out for season),Tony Allen,2007,2006-07,ACL
 26439,2017-12-11,Pelicans,, Tony Allen,placed on IL with fractured fibula in left leg,Tony Allen,2018,2017-18,Lower Body Fracture
+1604,1995-11-02,Raptors,, Tony Massenburg,placed on IL with broken bone in right foot,Tony Massenburg,1996,1995-96,Foot Fracture
 25615,2017-05-05,Spurs,, (William) Tony Parker,placed on IL recovering from surgery to repair ruptured quadriceps tendon in left leg (out for season),Tony Parker,2017,2016-17,Quad Tendon
 25660,2017-10-17,Spurs,, (William) Tony Parker,placed on IL recovering from surgery to repair ruptured quadriceps tendon in left leg,Tony Parker,2018,2017-18,Quad Tendon
 21515,2015-01-23,76ers,, Tony Wroten Jr.,placed on IL with torn ACL in right knee (out for season),Tony Wroten Jr.,2015,2014-15,ACL
@@ -408,6 +484,7 @@ X,Date,Team,Acquired,Relinquished,Notes,name,year,season,injury_type
 20054,2013-12-27,Bucks,, Zaur Pachulia / Zaza Pachulia,placed on IL with fractured right foot,Zaur Pachulia / Zaza Pachulia,2014,2013-14,Foot Fracture
 29682,2019-10-22,Pelicans,, Zion Williamson,placed on IL recovering from surgery on right knee to repair torn meniscus,Zion Williamson,2020,2019-20,Meniscus
 33089,2021-10-19,Pelicans,, Zion Williamson,placed on IL with fractured right foot (out for season),Zion Williamson,2022,2021-22,Foot Fracture
+2070,1996-10-31,Cavaliers,, Zydrunas Ilgauskas,placed on IL with broken bone in right foot,Zydrunas Ilgauskas,1997,1996-97,Foot Fracture
 3267,1999-02-18,Cavaliers,, Zydrunas Ilgauskas,placed on IR with fractured navicular bone in left foot (out for season),Zydrunas Ilgauskas,1999,1998-99,Foot Fracture
 4471,2000-12-26,Cavaliers,, Zydrunas Ilgauskas,placed on IR with stress fracture of lavicular bone in left foot,Zydrunas Ilgauskas,2001,2000-01,Foot Fracture
 13259,2009-01-02,Cavaliers,, Zydrunas Ilgauskas,placed on IL with fractured bone in left ankle,Zydrunas Ilgauskas,2009,2008-09,Foot Fracture

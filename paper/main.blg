@@ -1,0 +1,75 @@
+This is BibTeX, Version 0.99d (TeX Live 2020)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: main.aux
+The style file: chicago.bst
+Database file #1: references.bib
+Name 1 in "Michael Riis Andersen, Eero Siivola, Gabriel Riutort-Mayol, and Aki Vehtari" has a comma at the end for entry convexityconstraints
+while executing---line 1563 of file chicago.bst
+Name 1 in "Michael Riis Andersen, Eero Siivola, Gabriel Riutort-Mayol, and Aki Vehtari" has a comma at the end for entry convexityconstraints
+while executing---line 1563 of file chicago.bst
+Name 1 in "Michael Riis Andersen, Eero Siivola, Gabriel Riutort-Mayol, and Aki Vehtari" has a comma at the end for entry convexityconstraints
+while executing---line 1563 of file chicago.bst
+Name 1 in "Michael Riis Andersen, Eero Siivola, Gabriel Riutort-Mayol, and Aki Vehtari" has a comma at the end for entry convexityconstraints
+while executing---line 1608 of file chicago.bst
+Name 1 in "Michael Riis Andersen, Eero Siivola, Gabriel Riutort-Mayol, and Aki Vehtari" has a comma at the end for entry convexityconstraints
+while executing---line 1608 of file chicago.bst
+Name 1 in "Michael Riis Andersen, Eero Siivola, Gabriel Riutort-Mayol, and Aki Vehtari" has a comma at the end for entry convexityconstraints
+while executing---line 1608 of file chicago.bst
+Name 1 in "Michael Riis Andersen, Eero Siivola, Gabriel Riutort-Mayol, and Aki Vehtari" has a comma at the end for entry convexityconstraints
+while executing---line 1608 of file chicago.bst
+Warning--empty organization in ballr
+Name 1 in "Michael Riis Andersen, Eero Siivola, Gabriel Riutort-Mayol, and Aki Vehtari" has a comma at the end for entry convexityconstraints
+while executing---line 1645 of file chicago.bst
+Name 1 in "Michael Riis Andersen, Eero Siivola, Gabriel Riutort-Mayol, and Aki Vehtari" has a comma at the end for entry convexityconstraints
+while executing---line 1645 of file chicago.bst
+Name 1 in "Michael Riis Andersen, Eero Siivola, Gabriel Riutort-Mayol, and Aki Vehtari" has a comma at the end for entry convexityconstraints
+while executing---line 1645 of file chicago.bst
+Warning--page numbers missing in page2007using
+Warning--page numbers missing in terner2020modeling
+Warning--no number and no volume in vaci2019large
+Warning--no number and no volume in vinue2019forecasting
+Warning--page numbers missing in vinue2019forecasting
+Warning--no number and no volume in wakim2014functional
+Warning--page numbers missing in wakim2014functional
+You've used 19 entries,
+            2861 wiz_defined-function locations,
+            722 strings with 8161 characters,
+and the built_in function-call counts, 12186 in all, are:
+= -- 1024
+> -- 934
+< -- 1
++ -- 274
+- -- 324
+* -- 1048
+:= -- 2288
+add.period$ -- 54
+call.type$ -- 19
+change.case$ -- 133
+chr.to.int$ -- 19
+cite$ -- 27
+duplicate$ -- 313
+empty$ -- 693
+format.name$ -- 376
+if$ -- 2214
+int.to.chr$ -- 1
+int.to.str$ -- 0
+missing$ -- 11
+newline$ -- 94
+num.names$ -- 192
+pop$ -- 93
+preamble$ -- 1
+purify$ -- 248
+quote$ -- 0
+skip$ -- 363
+stack$ -- 0
+substring$ -- 531
+swap$ -- 101
+text.length$ -- 1
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 380
+warning$ -- 8
+while$ -- 178
+width$ -- 0
+write$ -- 243
+(There were 10 error messages)

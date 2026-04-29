@@ -1,5 +1,4 @@
 FROM docker.io/rocker/tidyverse:latest
-RUN install2.r --error --deps TRUE uwot HDInterval ggrepel ggridges ggnewscale pheatmap gt ggdist nnTensor ggbeeswarm umap ggforce dbscan
 
 ### Environment variables
 ENV GITHUB_CLI_VERSION 2.30.0
@@ -43,3 +42,5 @@ RUN (type -p wget >/dev/null || ( apt update &&  apt-get install wget -y)) \
 && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" |  tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
 &&  apt update \
 &&  apt install gh -y
+
+RUN install2.r --error --deps TRUE uwot HDInterval ggrepel ggridges ggnewscale pheatmap gt ggdist nnTensor ggbeeswarm umap dbscan arrow

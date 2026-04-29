@@ -3,8 +3,8 @@ library(readr)
 library(stringr)
 library(lubridate)
 
-advanced_data <- read.csv("data/nba_advanced_stats_1997-2026.csv")
-totals_data <- read.csv("data/nba_totals_stats_1997-2026.csv")
+advanced_data <- rbind(read.csv("data/nba_advanced_stats_1997-2026.csv"), read.csv("data/nba_advanced_stats_1980-1996.csv"))
+totals_data <- rbind(read.csv("data/nba_totals_stats_1997-2026.csv"), read.csv("data/nba_totals_stats_1980-1996.csv"))
 
 advanced_data_filtered <- advanced_data %>% group_by(id, Age, Season) %>% slice_max(order_by = MP, n = 1, with_ties = FALSE) %>%
   ungroup() %>% select(-c(Rk,Awards)) 

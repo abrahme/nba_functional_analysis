@@ -8,19 +8,111 @@ import numpy as np
 import arviz as az
 from model.inference_utils import create_metric_trajectory, create_metric_trajectory_map, create_metric_trajectory_prior, create_metric_trajectory_mu, create_hazard_trajectory_map
 
-def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str], metric_outputs: list[str], exposure_names: list[str],  posterior_mean_samples, observations, exposures, posterior_variance_samples, posterior_dispersion_samples, posterior_kappa_samples):
+
+
+def make_diagnostic_heatmap(
+    samples,
+    n_players_sel,
+    n_ages,
+    ages,
+    output_path,
+    player_labels=None,
+    top_bottom_n=20,
+):
+    # samples shape: (chains, draws, n_metrics, n_players, n_ages)
+    arr_np = np.array(samples)
+    ess_arr = az.ess({"theta": arr_np})["theta"]    # (n_metrics, n_players, n_ages)
+    rhat_arr = az.rhat({"theta": arr_np})["theta"]  # (n_metrics, n_players, n_ages)
+    min_ess = np.nanmin(ess_arr, axis=0)   # (n_players, n_ages)
+    max_rhat = np.nanmax(rhat_arr, axis=0)  # (n_players, n_ages)
+
+    def _select_top_bottom(data, n):
+        """Aggregate per player (worst-case over ages), return sorted indices of top-n and bottom-n."""
+        player_score = np.nanmean(data, axis=-1)  # (n_players,)
+        n = min(n, len(player_score) // 2)
+        bottom_idx = np.argsort(player_score)[:n]          # worst (lowest ESS / highest R-hat)
+        top_idx = np.argsort(player_score)[-(n):][::-1]    # best
+        combined = np.union1d(bottom_idx, top_idx)
+        return np.sort(combined)
+
+    ess_idx = _select_top_bottom(min_ess, top_bottom_n)
+    rhat_idx = _select_top_bottom(-max_rhat, top_bottom_n)  # negate so "bottom" = highest R-hat
+
+    subsets = [
+        (ess_idx,  min_ess,  "Min ESS (over metrics) — top/bottom players",   "viridis"),
+        (rhat_idx, max_rhat, "Max R-hat (over metrics) — top/bottom players", "coolwarm"),
+    ]
+
+    n_rows = max(len(ess_idx), len(rhat_idx))
+    fig, axes = plt.subplots(1, 2, figsize=(24, max(6, n_rows * 0.35)))
+
+    for ax, (idx, data, title, cmap) in zip(axes, subsets):
+        subset_data = data[idx, :]
+        n_sub = len(idx)
+        im = ax.imshow(subset_data, aspect="auto", cmap=cmap, interpolation="nearest")
+        ax.set_xticks(range(n_ages))
+        ax.set_xticklabels(ages, rotation=45, ha="right", fontsize=7)
+        ax.set_yticks(range(n_sub))
+        if player_labels is not None:
+            ax.set_yticklabels([player_labels[i] for i in idx], fontsize=6)
+        else:
+            ax.set_yticklabels(idx, fontsize=6)
+        ax.set_xlabel("Age")
+        ax.set_ylabel("Player")
+        ax.set_title(title)
+        plt.colorbar(im, ax=ax)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    
+def make_rhat_summary_barchart(
+    samples,
+    output_path,
+    metric_labels=None,
+    rhat_threshold=1.05,
+):
+    """Bar chart showing % of (player, age) cells with R-hat > threshold, per metric."""
+    arr_np = np.array(samples)
+    rhat_arr = np.array(az.rhat({"theta": arr_np})["theta"])  # (n_metrics, n_players, n_ages)
+    n_metrics = rhat_arr.shape[0]
+
+    bad_frac = np.array([
+        np.nanmean(rhat_arr[m] > rhat_threshold) * 100
+        for m in range(n_metrics)
+    ])
+
+    labels = metric_labels if metric_labels is not None else [str(i) for i in range(n_metrics)]
+    order = np.argsort(bad_frac)[::-1]
+
+    fig, ax = plt.subplots(figsize=(max(8, n_metrics * 0.6), 5))
+    bars = ax.bar(range(n_metrics), bad_frac[order], color="steelblue")
+    ax.set_xticks(range(n_metrics))
+    ax.set_xticklabels([labels[i] for i in order], rotation=45, ha="right", fontsize=8)
+    ax.set_ylabel(f"% cells with R-hat > {rhat_threshold}")
+    ax.set_title(f"Fraction of (player × age) cells with R-hat > {rhat_threshold} by metric")
+    ax.axhline(0, color="black", linewidth=0.8)
+    for bar, val in zip(bars, bad_frac[order]):
+        ax.text(bar.get_x() + bar.get_width() / 2, val + 0.3, f"{val:.1f}%",
+                ha="center", va="bottom", fontsize=7)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+
+def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str], metric_outputs: list[str], exposure_names: list[str],  posterior_mean_samples, observations, exposures, posterior_variance_samples, posterior_dispersion_samples, posterior_kappa_samples, basis=None):
     """
-    plots the posterior predictive career trajectory 
+    plots the posterior predictive career trajectory
     """
     fig = make_subplots(rows = 4, cols=4,  subplot_titles=metrics)
-    
-    observation_dict, posterior_dict = create_metric_trajectory(posterior_mean_samples, player_index,  observations, exposures, 
+
+    observation_dict, posterior_dict = create_metric_trajectory(posterior_mean_samples, player_index,  observations, exposures,
                                                                 exposure_names=exposure_names,
                                                                 metric_outputs=metric_outputs, metrics = metrics, posterior_variance_samples=posterior_variance_samples, posterior_dispersion_samples=posterior_dispersion_samples, posterior_kappa_samples=posterior_kappa_samples)
 
     obs = observation_dict["y"]
     posterior = posterior_dict["y"]
-    x = list(range(18,39))
+    x = list(basis) if basis is not None else list(range(18, 39))
     scale = 1.5
     for index, metric in enumerate(metrics):
         
@@ -66,7 +158,7 @@ def plot_posterior_predictive_career_trajectory( player_index, metrics: list[str
 
 
 
-def plot_prior_mean_trajectory(prior_mean_samples, thin = .1):
+def plot_prior_mean_trajectory(prior_mean_samples, thin = .1, basis=None):
     scale = 1.5
     prior_mean_samples -= prior_mean_samples[..., 0][..., None]
     num_samples = prior_mean_samples.shape[0]
@@ -74,7 +166,7 @@ def plot_prior_mean_trajectory(prior_mean_samples, thin = .1):
     all_indices = np.arange(num_samples)
     sampled_indices = np.random.choice(all_indices, size=num_samples_thin, replace=False)
     fig = make_subplots(rows = 1, cols=1)
-    x = list(range(18,39))
+    x = list(basis) if basis is not None else list(range(18, 39))
     for sample_index in sampled_indices:
         fig.add_trace(go.Scatter(x = x, y = prior_mean_samples[sample_index], mode = "lines", line_color = "grey", opacity=.3, showlegend=False),
                             row = 1, col = 1)
@@ -88,22 +180,20 @@ def plot_prior_mean_trajectory(prior_mean_samples, thin = .1):
     
     return fig
 
-def plot_prior_predictive_career_trajectory(metrics: list[str], metric_outputs: list[str], exposure_names: list[str],  prior_mean_samples, prior_variance_samples, prior_dispersion_samples, prior_kappa_samples, thin = .1):
+def plot_prior_predictive_career_trajectory(metrics: list[str], metric_outputs: list[str], exposure_names: list[str],  prior_mean_samples, prior_variance_samples, prior_dispersion_samples, prior_kappa_samples, thin = .1, basis=None):
     """
-    plots the prior predictive career trajectory 
+    plots the prior predictive career trajectory
     """
     fig = make_subplots(rows = 4, cols=4,  subplot_titles=metrics)
-    
+
     prior_dict = create_metric_trajectory_prior(prior_mean_samples, metric_outputs, metrics, exposure_names, prior_variance_samples, prior_dispersion_samples, prior_kappa_samples)
 
-    
- 
     prior = prior_dict["y"]
     num_samples = prior.shape[0]
     thin_val = int(thin * num_samples)
     indices = np.random.choice(num_samples, size=thin_val, replace=False)
 
-    x = list(range(18,39))
+    x = list(basis) if basis is not None else list(range(18, 39))
     for index, metric in enumerate(metrics):
         row = int(np.floor(index / 4)) + 1 
         col = (index % 4) + 1
@@ -148,7 +238,7 @@ def plot_prior_predictive_career_trajectory(metrics: list[str], metric_outputs: 
 #     return fig
 
 
-def plot_posterior_predictive_hazard_trajectory_map(player_index, metrics: list[str], censor_type: list[str], posterior_map, observations, censor):
+def plot_posterior_predictive_hazard_trajectory_map(player_index, metrics: list[str], censor_type: list[str], posterior_map, observations, censor, basis=None):
     """
     Plots the posterior predictive career trajectory using matplotlib instead of plotly.
     """
@@ -163,7 +253,7 @@ def plot_posterior_predictive_hazard_trajectory_map(player_index, metrics: list[
 
     obs = observation_dict["y"]
     posterior = posterior_dict["y"]
-    x = list(range(18, 39))  # ages 18–38
+    x = list(basis) if basis is not None else list(range(18, 39))
 
     for index, metric in enumerate(metrics):
         ax = axes[index]
@@ -186,9 +276,9 @@ def plot_posterior_predictive_hazard_trajectory_map(player_index, metrics: list[
     return fig
 
 def plot_posterior_predictive_career_trajectory_map(
-    player_index, metrics: list[str], metric_outputs: list[str], 
+    player_index, metrics: list[str], metric_outputs: list[str],
     posterior_map_mu, posterior_map_mu_ar, observations, exposures,
-    validation_mask = None
+    validation_mask=None, posterior_map_mu_ar_trend=None, basis=None,
 ):
     """
     Plots the posterior predictive career trajectory using matplotlib instead of plotly.
@@ -205,11 +295,19 @@ def plot_posterior_predictive_career_trajectory_map(
         posterior_map_mu_ar, player_index, observations, exposures,
         metric_outputs=metric_outputs, metrics=metrics
     )
+    if posterior_map_mu_ar_trend is not None:
+        _, posterior_mu_ar_trend_dict = create_metric_trajectory_map(
+            posterior_map_mu_ar_trend, player_index, observations, exposures,
+            metric_outputs=metric_outputs, metrics=metrics
+        )
+        posterior_mu_ar_trend_vals = posterior_mu_ar_trend_dict["y"]
+    else:
+        posterior_mu_ar_trend_vals = None
 
     obs = observation_dict["y"]
     posterior_mu = posterior_mu_dict["y"]
     posterior_mu_ar = posterior_mu_ar_dict["y"]
-    x = list(range(18, 39))  # ages 18–38
+    x = list(basis) if basis is not None else list(range(18, 39))
 
     def _exposure_to_weight(exposure_values, metric_type):
         if metric_type in ["poisson", "negative-binomial"]:
@@ -237,8 +335,6 @@ def plot_posterior_predictive_career_trajectory_map(
         size_vals[~valid_mask] = min_size
         return size_vals
 
-    mu_ar_label = "mu + AR"
-
     for index, metric in enumerate(metrics):
         ax = axes[index]
         metric_type = metric_outputs[index]
@@ -253,9 +349,11 @@ def plot_posterior_predictive_career_trajectory_map(
         point_sizes = _normalize_to_size(exposure_weight, observed_vals)
 
         ax.scatter(x, observed_vals, label="Observed", color="black", alpha=0.8, s=point_sizes, zorder=3)
-        ax.scatter(x, held_out_vals, label = "Validation", color = "red", alpha = 0.8, s = point_sizes, zorder=3)
-        ax.plot(x, posterior_mu[..., index], label="mu only", color="green")
-        ax.plot(x, posterior_mu_ar[..., index], label=mu_ar_label, color="blue")
+        ax.scatter(x, held_out_vals, label="Validation", color="red", alpha=0.8, s=point_sizes, zorder=3)
+        ax.plot(x, posterior_mu[..., index], label="mu", color="green")
+        ax.plot(x, posterior_mu_ar[..., index], label="mu + AR", color="blue")
+        if posterior_mu_ar_trend_vals is not None:
+            ax.plot(x, posterior_mu_ar_trend_vals[..., index], label="mu + AR + trend", color="orange")
         ax.set_title(title, fontsize=10)
     
     # hide unused subplots if fewer than 16 metrics
@@ -279,6 +377,68 @@ def plot_mcmc_diagnostics(inference_data, variable_name, plot = "trace"):
         return az.plot_autocorr(inference_data, var_names = variable_name)[0,1]
     elif plot == "summary":
         return az.summary(inference_data, var_names = variable_name)
+
+
+def plot_calendar_year_trends(
+    trend_ar_years,
+    years,
+    metric_names,
+    output_path,
+    hdi_prob=0.9,
+):
+    """
+    Plot learned calendar-year AR(3) trends for each de_trend metric.
+
+    Parameters
+    ----------
+    trend_ar_years : array-like, shape (num_draws, num_ar, num_years) for MCMC
+                     or (num_ar, num_years) for MAP
+    years          : 1-D array of calendar years, length num_years
+    metric_names   : list of str, length num_ar — names for de_trend metrics
+    output_path    : file path to save the figure
+    hdi_prob       : HDI credible interval probability (MCMC only)
+    """
+    trend = np.asarray(trend_ar_years)
+    num_ar = trend.shape[-2]
+    years = np.asarray(years)
+
+    is_mcmc = trend.ndim == 3   # (draws, num_ar, num_years)
+
+    ncols = min(num_ar, 4)
+    nrows = int(np.ceil(num_ar / ncols))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 3 * nrows), squeeze=False)
+    axes_flat = axes.flatten()
+
+    for i, metric in enumerate(metric_names):
+        ax = axes_flat[i]
+        if is_mcmc:
+            draws = trend[:, i, :]          # (draws, num_years)
+            mean_line = np.mean(draws, axis=0)
+            hdi_bounds = az.hdi(draws[np.newaxis], hdi_prob=hdi_prob)  # (num_years, 2); newaxis = (1, draws, years) avoids FutureWarning
+            ax.fill_between(years, hdi_bounds[:, 0], hdi_bounds[:, 1],
+                            alpha=0.25, color="steelblue",
+                            label=f"{int(hdi_prob * 100)}% HDI")
+            ax.plot(years, mean_line, color="steelblue", linewidth=1.5, label="Posterior mean")
+        else:
+            ax.plot(years, trend[i, :], color="steelblue", linewidth=1.5, label="MAP")
+
+        ax.axhline(0, color="black", linewidth=0.6, linestyle="--")
+        ax.set_title(metric.upper(), fontsize=10)
+        ax.set_xlabel("Year")
+        ax.set_ylabel("Trend (log-scale)")
+        ax.tick_params(axis="x", rotation=45)
+
+    for j in range(num_ar, len(axes_flat)):
+        axes_flat[j].axis("off")
+
+    handles, labels = axes_flat[0].get_legend_handles_labels()
+    if handles:
+        fig.legend(handles, labels, loc="upper right", fontsize=9)
+
+    fig.suptitle("Calendar-year AR(3) trend by metric", fontsize=12, y=1.01)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
 
 
 def plot_correlation_dendrogram(X, labels, title = ""):
@@ -372,10 +532,10 @@ def plot_scatter(df, title= "", player_index:int = 0 ):
 
 
 
-        
 
 
 
 
-            
+
+
 

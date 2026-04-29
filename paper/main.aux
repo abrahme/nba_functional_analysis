@@ -1,0 +1,228 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\babel@aux[2]{}
+\@nameuse{bbl@beforestart}
+\providecommand\HyperFirstAtBeginDocument{\AtBeginDocument}
+\HyperFirstAtBeginDocument{\ifx\hyper@anchor\@undefined
+\global\let\oldcontentsline\contentsline
+\gdef\contentsline#1#2#3#4{\oldcontentsline{#1}{#2}{#3}}
+\global\let\oldnewlabel\newlabel
+\gdef\newlabel#1#2{\newlabelxx{#1}#2}
+\gdef\newlabelxx#1#2#3#4#5#6{\oldnewlabel{#1}{{#2}{#3}}}
+\AtEndDocument{\ifx\hyper@anchor\@undefined
+\let\contentsline\oldcontentsline
+\let\newlabel\oldnewlabel
+\fi}
+\fi}
+\global\let\hyper@last\relax 
+\gdef\HyperFirstAtBeginDocument#1{#1}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\babel@aux{english}{}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\citation{wakim2014functional}
+\citation{page2007using}
+\citation{vaci2019large}
+\citation{wakim2014functional}
+\citation{natesilver538_2015,natesilver538_2019}
+\citation{vaci2019large}
+\citation{page2007using}
+\citation{wakim2014functional}
+\citation{vinue2019forecasting}
+\citation{vinue2015archetypoids}
+\citation{vaci2019large}
+\citation{bballref}
+\citation{ballr}
+\citation{terner2020modeling}
+\citation{chessa2023complex}
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.1}Contributions}{4}{subsection.1.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Data and Exploratory Analysis}{4}{section.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces This plot illustrates the average value of production by age, across a variety of different metrics, smoothed by a LOESS estimator. Note that for a specific individual, we see metrics heavily adhere to prior beliefs of aging. There still exist upward ticks for certain metrics, but players tend to have lower minutes played toward the end of their careers, so those upticks could be due to random chance, illustrating the need to model heteroscedasticity. We see the wide variety in peak location, peak value, and pre/post-peak behavior across metrics, as well as across players. Rate metrics are presented on a per 36 minutes basis for easier interpretation. \relax }}{6}{figure.caption.1}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:empirical_production_players}{{1}{6}{This plot illustrates the average value of production by age, across a variety of different metrics, smoothed by a LOESS estimator. Note that for a specific individual, we see metrics heavily adhere to prior beliefs of aging. There still exist upward ticks for certain metrics, but players tend to have lower minutes played toward the end of their careers, so those upticks could be due to random chance, illustrating the need to model heteroscedasticity. We see the wide variety in peak location, peak value, and pre/post-peak behavior across metrics, as well as across players. Rate metrics are presented on a per 36 minutes basis for easier interpretation. \relax }{figure.caption.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Proposed Model}{6}{section.3}\protected@file@percent }
+\newlabel{sec:proposed_model}{{3}{6}{Proposed Model}{section.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Likelihood}{6}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Mean Model}{7}{subsection.3.2}\protected@file@percent }
+\newlabel{eq:tilde_X}{{7}{7}{Mean Model}{equation.3.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Career Duration Model}{8}{subsection.3.3}\protected@file@percent }
+\newlabel{sec:survival}{{3.3}{8}{Career Duration Model}{subsection.3.3}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.3.1}Weibull Proportional-Hazard Formulation}{8}{subsubsection.3.3.1}\protected@file@percent }
+\newlabel{eq:weibull}{{9}{8}{Weibull Proportional-Hazard Formulation}{equation.3.9}{}}
+\@writefile{toc}{\contentsline {paragraph}{Parameter maps.}{8}{section*.2}\protected@file@percent }
+\citation{vaci2019large}
+\citation{convexityconstraints}
+\newlabel{eq:eta}{{10}{9}{Parameter maps}{equation.3.10}{}}
+\newlabel{eq:gamma}{{11}{9}{Parameter maps}{equation.3.11}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.3.2}Truncated Likelihood and Censoring}{9}{subsubsection.3.3.2}\protected@file@percent }
+\newlabel{eq:surv_lik}{{13}{9}{Truncated Likelihood and Censoring}{equation.3.13}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.3.3}A Non-Parametric Prior for Concave Functions}{9}{subsubsection.3.3.3}\protected@file@percent }
+\newlabel{sec:concave_prior}{{3.3.3}{9}{A Non-Parametric Prior for Concave Functions}{subsubsection.3.3.3}{}}
+\newlabel{eqn:concave_process_uni}{{14}{10}{Concave Gaussian process prior}{equation.3.14}{}}
+\citation{convexityconstraints}
+\citation{Solin_2019}
+\newlabel{prop:concave_uni_gp}{{2}{11}{}{proposition.2}{}}
+\newlabel{eq:final_uni_gp}{{16}{11}{}{equation.3.16}{}}
+\newlabel{eq:phi}{{17}{11}{}{equation.3.17}{}}
+\citation{Solin_2019}
+\newlabel{theorem:concave_max_approx}{{1}{13}{}{theorem.1}{}}
+\newlabel{eq:max_constraint_gp}{{19}{13}{}{equation.3.19}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.3.4}Modeling Dependence Across Concave Processes}{13}{subsubsection.3.3.4}\protected@file@percent }
+\newlabel{eq:concave_multi_rep}{{20}{13}{Modeling Dependence Across Concave Processes}{equation.3.20}{}}
+\newlabel{prop:concave_multi_gp}{{4}{13}{}{proposition.4}{}}
+\newlabel{eq:final_gp}{{22}{13}{}{equation.3.22}{}}
+\citation{JMLR:v6:lawrence05a}
+\citation{JMLR:v6:lawrence05a}
+\citation{bodin2017latentgaussianprocessregression}
+\newlabel{theorem:covariance_f(x,t)}{{2}{14}{}{theorem.2}{}}
+\newlabel{eq:cov_gp}{{23}{14}{}{equation.3.23}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Modeling Player Similarity}{14}{subsection.3.4}\protected@file@percent }
+\citation{mauri2025factorpretrainingbayesianmultivariate}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Inference}{15}{section.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Results And Discussion}{16}{section.5}\protected@file@percent }
+\newlabel{sec:results}{{5}{16}{Results And Discussion}{section.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Example Posterior Curves}{16}{subsection.5.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Posterior production curves for Stephen Curry: joint model (left) vs.\ Naive AR baseline (right). The joint model yields markedly tighter credible intervals by sharing information across metrics and players. Green line = posterior mean concave curve; red dashed line = training cutoff.\relax }}{17}{figure.caption.3}\protected@file@percent }
+\newlabel{fig:posterior_curves}{{2}{17}{Posterior production curves for Stephen Curry: joint model (left) vs.\ Naive AR baseline (right). The joint model yields markedly tighter credible intervals by sharing information across metrics and players. Green line = posterior mean concave curve; red dashed line = training cutoff.\relax }{figure.caption.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}The Benefits of Joint Modeling}{17}{subsection.5.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Posterior production curves for Nikola Joki\'{c}: joint model (left) vs.\ Naive AR baseline (right). The joint model yields tighter, structurally coherent credible intervals by pooling information across all 17 metrics simultaneously. Green line = posterior mean; red dashed line = training cutoff.\relax }}{18}{figure.caption.4}\protected@file@percent }
+\newlabel{fig:jokic_comparison}{{3}{18}{Posterior production curves for Nikola Joki\'{c}: joint model (left) vs.\ Naive AR baseline (right). The joint model yields tighter, structurally coherent credible intervals by pooling information across all 17 metrics simultaneously. Green line = posterior mean; red dashed line = training cutoff.\relax }{figure.caption.4}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Five nearest neighbors of Nikola Joki\'{c} in the Procrustes-aligned posterior latent space (injury model, hold-out last $k$ scheme). \emph  {Rank} and \emph  {Distance} are from the posterior mean embedding; \emph  {\% top-5} is the fraction of aligned MCMC draws in which that player appears among the five closest.\relax }}{18}{table.caption.5}\protected@file@percent }
+\newlabel{tab:jokic_neighbors}{{1}{18}{Five nearest neighbors of Nikola Joki\'{c} in the Procrustes-aligned posterior latent space (injury model, hold-out last $k$ scheme). \emph {Rank} and \emph {Distance} are from the posterior mean embedding; \emph {\% top-5} is the fraction of aligned MCMC draws in which that player appears among the five closest.\relax }{table.caption.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Coverage}{19}{subsection.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Uncovering Metric Relationships}{19}{subsection.5.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces PCA on posterior mean peak ages by metric. Higher PC1 / lower PC2 corresponds to later-peaking players (e.g.\ Nash, Curry); lower PC1 / higher PC2 to earlier-peaking players (e.g.\ Steve Francis).\relax }}{20}{figure.caption.7}\protected@file@percent }
+\newlabel{fig:metric_loadings}{{4}{20}{PCA on posterior mean peak ages by metric. Higher PC1 / lower PC2 corresponds to later-peaking players (e.g.\ Nash, Curry); lower PC1 / higher PC2 to earlier-peaking players (e.g.\ Steve Francis).\relax }{figure.caption.7}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Posterior estimate of peak age, by metric. We can see that athleticism based metrics (Group 3) seem to peak earlier, when compared to a skill based metric (Group 1). In the plot (R), we see that there is a separation of clusters by "athleticism" (Group 3) and "skill" (Group 1). Group 2 consists of metrics that might require a blend of both abilities.\relax }}{21}{figure.caption.8}\protected@file@percent }
+\newlabel{fig:peaks}{{5}{21}{Posterior estimate of peak age, by metric. We can see that athleticism based metrics (Group 3) seem to peak earlier, when compared to a skill based metric (Group 1). In the plot (R), we see that there is a separation of clusters by "athleticism" (Group 3) and "skill" (Group 1). Group 2 consists of metrics that might require a blend of both abilities.\relax }{figure.caption.8}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5}Understanding Peak Asymmetry}{21}{subsection.5.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.6}Cluster Analysis of Learned Latent Embedding}{22}{subsection.5.6}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces We see that there is a separation of clusters by position type. We also notice that low minutes players are grouped together \relax }}{22}{figure.caption.9}\protected@file@percent }
+\newlabel{fig:latent_space}{{6}{22}{We see that there is a separation of clusters by position type. We also notice that low minutes players are grouped together \relax }{figure.caption.9}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.6.1}Latent Space Permanence}{23}{subsubsection.5.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.7}Counterfactual NBA Career Trajectories for Injury Analysis}{23}{subsection.5.7}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Comparison between Kevin Durant (L) and Brandon Jennings (R). The dashed red line indicates the timing of the Achilles injury\relax }}{24}{figure.caption.10}\protected@file@percent }
+\newlabel{fig:kd_bj}{{7}{24}{Comparison between Kevin Durant (L) and Brandon Jennings (R). The dashed red line indicates the timing of the Achilles injury\relax }{figure.caption.10}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces Comparison between Kevin Durant (L) and Brandon Jennings (R). The dashed blue line indicates the avg. observed value of the metric post Achilles injury, while the curve represents the posterior distribution of the counterfactual values.\relax }}{25}{figure.caption.11}\protected@file@percent }
+\newlabel{fig:kd_bj_metrics}{{8}{25}{Comparison between Kevin Durant (L) and Brandon Jennings (R). The dashed blue line indicates the avg. observed value of the metric post Achilles injury, while the curve represents the posterior distribution of the counterfactual values.\relax }{figure.caption.11}{}}
+\newlabel{fig:dr_acl}{{\caption@xref {fig:dr_acl}{ on input line 838}}{25}{Counterfactual NBA Career Trajectories for Injury Analysis}{figure.caption.12}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Comparison between John Wall (L) and Derrick Rose (R). The dashed red vertical line indicates the timing of the respective injuries.\relax }}{25}{figure.caption.12}\protected@file@percent }
+\newlabel{fig:player_comparison}{{9}{25}{Comparison between John Wall (L) and Derrick Rose (R). The dashed red vertical line indicates the timing of the respective injuries.\relax }{figure.caption.12}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {10}{\ignorespaces Comparison between John Wall (L) and Derrick Rose (R). The dashed blue line indicates the avg. observed value of the metric post injury, while the curve represents the posterior distribution of the counterfactual values.\relax }}{26}{figure.caption.13}\protected@file@percent }
+\newlabel{fig:player_comparison_metrics}{{10}{26}{Comparison between John Wall (L) and Derrick Rose (R). The dashed blue line indicates the avg. observed value of the metric post injury, while the curve represents the posterior distribution of the counterfactual values.\relax }{figure.caption.13}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.8}Injury Effect Estimation}{26}{subsection.5.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}Conclusion and Future Work}{26}{section.6}\protected@file@percent }
+\newlabel{sec:conclusion}{{6}{26}{Conclusion and Future Work}{section.6}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {A}Appendix}{28}{appendix.A}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.1}Model Validation}{28}{subsection.A.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric — Hold-out Last $k$ scheme.\relax }}{28}{table.caption.14}\protected@file@percent }
+\newlabel{tab:coverage_holdout_last_k}{{2}{28}{Holdout RMSE and bias (in parentheses) by metric — Hold-out Last $k$ scheme.\relax }{table.caption.14}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.2}Graphical Model}{28}{subsection.A.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric — Hold-out First $k$ scheme.\relax }}{29}{table.caption.15}\protected@file@percent }
+\newlabel{tab:coverage_holdout_first_k}{{3}{29}{Holdout RMSE and bias (in parentheses) by metric — Hold-out First $k$ scheme.\relax }{table.caption.15}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {11}{\ignorespaces Graphical model for \texttt  {ConvexMaxInjuryTVLinearLVM}. Shaded nodes are observed; unshaded nodes are latent. $X_p \sim \mathcal  {N}(0,I_D)$: latent player embedding (identity projection). $\nu ^k, w^k$: weight vectors for peak age and peak value; $t^*_{pk} = X_p^\top \nu ^k$ and $f^*_{pk} = X_p^\top w^k$. $f^k(X_p,t)$: HSGP concave trajectory parameterised by spectral weights $\beta $ and the linear projection of $X_p$. $r^k_{pt}$: AR(1) residual. $\tau ^k_{ptm}$: injury offset with prior mean $\mu _0^k + L_k^\top F_m + X_p^\top W_\tau ^{km}$. $Y^k_{pt}$: observed statistic (Gaussian, Negative-Binomial, Beta, or Beta-Binomial).\relax }}{29}{figure.caption.23}\protected@file@percent }
+\newlabel{fig:graphical_model}{{11}{29}{Graphical model for \texttt {ConvexMaxInjuryTVLinearLVM}. Shaded nodes are observed; unshaded nodes are latent. $X_p \sim \mathcal {N}(0,I_D)$: latent player embedding (identity projection). $\nu ^k, w^k$: weight vectors for peak age and peak value; $t^*_{pk} = X_p^\top \nu ^k$ and $f^*_{pk} = X_p^\top w^k$. $f^k(X_p,t)$: HSGP concave trajectory parameterised by spectral weights $\beta $ and the linear projection of $X_p$. $r^k_{pt}$: AR(1) residual. $\tau ^k_{ptm}$: injury offset with prior mean $\mu _0^k + L_k^\top F_m + X_p^\top W_\tau ^{km}$. $Y^k_{pt}$: observed statistic (Gaussian, Negative-Binomial, Beta, or Beta-Binomial).\relax }{figure.caption.23}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric — Random Interior scheme.\relax }}{30}{table.caption.16}\protected@file@percent }
+\newlabel{tab:coverage_random_interior}{{4}{30}{Holdout RMSE and bias (in parentheses) by metric — Random Interior scheme.\relax }{table.caption.16}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.3}Distributional Assumptions for Observation Model}{30}{subsection.A.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {11}{\ignorespaces Observational model description. We group metrics into different observation models: Gaussian, Binomial, Beta, and Poisson. $\mathcal  {R} =$ \{FGA, FG3A, FTA, BLK, OREB, DREB, TOV, AST, STL\}, $\mathcal  {B} =$ \{GP, FG2M, FG3M, FTM\}, $\mathcal  {N} =$ \{GA, FG2A, FG3A, FTA\}, and $\mathcal  {G} = $ \{DBPM, OBPM\}. \relax }}{30}{table.caption.24}\protected@file@percent }
+\newlabel{tab:metric_description}{{11}{30}{Observational model description. We group metrics into different observation models: Gaussian, Binomial, Beta, and Poisson. $\mathcal {R} =$ \{FGA, FG3A, FTA, BLK, OREB, DREB, TOV, AST, STL\}, $\mathcal {B} =$ \{GP, FG2M, FG3M, FTM\}, $\mathcal {N} =$ \{GA, FG2A, FG3A, FTA\}, and $\mathcal {G} = $ \{DBPM, OBPM\}. \relax }{table.caption.24}{}}
+\citation{Solin_2019}
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric — Hold-out Peak scheme.\relax }}{31}{table.caption.17}\protected@file@percent }
+\newlabel{tab:coverage_holdout_peak}{{5}{31}{Holdout RMSE and bias (in parentheses) by metric — Hold-out Peak scheme.\relax }{table.caption.17}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.4}Prior and Transformed Variables Specification}{31}{subsection.A.4}\protected@file@percent }
+\newlabel{appendix:priors}{{A.4}{31}{Prior and Transformed Variables Specification}{subsection.A.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.5}Hilbert Space Gaussian Processes}{31}{subsection.A.5}\protected@file@percent }
+\newlabel{appendix:HSGPs}{{A.5}{31}{Hilbert Space Gaussian Processes}{subsection.A.5}{}}
+\citation{Solin_2019}
+\citation{rffs}
+\citation{rffs}
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces Holdout average log-loss by metric — Hold-out Last $k$ scheme.\relax }}{32}{table.caption.18}\protected@file@percent }
+\newlabel{tab:logloss_holdout_last_k}{{6}{32}{Holdout average log-loss by metric — Hold-out Last $k$ scheme.\relax }{table.caption.18}{}}
+\citation{zhang2023bayesiannonlinearlatentvariable}
+\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces Holdout average log-loss by metric — Hold-out First $k$ scheme.\relax }}{33}{table.caption.19}\protected@file@percent }
+\newlabel{tab:logloss_holdout_first_k}{{7}{33}{Holdout average log-loss by metric — Hold-out First $k$ scheme.\relax }{table.caption.19}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.6}Random Fourier Features and GPLVMs}{33}{subsection.A.6}\protected@file@percent }
+\newlabel{appendix:RFFs}{{A.6}{33}{Random Fourier Features and GPLVMs}{subsection.A.6}{}}
+\citation{Solin_2019}
+\citation{rffs}
+\@writefile{lot}{\contentsline {table}{\numberline {8}{\ignorespaces Holdout average log-loss by metric — Random Interior scheme.\relax }}{34}{table.caption.20}\protected@file@percent }
+\newlabel{tab:logloss_random_interior}{{8}{34}{Holdout average log-loss by metric — Random Interior scheme.\relax }{table.caption.20}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.7}Approximating a Separable Kernel}{34}{subsection.A.7}\protected@file@percent }
+\newlabel{appendix:separability_properties}{{A.7}{34}{Approximating a Separable Kernel}{subsection.A.7}{}}
+\newlabel{eq:cov_separable}{{37}{34}{Approximating a Separable Kernel}{equation.A.37}{}}
+\citation{Solin_2019}
+\@writefile{lot}{\contentsline {table}{\numberline {9}{\ignorespaces Holdout average log-loss by metric — Hold-out Peak scheme.\relax }}{35}{table.caption.21}\protected@file@percent }
+\newlabel{tab:logloss_holdout_peak}{{9}{35}{Holdout average log-loss by metric — Hold-out Peak scheme.\relax }{table.caption.21}{}}
+\newlabel{eq:cov_separable_2}{{41}{35}{Approximating a Separable Kernel}{equation.A.41}{}}
+\citation{rffs}
+\@writefile{lot}{\contentsline {table}{\numberline {10}{\ignorespaces Holdout (val) and in-sample 95\% HDI coverage by metric --- Hold-out Last $k$ scheme. Best validation coverage per metric in bold.\relax }}{36}{table.caption.22}\protected@file@percent }
+\newlabel{tab:hdi_coverage_holdout_last_k}{{10}{36}{Holdout (val) and in-sample 95\% HDI coverage by metric --- Hold-out Last $k$ scheme. Best validation coverage per metric in bold.\relax }{table.caption.22}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.8}Enforcing Concavity}{36}{subsection.A.8}\protected@file@percent }
+\newlabel{appendix:convexity}{{A.8}{36}{Enforcing Concavity}{subsection.A.8}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.8.1}Univariate Case}{36}{subsubsection.A.8.1}\protected@file@percent }
+\newlabel{appendix:univariate_concavity}{{A.8.1}{36}{Univariate Case}{subsubsection.A.8.1}{}}
+\newlabel{eq:concave_uni_rep}{{43}{36}{Univariate Case}{equation.A.43}{}}
+\citation{convexityconstraints}
+\citation{convexityconstraints}
+\@writefile{lot}{\contentsline {table}{\numberline {12}{\ignorespaces Parameter description. If indices are not specified, assume i.i.d.\ across unspecified dimensions. The index $k$ indicates the metric index.\relax }}{37}{table.caption.25}\protected@file@percent }
+\newlabel{tab:parameter_description}{{12}{37}{Parameter description. If indices are not specified, assume i.i.d.\ across unspecified dimensions. The index $k$ indicates the metric index.\relax }{table.caption.25}{}}
+\newlabel{eq:deriv_approx_uni_gp}{{44}{37}{Univariate Case}{equation.A.44}{}}
+\newlabel{eq:final_gp_app_uni}{{46}{37}{Univariate Case}{equation.A.46}{}}
+\newlabel{eq:phi_app}{{47}{37}{Univariate Case}{equation.A.47}{}}
+\citation{convexityconstraints}
+\citation{rffs}
+\citation{convexityconstraints}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.8.2}Multivariate Case}{38}{subsubsection.A.8.2}\protected@file@percent }
+\newlabel{appendix:multivariate_concavity}{{A.8.2}{38}{Multivariate Case}{subsubsection.A.8.2}{}}
+\newlabel{eq:concave_multi_rep_app}{{48}{38}{Multivariate Case}{equation.A.48}{}}
+\newlabel{eq:deriv_approx_gp}{{49}{39}{Multivariate Case}{equation.A.49}{}}
+\newlabel{eq:final_gp_app}{{51}{39}{Multivariate Case}{equation.A.51}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.8.3}Controlling the Peak Behavior}{39}{subsubsection.A.8.3}\protected@file@percent }
+\newlabel{appendix:peak_value}{{A.8.3}{39}{Controlling the Peak Behavior}{subsubsection.A.8.3}{}}
+\newlabel{eq:first_deriv_constraint}{{52}{39}{Controlling the Peak Behavior}{equation.A.52}{}}
+\newlabel{eq:peak_value_constraint}{{53}{40}{Controlling the Peak Behavior}{equation.A.53}{}}
+\newlabel{eq:max_constraint_gp_app}{{54}{40}{Controlling the Peak Behavior}{equation.A.54}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.8.4}Controlling Boundary Conditions}{40}{subsubsection.A.8.4}\protected@file@percent }
+\newlabel{eq:boundary_cond}{{55}{40}{Controlling Boundary Conditions}{equation.A.55}{}}
+\newlabel{eq:lagrangian_boundary}{{57}{40}{Controlling Boundary Conditions}{equation.A.57}{}}
+\citation{isserlis}
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.9}Convexity Formulation Properties}{41}{subsection.A.9}\protected@file@percent }
+\newlabel{appendix:convexity_properties}{{A.9}{41}{Convexity Formulation Properties}{subsection.A.9}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.9.1}Separability}{41}{subsubsection.A.9.1}\protected@file@percent }
+\newlabel{eq:cov_1}{{58}{41}{Separability}{equation.A.58}{}}
+\newlabel{eq:cov_2}{{59}{41}{Separability}{equation.A.59}{}}
+\newlabel{eq:cov_3}{{60}{41}{Separability}{equation.A.60}{}}
+\newlabel{eq:cov_integral}{{61}{41}{Separability}{equation.A.61}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.9.2}Expectation}{42}{subsubsection.A.9.2}\protected@file@percent }
+\newlabel{eq:cov_integral_interchange}{{62}{42}{Expectation}{equation.A.62}{}}
+\newlabel{eq:expectation}{{63}{42}{Expectation}{equation.A.63}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.9.3}Variance}{43}{subsubsection.A.9.3}\protected@file@percent }
+\newlabel{eq:variance_process}{{65}{43}{Variance}{equation.A.65}{}}
+\newlabel{eq:final_integral}{{68}{43}{Variance}{equation.A.68}{}}
+\newlabel{eq:conditional_variance}{{74}{45}{Variance}{equation.A.74}{}}
+\newlabel{eq:expectation_k}{{77}{45}{Variance}{equation.A.77}{}}
+\newlabel{eq:expectation_simple}{{78}{45}{Variance}{equation.A.78}{}}
+\newlabel{eq:variance_k}{{79}{46}{Variance}{equation.A.79}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.10}Additional Figures and Tables}{46}{subsection.A.10}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {13}{\ignorespaces Major NBA Injuries Causing Extended Time Loss, Categorized by Tissue Type and Body Region\relax }}{46}{table.caption.30}\protected@file@percent }
+\newlabel{tab:injury_categories}{{13}{46}{Major NBA Injuries Causing Extended Time Loss, Categorized by Tissue Type and Body Region\relax }{table.caption.30}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {12}{\ignorespaces A look at the percent change in the max value of metric post and pre injury time periods, averaged across all applicable individuals. Individuals who did not return to play at all were not considered. We note that many of the injuries are associated with negative percent changes. Since this is raw data, age might be a confounding factor.\relax }}{47}{figure.caption.26}\protected@file@percent }
+\newlabel{fig:inuries}{{12}{47}{A look at the percent change in the max value of metric post and pre injury time periods, averaged across all applicable individuals. Individuals who did not return to play at all were not considered. We note that many of the injuries are associated with negative percent changes. Since this is raw data, age might be a confounding factor.\relax }{figure.caption.26}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {13}{\ignorespaces We can see the hold-out coverage as we move further from the end of our in-sample dataset. We see that coverage slightly dips as we move further into the future, but not significantly.\relax }}{48}{figure.caption.27}\protected@file@percent }
+\newlabel{fig:coverage_yearly}{{13}{48}{We can see the hold-out coverage as we move further from the end of our in-sample dataset. We see that coverage slightly dips as we move further into the future, but not significantly.\relax }{figure.caption.27}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {14}{\ignorespaces Hold-out coverage by metric does not seem to significantly differ by number of in-sample seasons available. Note that the lone observation for number of seasons is LeBron James, which we fail to project well as his career arc is anomalous.\relax }}{49}{figure.caption.28}\protected@file@percent }
+\newlabel{fig:coverage_minutes}{{14}{49}{Hold-out coverage by metric does not seem to significantly differ by number of in-sample seasons available. Note that the lone observation for number of seasons is LeBron James, which we fail to project well as his career arc is anomalous.\relax }{figure.caption.28}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {15}{\ignorespaces This plot illustrates a clustered correlation matrix of the metrics, according to max values players accrued over their careers. \relax }}{50}{figure.caption.29}\protected@file@percent }
+\newlabel{fig:metric_corr}{{15}{50}{This plot illustrates a clustered correlation matrix of the metrics, according to max values players accrued over their careers. \relax }{figure.caption.29}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {16}{\ignorespaces We see that there is a separation of players by position type, much like the PCA plot. \relax }}{51}{figure.caption.33}\protected@file@percent }
+\newlabel{fig:cov_matrix}{{16}{51}{We see that there is a separation of players by position type, much like the PCA plot. \relax }{figure.caption.33}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {17}{\ignorespaces We see that certain athleticism based metrics (Group 3) tend to have left-skew, and skill-based metrics (Group 1) tend to have right-skew. This aligns with previously held notions about skill-acquisition and aging. \relax }}{52}{figure.caption.34}\protected@file@percent }
+\newlabel{fig:third_deriv}{{17}{52}{We see that certain athleticism based metrics (Group 3) tend to have left-skew, and skill-based metrics (Group 1) tend to have right-skew. This aligns with previously held notions about skill-acquisition and aging. \relax }{figure.caption.34}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {18}{\ignorespaces Variation of the latent curve third derivative by three intervals representing Left Skew, Symmetric, and Right Skew curves respectively. The intervals are as follows (-$\infty $, -.01], (-.01,.01], (.01, $\infty $]. \relax }}{53}{figure.caption.35}\protected@file@percent }
+\newlabel{fig:third_deriv_curves}{{18}{53}{Variation of the latent curve third derivative by three intervals representing Left Skew, Symmetric, and Right Skew curves respectively. The intervals are as follows (-$\infty $, -.01], (-.01,.01], (.01, $\infty $]. \relax }{figure.caption.35}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {19}{\ignorespaces This plot illustrates the average value of production by age, across a variety of different metrics, smoothed by a LOESS estimator. Note that some of these estimates do not respect aging beliefs (i.e some metrics indicate infinite improvement with respect to age, as well as a decrease then improvement). This observation can be explained by selection bias; players who are more successful are likely to play later in their careers, and tend to have higher values of production, biasing curves upwards. \relax }}{54}{figure.caption.36}\protected@file@percent }
+\newlabel{fig:empirical_production}{{19}{54}{This plot illustrates the average value of production by age, across a variety of different metrics, smoothed by a LOESS estimator. Note that some of these estimates do not respect aging beliefs (i.e some metrics indicate infinite improvement with respect to age, as well as a decrease then improvement). This observation can be explained by selection bias; players who are more successful are likely to play later in their careers, and tend to have higher values of production, biasing curves upwards. \relax }{figure.caption.36}{}}
+\bibstyle{chicago}
+\bibdata{references}
+\gdef \@abspage@last{54}

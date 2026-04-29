@@ -1,0 +1,189 @@
+# Full run configuration for main.py.
+# Usage: python main.py --model_name=<name> --model_config=config/model_config.yaml \
+#                       --inference_method=map
+#
+# Merge order (later wins):
+#   defaults → base_entry → regimes[inference_method] → scheme_entry
+#
+# "base_entry" is found by stripping the scheme suffix from model_name, so
+# regimes / fixed_params defined once on the base automatically apply to all
+# scheme variants.  Scheme entries should only carry fields that differ per
+# scheme: model_dir, validation_scheme, injury.
+#
+# All artifacts for a run (pkl, CSVs, plots) live under model_dir.
+# Coverage tables are written to model_output/model_plots/coverage/ (unchanged).
+
+defaults:
+  inference_method: map
+  basis_dims: 21
+  metrics:
+    - {name: games,       distribution: beta-binomial,    exposure: games_exposure}
+    - {name: usg,         distribution: beta,             exposure: minutes}
+    - {name: pct_minutes, distribution: beta,             exposure: games}
+    - {name: obpm,        distribution: gaussian,         exposure: minutes}
+    - {name: dbpm,        distribution: gaussian,         exposure: minutes}
+    - {name: blk,         distribution: poisson,          exposure: minutes}
+    - {name: stl,         distribution: poisson,          exposure: minutes}
+    - {name: ast,         distribution: poisson,          exposure: minutes}
+    - {name: dreb,        distribution: poisson,          exposure: minutes}
+    - {name: oreb,        distribution: poisson,          exposure: minutes}
+    - {name: tov,         distribution: poisson,          exposure: minutes}
+    - {name: fta,         distribution: negative-binomial, exposure: minutes}
+    - {name: fg2a,        distribution: negative-binomial, exposure: minutes}
+    - {name: fg3a,        distribution: negative-binomial, exposure: minutes}
+    - {name: ftm,         distribution: binomial,         exposure: fta}
+    - {name: fg2m,        distribution: binomial,         exposure: fg2a}
+    - {name: fg3m,        distribution: binomial,         exposure: fg3a}
+  approx_x_dim: 0
+  basis_dims_2: ~
+  num_chains: 2
+  num_samples: 2000
+  num_warmup: 1000
+  position_group: all
+  validation_year: 2025
+  cohort_year: 2025
+  age_max: 38
+  age_min: 18
+  start_year: 1997         # null → no lower bound on data year
+  end_year: 2025           # null → no upper bound on data year
+  m_time: 5             # number of HSGP basis functions for the age axis
+  validation_scheme: ~
+  holdout_fraction: 0.2
+  holdout_k: 2
+  holdout_seed: 42
+  de_trend_metrics: []
+  player_names: []
+  fixed_param_path: ~
+  fixed_params: []
+  init_path: ~
+  model_dir: ~           # null → model_output/<model_name>/<inference_method>
+  vectorized: false
+  injury: false
+  debug_nan: false
+  thinning: 250               # null → num_samples / 250
+
+models:
+  # ── ConvexMaxTVLinearLVM ───────────────────────────────────────────────────
+  nba_convex_max_tvlinearlvm:
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm/map
+      mcmc:
+        model_dir:        model_output/nba_convex_max_tvlinearlvm/mcmc
+        init_path:        model_output/nba_convex_max_tvlinearlvm/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvlinearlvm/map/samples.pkl
+        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset]
+        thinning: ~
+
+  nba_convex_max_tvlinearlvm_holdout_last_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm/holdout_last_k/map
+    validation_scheme: holdout_last_k
+
+  nba_convex_max_tvlinearlvm_holdout_first_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm/holdout_first_k/map
+    validation_scheme: holdout_first_k
+
+  nba_convex_max_tvlinearlvm_random_interior:
+    model_dir: model_output/nba_convex_max_tvlinearlvm/random_interior/map
+    validation_scheme: random_interior
+
+  nba_convex_max_tvlinearlvm_holdout_peak:
+    model_dir: model_output/nba_convex_max_tvlinearlvm/holdout_peak/map
+    validation_scheme: holdout_peak
+
+  # ── ConvexMaxARTVLinearLVM ─────────────────────────────────────────────────
+  nba_convex_max_tvlinearlvm_AR:
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm_AR/map
+      mcmc:
+        model_dir:        model_output/nba_convex_max_tvlinearlvm_AR/mcmc
+        init_path:        model_output/nba_convex_max_tvlinearlvm/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvlinearlvm/map/samples.pkl
+        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset]
+        thinning: ~
+
+  nba_convex_max_tvlinearlvm_AR_holdout_last_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/map
+    validation_scheme: holdout_last_k
+
+  nba_convex_max_tvlinearlvm_AR_holdout_first_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_AR/holdout_first_k/map
+    validation_scheme: holdout_first_k
+
+  nba_convex_max_tvlinearlvm_AR_random_interior:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_AR/random_interior/map
+    validation_scheme: random_interior
+
+  nba_convex_max_tvlinearlvm_AR_holdout_peak:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_AR/holdout_peak/map
+    validation_scheme: holdout_peak
+
+  # ── ConvexMaxInjuryTVLinearLVM ─────────────────────────────────────────────
+  nba_convex_max_tvlinearlvm_injury:
+    injury: true
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm_injury/map
+      mcmc:
+        model_dir:        model_output/nba_convex_max_tvlinearlvm_injury/mcmc
+        init_path:        model_output/nba_convex_max_tvlinearlvm_injury/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvlinearlvm_injury/map/samples.pkl
+        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset]
+        thinning: 50
+
+  nba_convex_max_tvlinearlvm_injury_holdout_last_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/map
+    validation_scheme: holdout_last_k
+    injury: true
+
+  nba_convex_max_tvlinearlvm_injury_holdout_first_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_injury/holdout_first_k/map
+    validation_scheme: holdout_first_k
+    injury: true
+
+  nba_convex_max_tvlinearlvm_injury_random_interior:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_injury/random_interior/map
+    validation_scheme: random_interior
+    injury: true
+
+  nba_convex_max_tvlinearlvm_injury_holdout_peak:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_injury/holdout_peak/map
+    validation_scheme: holdout_peak
+    injury: true
+
+  # ── NaiveLinearLVM (AR(1) per player per metric, no latent factors) ──────────
+  nba_naive:
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_naive/map
+      mcmc:
+        model_dir:        model_output/nba_naive/mcmc
+        init_path:        model_output/nba_naive/map/samples.pkl
+        fixed_param_path: model_output/nba_naive/map/samples.pkl
+        fixed_params: []
+        thinning: 250
+
+  nba_naive_holdout_last_k:
+    model_dir: model_output/nba_naive/holdout_last_k/map
+    validation_scheme: holdout_last_k
+
+  nba_naive_holdout_first_k:
+    model_dir: model_output/nba_naive/holdout_first_k/map
+    validation_scheme: holdout_first_k
+
+  nba_naive_random_interior:
+    model_dir: model_output/nba_naive/random_interior/map
+    validation_scheme: random_interior
+
+  nba_naive_holdout_peak:
+    model_dir: model_output/nba_naive/holdout_peak/map
+    validation_scheme: holdout_peak

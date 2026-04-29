@@ -56,13 +56,44 @@ major_injury_type <- full_data |>
     slice_min(order_by = year, n = 1, with_ties = FALSE) |> 
     select(name, id, first_major_injury = injury_type) |> ungroup()
 
-full_data <- full_data |> inner_join(major_injury_type) |> group_by(name, id) |> arrange(year) |> ungroup() |> 
-mutate(first_major_injury = case_when(name == "Paul George" ~"Lower Body Fracture", 
+player_info <- read.csv("data/player_info.csv") |>
+  select(id, draft_year, draft_position, height_inches) |>
+  mutate(draft_position = as.numeric(draft_position))
+
+pick_counts <- player_info |>
+  filter(!is.na(draft_position)) |>
+  group_by(draft_year) |>
+  summarise(total_picks = max(draft_position), .groups = "drop")
+
+player_info <- player_info |>
+  left_join(pick_counts, by = "draft_year") |>
+  mutate(draft_position_adj = if_else(is.na(draft_position), total_picks + 1, draft_position)) |>
+  select(id, draft_year, draft_position_adj, height_inches)
+
+# Compute draft_age as a single constant per player before joining onto the longitudinal table
+# Use the minimum observed age and its associated year as the reference point
+draft_ages <- full_data |>
+  filter(!is.na(age)) |>
+  group_by(id) |>
+  slice_min(order_by = age, n = 1, with_ties = FALSE) |>
+  select(id, min_age = age, min_age_year = year) |>
+  ungroup() |>
+  left_join(player_info, by = "id") |>
+  filter(!is.na(draft_year)) |>
+  mutate(draft_age = min_age - (min_age_year - draft_year)) |>
+  select(id, draft_age, draft_position_adj, height_inches)
+
+full_data <- full_data |> inner_join(major_injury_type) |> group_by(name, id) |> arrange(year) |> ungroup() |>
+mutate(first_major_injury = case_when(name == "Paul George" ~"Lower Body Fracture",
                                       name == "Kawhi Leonard" ~ "ACL",
                                       .default = first_major_injury),
        injury_period = case_when(name == "Paul George" & year <= 2014 ~ "pre-injury",
                                  name == "Paul George" & year > 2014 ~ "post-injury",
                                  name == "Kawhi Leonard" & year >= 2022 ~ "post-injury",
                                  name == "Kawhi Leonard" & year < 2022 ~ "pre-injury",
-                                 .default = injury_period)                                                                                               )
+                                 .default = injury_period)                                                                                               ) |>
+left_join(draft_ages, by = "id")
+
+full_data <- full_data |> mutate(name = iconv(name, to = "ASCII//TRANSLIT"))
+
 write.csv(full_data, "data/injury_player_cleaned.csv", row.names = FALSE )

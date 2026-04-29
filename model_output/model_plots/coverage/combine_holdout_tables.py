@@ -1,344 +1,367 @@
-from __future__ import annotations
+"""Combine per-model holdout CSVs into a single LaTeX comparison table.
 
-from pathlib import Path
-import re
+Reads every  <model>_vs_<scheme>_f<frac>_k<k>_s<seed>.csv  file from this
+directory and produces  combined_holdout_table.tex  with one subtable per
+holdout scheme.  Each subtable has rows = metrics and columns = model families,
+each cell showing  RMSE (bias).  Only the "holdout" split is reported.
+
+Usage (run from repo root):
+    python model_output/model_plots/coverage/combine_holdout_tables.py
+"""
+
 import math
-
+import os
+import re
 import pandas as pd
 
+COVERAGE_DIR  = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_TEX    = os.path.join(COVERAGE_DIR, "combined_holdout_table.tex")
+OUTPUT_BODY   = os.path.join(COVERAGE_DIR, "combined_holdout_body.tex")
 
-TARGET_SPLITS = (
-    "holdout",
-    "holdout_injured",
-    "holdout_non_injured",
-    "non_holdout",
-    "non_holdout_injured",
-    "non_holdout_non_injured",
-)
-SPLIT_TITLES = {
-    "holdout": "Holdout",
-    "holdout_injured": "Holdout (injured)",
-    "holdout_non_injured": "Holdout (non-injured)",
-    "non_holdout": "Non-holdout",
-    "non_holdout_injured": "Non-holdout (injured)",
-    "non_holdout_non_injured": "Non-holdout (non-injured)",
+SCHEME_ORDER = ["holdout_last_k", "holdout_first_k", "random_interior", "holdout_peak"]
+SCHEME_LABEL = {
+    "holdout_last_k":   "Hold-out Last $k$",
+    "holdout_first_k":  "Hold-out First $k$",
+    "random_interior":  "Random Interior",
+    "holdout_peak":     "Hold-out Peak",
 }
 
+MODEL_ORDER = [
+    "nba_convex_max_tvlinearlvm",
+    "nba_convex_max_tvlinearlvm_AR",
+    "nba_convex_max_tvlinearlvm_injury",
+    "nba_naive",
+]
+MODEL_LABEL = {
+    "nba_convex_max_tvlinearlvm":         "Base",
+    "nba_convex_max_tvlinearlvm_AR":      "AR",
+    "nba_convex_max_tvlinearlvm_injury":  "Injury",
+    "nba_naive":                          "Naive AR",
+}
 
-def _clean_cell(value: str) -> str:
-    return value.strip().replace("\\_", "_")
+METRIC_ORDER = [
+    "games", "usg", "pct_minutes",
+    "obpm", "dbpm",
+    "blk", "stl", "ast", "dreb", "oreb", "tov",
+    "fta", "fg2a", "fg3a",
+    "ftm", "fg2m", "fg3m",
+]
+METRIC_LABEL = {
+    "games": "GP\\%", "usg": "USG\\%", "pct_minutes": "MPG",
+    "obpm": "OBPM", "dbpm": "DBPM",
+    "blk": "BLK", "stl": "STL", "ast": "AST",
+    "dreb": "DREB", "oreb": "OREB", "tov": "TOV",
+    "fta": "FTA", "fg2a": "FG2A", "fg3a": "FG3A",
+    "ftm": "FT\\%", "fg2m": "FG2\\%", "fg3m": "FG3\\%",
+}
+
+# ── Load all CSVs ─────────────────────────────────────────────────────────────
+
+_SCHEME_SUFFIXES = ("_holdout_last_k", "_holdout_first_k", "_random_interior", "_holdout_peak")
+
+records = []
+pattern = re.compile(r"^(.+)_vs_(.+?)_f\d+_k\d+_s\d+\.csv$")
+
+for fname in os.listdir(COVERAGE_DIR):
+    m = pattern.match(fname)
+    if not m:
+        continue
+    model_name, scheme = m.group(1), m.group(2)
+    # Strip scheme suffix so the key matches MODEL_ORDER base names
+    for suffix in _SCHEME_SUFFIXES:
+        if model_name.endswith(suffix):
+            model_name = model_name[: -len(suffix)]
+            break
+    df = pd.read_csv(os.path.join(COVERAGE_DIR, fname))
+    df = df[df["split"] == "holdout"].copy()
+    df["model"]  = model_name
+    df["scheme"] = scheme
+    records.append(df)
+
+if not records:
+    print("No coverage CSVs found — run the holdout jobs first.")
+    raise SystemExit(1)
+
+data = pd.concat(records, ignore_index=True)
+
+# ── Build LaTeX ───────────────────────────────────────────────────────────────
+
+def _sci(val, decimals=2):
+    """Format val in LaTeX scientific notation: $m.dd\times10^{e}$."""
+    exp = int(math.floor(math.log10(abs(val))))
+    mantissa = val / 10 ** exp
+    sign = "+" if mantissa >= 0 else ""
+    return f"${mantissa:.{decimals}f}\\times10^{{{exp}}}$"
 
 
-def _parse_table_rows(tex_text: str) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    for raw_line in tex_text.splitlines():
-        line = raw_line.strip()
-        if "&" not in line or not line.endswith(r"\\"):
-            continue
-
-        parts = [_clean_cell(part) for part in line[:-2].split("&")]
-        if len(parts) < 5:
-            continue
-
-        split_value = parts[0]
-        if split_value not in TARGET_SPLITS:
-            continue
-
-        metric = parts[1]
-        try:
-            bias = float(parts[2])
-            rmse = float(parts[3])
-        except ValueError:
-            continue
-
-        # avg_log_loss = math.nan
-        # n_obs = 0
-        avg_log_loss = float(parts[4])
-        n_obs = int(float(parts[5]))
-
-        # try:
-        #     if len(parts) >= 9:
-        #         avg_log_loss = float(parts[4])
-        #         n_obs = int(float(parts[5]))
-        #         avg_log_loss = float(parts[8])
-        #     elif len(parts) >= 7:
-        #         n_obs = int(float(parts[4]))
-
-        #     else:
-        #         n_obs = int(float(parts[4]))
-        # except ValueError:
-        #     continue
-
-        rows.append(
-            {
-                "split": split_value,
-                "metric": metric,
-                "bias": bias,
-                "rmse": rmse,
-                "avg_log_loss": avg_log_loss,
-                "n_obs": n_obs,
-            }
-        )
-    return rows
+def _fmt_num(val, decimals=3):
+    """Fixed decimal for small values, scientific notation for |val| >= 1e4."""
+    if pd.isna(val):
+        return "---"
+    if abs(val) >= 1e4:
+        return _sci(val)
+    return f"{val:.{decimals}f}"
 
 
-def _label_model(model_name: str) -> str | None:
-    if "tvlinearlvm_injury" in model_name:
-        return "concave + AR + injury"
-    if "tvlinearlvm_AR" in model_name:
-        return "concave + AR"
-    if "tvlinearlvm" in model_name:
-        return "concave"
-    if "naive" in model_name:
-        return "naive"
+def _fmt_signed(val, decimals=3):
+    """Like _fmt_num but always shows a leading sign."""
+    if pd.isna(val):
+        return "---"
+    if abs(val) >= 1e4:
+        return ("+" if val >= 0 else "") + _sci(val)
+    return f"{val:+.{decimals}f}"
 
 
-def _format_wide_table(df: pd.DataFrame, value_column: str, model_order: list[str], use_abs_for_best: bool) -> pd.DataFrame:
-    metric_order = df["metric"].drop_duplicates().tolist()
-    wide = (
-        df.pivot_table(index="metric", columns="model", values=value_column, aggfunc="mean")
-        .reindex(metric_order)
-        .reindex(columns=[col for col in model_order if col in df["model"].unique()])
-    )
+def fmt_cell(rmse, bias, bold=False):
+    """Format as  RMSE (bias)  using scientific notation for large values."""
+    if pd.isna(rmse) and pd.isna(bias):
+        return "---"
+    r = _fmt_num(rmse)
+    b = _fmt_signed(bias)
+    text = f"{r} ({b})"
+    return f"\\textbf{{{text}}}" if bold else text
 
-    formatted = wide.copy().astype(object)
-    for metric_name, row in wide.iterrows():
-        if use_abs_for_best:
-            best_value = row.abs().min(skipna=True)
-        else:
-            best_value = row.min(skipna=True)
-        for model_col, value in row.items():
-            if pd.isna(value):
-                formatted.at[metric_name, model_col] = ""
+
+def best_model_for_metric(sub, metric, models, col):
+    """Return the model name with the lowest finite value of col for metric."""
+    vals = {}
+    for m in models:
+        cd = sub[(sub["model"] == m) & (sub["metric"] == metric)]
+        if not cd.empty and not pd.isna(cd[col].iloc[0]):
+            vals[m] = cd[col].iloc[0]
+    return min(vals, key=vals.__getitem__) if vals else None
+
+
+lines = []
+lines.append(r"\documentclass{article}")
+lines.append(r"\usepackage{booktabs}")
+lines.append(r"\usepackage{multirow}")
+lines.append(r"\usepackage{graphicx}")
+lines.append(r"\usepackage[margin=1in]{geometry}")
+lines.append(r"\begin{document}")
+lines.append("")
+lines.append(r"\newcommand{\tblnote}[1]{\smallskip\noindent\footnotesize #1}")
+lines.append("")
+
+present_models  = [m for m in MODEL_ORDER  if m in data["model"].unique()]
+present_schemes = [s for s in SCHEME_ORDER if s in data["scheme"].unique()]
+
+n_models = len(present_models)
+col_spec = "l" + "r" * n_models    # metric col + one col per model
+
+for scheme in present_schemes:
+    sub = data[data["scheme"] == scheme]
+    if sub.empty:
+        continue
+
+    lines.append(r"\begin{table}[ht]")
+    lines.append(r"\centering")
+    lines.append(r"\small")
+    lines.append(r"\resizebox{\linewidth}{!}{")
+
+    # column spec: metric | model1 | model2 | model3
+    lines.append(f"\\begin{{tabular}}{{{col_spec}}}")
+    lines.append(r"\toprule")
+
+    # Header row
+    header_cols = ["Metric"] + [MODEL_LABEL.get(m, m) for m in present_models]
+    lines.append(" & ".join(header_cols) + r" \\")
+    lines.append(r"  & " + " & ".join([r"\small RMSE (bias)"] * n_models) + r" \\")
+    lines.append(r"\midrule")
+
+    present_metrics = [m for m in METRIC_ORDER if m in sub["metric"].unique()]
+    # add any unexpected metrics at the end
+    extra = [m for m in sub["metric"].unique() if m not in METRIC_ORDER]
+    for metric in present_metrics + extra:
+        best = best_model_for_metric(sub, metric, present_models, "rmse")
+        row_cells = [METRIC_LABEL.get(metric, metric.upper())]
+        for model in present_models:
+            cell_data = sub[(sub["model"] == model) & (sub["metric"] == metric)]
+            if cell_data.empty:
+                row_cells.append("---")
             else:
-                value_str = f"{value:.4f}"
-                if use_abs_for_best:
-                    is_best = abs(abs(value) - best_value) <= 1e-12
-                else:
-                    is_best = abs(value - best_value) <= 1e-12
-                if is_best:
-                    value_str = f"\\textbf{{{value_str}}}"
-                formatted.at[metric_name, model_col] = value_str
+                row_cells.append(fmt_cell(
+                    cell_data["rmse"].iloc[0],
+                    cell_data["bias"].iloc[0],
+                    bold=(model == best),
+                ))
+        lines.append(" & ".join(row_cells) + r" \\")
 
-    return formatted.reset_index().rename(columns={"metric": "Metric"})
-
-
-def _format_scalar(value: float) -> str:
-    if pd.isna(value):
-        return ""
-    return f"{value:.4f}"
-
-
-def _format_pair(left_value: float, right_value: float, use_abs_for_best: bool) -> tuple[str, str]:
-    left_str = _format_scalar(left_value)
-    right_str = _format_scalar(right_value)
-
-    if pd.isna(left_value) or pd.isna(right_value):
-        return left_str, right_str
-
-    left_score = abs(left_value) if use_abs_for_best else left_value
-    right_score = abs(right_value) if use_abs_for_best else right_value
-    best_score = min(left_score, right_score)
-
-    if abs(left_score - best_score) <= 1e-12:
-        left_str = f"\\textbf{{{left_str}}}"
-    if abs(right_score - best_score) <= 1e-12:
-        right_str = f"\\textbf{{{right_str}}}"
-    return left_str, right_str
-
-
-def _build_non_holdout_side_by_side_table(df_rows: pd.DataFrame) -> pd.DataFrame | None:
-    injured_df = (
-        df_rows[df_rows["split"] == "non_holdout_injured"]
-        .drop_duplicates(subset=["metric"], keep="last")
-        .set_index("metric")
+    lines.append(r"\bottomrule")
+    lines.append(r"\end{tabular}")
+    lines.append(r"}")  # close \resizebox
+    scheme_label = SCHEME_LABEL.get(scheme, scheme)
+    lines.append(
+        f"\\caption{{Holdout RMSE and bias (in parentheses) by metric — "
+        f"{scheme_label} scheme.}}"
     )
-    non_injured_df = (
-        df_rows[df_rows["split"] == "non_holdout_non_injured"]
-        .drop_duplicates(subset=["metric"], keep="last")
-        .set_index("metric")
+    lines.append(f"\\label{{tab:coverage_{scheme}}}")
+    lines.append(r"\end{table}")
+    lines.append("")
+
+# ── Log-loss tables ───────────────────────────────────────────────────────────
+
+lines.append(r"\bigskip")
+lines.append(r"{\centering\large\textbf{Log-Loss Tables}\\[4pt]}")
+lines.append("")
+
+for scheme in present_schemes:
+    sub = data[data["scheme"] == scheme]
+    if sub.empty:
+        continue
+
+    lines.append(r"\begin{table}[ht]")
+    lines.append(r"\centering")
+    lines.append(r"\small")
+    lines.append(r"\resizebox{\linewidth}{!}{")
+    lines.append(f"\\begin{{tabular}}{{{col_spec}}}")
+    lines.append(r"\toprule")
+    header_cols = ["Metric"] + [MODEL_LABEL.get(m, m) for m in present_models]
+    lines.append(" & ".join(header_cols) + r" \\")
+    lines.append(r"  & " + " & ".join([r"\small Avg log-loss"] * n_models) + r" \\")
+    lines.append(r"\midrule")
+
+    present_metrics = [m for m in METRIC_ORDER if m in sub["metric"].unique()]
+    extra = [m for m in sub["metric"].unique() if m not in METRIC_ORDER]
+    for metric in present_metrics + extra:
+        best = best_model_for_metric(sub, metric, present_models, "avg_log_loss")
+        row_cells = [METRIC_LABEL.get(metric, metric.upper())]
+        for model in present_models:
+            cell_data = sub[(sub["model"] == model) & (sub["metric"] == metric)]
+            if cell_data.empty or pd.isna(cell_data["avg_log_loss"].iloc[0]):
+                row_cells.append("---")
+            else:
+                raw = cell_data["avg_log_loss"].iloc[0]
+                val = _fmt_num(raw, decimals=4)
+                row_cells.append(f"\\textbf{{{val}}}" if model == best else val)
+        lines.append(" & ".join(row_cells) + r" \\")
+
+    lines.append(r"\bottomrule")
+    lines.append(r"\end{tabular}")
+    lines.append(r"}")  # close \resizebox
+    scheme_label = SCHEME_LABEL.get(scheme, scheme)
+    lines.append(
+        f"\\caption{{Holdout average log-loss by metric — "
+        f"{scheme_label} scheme.}}"
     )
+    lines.append(f"\\label{{tab:logloss_{scheme}}}")
+    lines.append(r"\end{table}")
+    lines.append("")
 
-    metric_order = (
-        df_rows[df_rows["split"].isin(["non_holdout_injured", "non_holdout_non_injured"])]["metric"]
-        .drop_duplicates()
-        .tolist()
-    )
-    if not metric_order:
-        return None
+# ── Coverage tables ───────────────────────────────────────────────────────────
+# Reads coverage_basic.tex from <model_output_root>/<model>/<scheme>/mcmc/plots/coverage/
 
-    table_rows: list[dict[str, str]] = []
-    for metric in metric_order:
-        inj_bias = injured_df["bias"].get(metric, math.nan) if "bias" in injured_df.columns else math.nan
-        non_inj_bias = non_injured_df["bias"].get(metric, math.nan) if "bias" in non_injured_df.columns else math.nan
-        inj_rmse = injured_df["rmse"].get(metric, math.nan) if "rmse" in injured_df.columns else math.nan
-        non_inj_rmse = non_injured_df["rmse"].get(metric, math.nan) if "rmse" in non_injured_df.columns else math.nan
-        inj_log = injured_df["avg_log_loss"].get(metric, math.nan) if "avg_log_loss" in injured_df.columns else math.nan
-        non_inj_log = non_injured_df["avg_log_loss"].get(metric, math.nan) if "avg_log_loss" in non_injured_df.columns else math.nan
+MODEL_OUTPUT_ROOT = os.path.dirname(os.path.dirname(COVERAGE_DIR))
 
-        bias_inj_str, bias_non_inj_str = _format_pair(inj_bias, non_inj_bias, use_abs_for_best=True)
-        rmse_inj_str, rmse_non_inj_str = _format_pair(inj_rmse, non_inj_rmse, use_abs_for_best=False)
-        log_inj_str, log_non_inj_str = _format_pair(inj_log, non_inj_log, use_abs_for_best=False)
+_COV_ROW = re.compile(r'^\s*(.+?) & ([\d.]+)\\% & ([\d.]+)\\%', re.MULTILINE)
 
-        table_rows.append(
-            {
-                "Metric": metric,
-                "Bias (Injured)": bias_inj_str,
-                "Bias (Non-Injured)": bias_non_inj_str,
-                "RMSE (Injured)": rmse_inj_str,
-                "RMSE (Non-Injured)": rmse_non_inj_str,
-                "LogLoss (Injured)": log_inj_str,
-                "LogLoss (Non-Injured)": log_non_inj_str,
-            }
+def parse_coverage_tex(path):
+    """Return dict: display_label -> (val_pct, in_sample_pct)."""
+    with open(path) as f:
+        content = f.read()
+    result = {}
+    for m in _COV_ROW.finditer(content):
+        label = m.group(1).strip()
+        result[label] = (float(m.group(2)), float(m.group(3)))
+    return result
+
+
+# {scheme: {model_key: {display_label: (val_pct, in_pct)}}}
+cov_data = {}
+for model_key in MODEL_ORDER:
+    for scheme in SCHEME_ORDER:
+        tex_path = os.path.join(
+            MODEL_OUTPUT_ROOT, model_key, scheme, "mcmc", "plots", "coverage", "coverage_basic.tex"
         )
-
-    return pd.DataFrame(table_rows)
-
-
-def main() -> None:
-    coverage_dir = Path(__file__).resolve().parent
-
-    metric_specs = {
-        "rmse": {
-            "value_column": "rmse",
-            "use_abs_for_best": False,
-            "caption_suffix": "RMSE",
-            "best_suffix": "lowest value",
-        },
-        "bias": {
-            "value_column": "bias",
-            "use_abs_for_best": True,
-            "caption_suffix": "bias",
-            "best_suffix": "lowest absolute value",
-        },
-        "log_loss": {
-            "value_column": "avg_log_loss",
-            "use_abs_for_best": False,
-            "caption_suffix": "average log loss",
-            "best_suffix": "lowest value",
-        },
-    }
-
-    output_files: dict[tuple[str, str], Path] = {}
-    for split_name in TARGET_SPLITS:
-        for metric_name in metric_specs:
-            output_files[(split_name, metric_name)] = coverage_dir / f"all_models_{split_name}_{metric_name}.tex"
-
-    # Keep the original "holdout" file names for backward compatibility.
-    output_files[("holdout", "rmse")] = coverage_dir / "all_models_holdout_rmse.tex"
-    output_files[("holdout", "bias")] = coverage_dir / "all_models_holdout_bias.tex"
-    output_files[("holdout", "log_loss")] = coverage_dir / "all_models_holdout_log_loss.tex"
-
-    legacy_rmse_file = coverage_dir / "all_models_holdout_bias_rmse.tex"
-    generated_outputs = {path.name for path in output_files.values()}
-    generated_outputs.add(legacy_rmse_file.name)
-
-    records: list[dict[str, object]] = []
-    side_by_side_written: list[Path] = []
-    skipped_no_rows: list[str] = []
-    skipped_unmapped_files: list[str] = []
-
-    for tex_path in sorted(coverage_dir.glob("*.tex")):
-        if tex_path.name in generated_outputs:
+        if not os.path.exists(tex_path):
             continue
-        if tex_path.name.endswith("_non_holdout_injury_side_by_side.tex"):
+        cov_data.setdefault(scheme, {})[model_key] = parse_coverage_tex(tex_path)
+
+# Display label -> metric key (for ordering rows in METRIC_ORDER order)
+LABEL_TO_KEY = {v: k for k, v in METRIC_LABEL.items()}
+
+if cov_data:
+    lines.append(r"\bigskip")
+    lines.append(r"{\centering\large\textbf{Coverage Tables (95\% HDI)}\\[4pt]}")
+    lines.append("")
+
+    cov_schemes = [s for s in SCHEME_ORDER if s in cov_data]
+    for scheme in cov_schemes:
+        scheme_cov = cov_data[scheme]
+        present_cov_models = [m for m in MODEL_ORDER if m in scheme_cov]
+        if not present_cov_models:
             continue
 
-        tex_text = tex_path.read_text(encoding="utf-8")
-        holdout_rows = _parse_table_rows(tex_text)
-        if not holdout_rows:
-            skipped_no_rows.append(tex_path.name)
-            continue
+        # Collect all metric display labels present across any model
+        all_labels = set()
+        for mc in scheme_cov.values():
+            all_labels.update(mc.keys())
 
-        model_name = re.sub(r"\.tex$", "", tex_path.name)
-        model_rows_df = pd.DataFrame(holdout_rows)
-        side_by_side_df = _build_non_holdout_side_by_side_table(model_rows_df)
-        if side_by_side_df is not None:
-            side_by_side_path = coverage_dir / f"{model_name}_non_holdout_injury_side_by_side.tex"
-            side_by_side_latex = side_by_side_df.to_latex(
-                index=False,
-                caption=(
-                    f"Non-holdout injured vs non-injured side-by-side metrics for {model_name} "
-                    "(bold = better within each injured/non-injured pair; bias by absolute value)"
-                ),
-                label=f"tab:{model_name}_non_holdout_injury_side_by_side",
-                escape=False,
-            )
-            side_by_side_path.write_text(side_by_side_latex, encoding="utf-8")
-            side_by_side_written.append(side_by_side_path)
+        # Order: METRIC_LABEL display values in METRIC_ORDER, then extras, EXIT_AGE last
+        ordered_labels = [METRIC_LABEL[k] for k in METRIC_ORDER if METRIC_LABEL[k] in all_labels]
+        exit_labels    = [l for l in all_labels if "EXIT" in l]
+        extra_labels   = sorted(all_labels - set(ordered_labels) - set(exit_labels))
+        ordered_labels += extra_labels + exit_labels
 
-        model_label = _label_model(model_name)
-        if model_label is None:
-            skipped_unmapped_files.append(tex_path.name)
-            continue
-        for row in holdout_rows:
-            records.append(
-                {
-                    "split": row["split"],
-                    "model": model_label,
-                    "metric": row["metric"],
-                    "bias": row["bias"],
-                    "rmse": row["rmse"],
-                    "avg_log_loss": row["avg_log_loss"],
-                    "n_obs": row["n_obs"],
-                }
-            
-            )
-            
-            
+        n_cov   = len(present_cov_models)
+        col_cov = "l" + "r" * n_cov
 
-    if not records:
-        raise RuntimeError("No holdout rows were found in any .tex coverage tables.")
+        lines.append(r"\begin{table}[ht]")
+        lines.append(r"\centering")
+        lines.append(r"\small")
+        lines.append(r"\resizebox{\linewidth}{!}{")
+        lines.append(f"\\begin{{tabular}}{{{col_cov}}}")
+        lines.append(r"\toprule")
+        header_cols = ["Metric"] + [MODEL_LABEL.get(m, m) for m in present_cov_models]
+        lines.append(" & ".join(header_cols) + r" \\")
+        lines.append(r"  & " + " & ".join([r"\small Val\% (In-Samp\%)"] * n_cov) + r" \\")
+        lines.append(r"\midrule")
 
-    df = pd.DataFrame(records)
-    model_order = ["concave", "concave + AR", "concave + AR + injury", "naive"]
+        for label in ordered_labels:
+            # Best model = highest validation coverage for this metric
+            best, best_val = None, -1.0
+            for mk in present_cov_models:
+                pcts = scheme_cov[mk].get(label)
+                if pcts and pcts[0] > best_val:
+                    best_val, best = pcts[0], mk
 
-    written_files: list[Path] = []
-    for split_name in TARGET_SPLITS:
-        df_split = df[df["split"] == split_name]
-        if df_split.empty:
-            print(f"No rows found for split '{split_name}', skipping output generation for this split.")
-            continue
+            row_cells = [label]
+            for mk in present_cov_models:
+                pcts = scheme_cov[mk].get(label)
+                if pcts is None:
+                    row_cells.append("---")
+                else:
+                    v, i = pcts
+                    text = f"{v:.1f}\\% ({i:.1f}\\%)"
+                    row_cells.append(f"\\textbf{{{text}}}" if mk == best else text)
+            lines.append(" & ".join(row_cells) + r" \\")
 
-        split_title = SPLIT_TITLES[split_name]
-        for metric_name, metric_spec in metric_specs.items():
-            formatted = _format_wide_table(
-                df_split,
-                metric_spec["value_column"],
-                model_order,
-                use_abs_for_best=metric_spec["use_abs_for_best"],
-            )
-            latex_text = formatted.to_latex(
-                index=False,
-                caption=(
-                    f"{split_title} {metric_spec['caption_suffix']} by metric across models "
-                    f"(bold = {metric_spec['best_suffix']})"
-                ),
-                label=f"tab:{split_name}_{metric_name}_all_models",
-                escape=False,
-            )
-            output_path = output_files[(split_name, metric_name)]
-            output_path.write_text(latex_text, encoding="utf-8")
-            written_files.append(output_path)
+        lines.append(r"\bottomrule")
+        lines.append(r"\end{tabular}")
+        lines.append(r"}")  # close \resizebox
+        scheme_label = SCHEME_LABEL.get(scheme, scheme)
+        lines.append(
+            f"\\caption{{Holdout (val) and in-sample 95\\% HDI coverage by metric --- "
+            f"{scheme_label} scheme. Best validation coverage per metric in bold.}}"
+        )
+        lines.append(f"\\label{{tab:hdi_coverage_{scheme}}}")
+        lines.append(r"\end{table}")
+        lines.append("")
 
-    if legacy_rmse_file.exists():
-        legacy_rmse_file.unlink()
+lines.append(r"\end{document}")
 
-    for output_path in written_files:
-        print(f"Wrote {output_path}")
-    for output_path in side_by_side_written:
-        print(f"Wrote {output_path}")
-    if not legacy_rmse_file.exists():
-        print(f"Removed legacy file {legacy_rmse_file}")
-    if skipped_no_rows:
-        print("Skipped files without target split rows:")
-        for name in skipped_no_rows:
-            print(f"  - {name}")
-    if skipped_unmapped_files:
-        print("Skipped files for cross-model aggregation (unmapped model label):")
-        for name in skipped_unmapped_files:
-            print(f"  - {name}")
+with open(OUTPUT_TEX, "w") as f:
+    f.write("\n".join(lines))
 
+print(f"Written: {OUTPUT_TEX}")
 
-if __name__ == "__main__":
-    main()
+# Write body-only version for \input in main.tex (no preamble)
+body_start = next(i for i, l in enumerate(lines) if l.strip() == r"\begin{document}") + 1
+body_end   = next(i for i, l in enumerate(lines) if l.strip() == r"\end{document}")
+body_lines = lines[body_start:body_end]
+with open(OUTPUT_BODY, "w") as f:
+    f.write("\n".join(body_lines))
+print(f"Written: {OUTPUT_BODY}")
+print(f"  Schemes:           {present_schemes}")
+print(f"  Models:            {present_models}")
+print(f"  Coverage schemes:  {list(cov_data.keys())}")
