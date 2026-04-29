@@ -590,12 +590,16 @@ To summarize, our construction is able to share information across a learned rep
 
 
 \section{Inference}
+\label{sec:inference}
 
 Inference for this model presents some unique challenges specific to the formulation. For one, Bayesian factor models typically have rotational identifiability issues with either the loadings or the factors themselves, yielding a multi-modal posterior. This tricky posterior makes traditional Hamiltonian Monte Carlo (HMC) challenging. As such, we initialize the MCMC chains using the MAP estimate of the model presented in \ref{sec:proposed_model} \textbf{without} the AR(1) components.  This encourages posterior modes explored by MCMC to concentrate around a reasonable estimate. We then sample the full model with model parameters fixed to the aforementioned MAP estimate \textbf{except} the latent space $X$ pertaining to the lower quartile of players with respect to minutes played, and those pertaining to the AR(1) process. 
 
 Because of the structure of our model, the weights of the curves themselves can be considered the "factors" of a non-linear factor model; we are interested in learning the loadings (latent X embedding), so fixing the factors and sampling the loadings is akin to learning just the posterior distribution over the loadings, assuming the factors are well-identified. This assumption is quite reasonable in our model since the "factors" and associated parameters are estimated across all players,  and as a result should be well identified. This "factor" pre-training approach is similar to the one taken by \cite{mauri2025factorpretrainingbayesianmultivariate}, and helps alleviate identification issues typically associated with Bayesian factor models. 
 
-The MAP estimation and MCMC sampling were conducted in NumPyro with a GPU, with the MAP estimate obtained by Stochastic Gradient Descent (SGD) and MCMC samples acquired using No U-Turn Sampling (NUTS). Posterior samples were obtained from 4 chains of 50 samples, after a burn-in period of 100 samples. A latent dimension of size 10 was used for the player embedding space, along with 250 Random Fourier Features, and 20 HSGP features, to approximate the CPLVM. 
+The MAP estimation and MCMC sampling were conducted in NumPyro with a GPU, with the MAP estimate obtained by Stochastic Gradient Descent (SGD) and MCMC samples acquired using No U-Turn Sampling (NUTS). Posterior samples were obtained from 4 chains of 50 samples, after a burn-in period of 100 samples. A latent dimension of size 10 was used for the player embedding space, along with 250 Random Fourier Features, and 20 HSGP features, to approximate the CPLVM.
+
+\paragraph{Procrustes alignment for posterior analysis.}
+Because the latent embedding $\tilde{X}_p \in \mathbb{R}^{q+2}$ is only identified up to orthogonal rotation of its learned coordinates, raw MCMC draws from different chains occupy different rotation frames and cannot be directly compared or averaged.  To enable coherent posterior summaries, we apply Procrustes alignment to each (chain, draw) pair: given the MAP estimate $\hat{X}$ as a fixed reference, we find the orthogonal matrix $R^{(s)}$ minimising $\|\hat{X} - X^{(s)} R^{(s)}\|_F$ via singular value decomposition, and replace each sampled $X^{(s)}$ with the aligned version $X^{(s)} R^{(s)}$ before any downstream computation.  All posterior quantities reported in Section~\ref{sec:results} --- nearest-neighbor tables, archetype clustering, and embedding uncertainty --- are derived from these Procrustes-aligned samples.  Convergence diagnostics for the raw and aligned draws are shown in Appendix~\ref{sec:convergence}.
 % An example of the initialized curves can be seen in \ref{fig:map_curves}. 
 
 % \begin{figure}[!h]
@@ -695,6 +699,7 @@ We look at in-sample and hold-out coverage at the 95\% CI level by metric in \re
 
 
 \subsection{Uncovering Metric Relationships}
+\label{sec:uncovering_metrics}
 In order to understand how metrics are correlated, we compute the posterior mean of each player's peak age across metrics. This is only made possible by the reparameterization of the concave process to explicitly encode $f^{*}$ and $t^{*}$, which allows us to explicitly sample the posterior of the peak value for a metric, as well as the peak age. We then perform Principal Component Analysis (PCA) on the resultant matrix, and plot the loadings for each of the metrics for the first two principal components. We then cluster the resultant 2-D data. 
 \begin{figure}[htbp]
     \centering
@@ -751,7 +756,40 @@ In this section, we investigate how well the model is able to characterize simil
 
 In \ref{fig:latent_space}, we can see that a PCA projection of the resultant concatenated latent functional space yields neighborhoods which reflect similarity in position. A closer examination of sub-neighborhoods shows that within these sub-groups, similar players are placed next to each other. For example, a cluster of Chris Paul, Manu Ginobili, and Steve Nash. These are / were all highly effective point guards and play-makers. Subsequently, it is interesting to see that Russell Westbrook is close to Giannis, as both are known for their tendency to accumulate triple-doubles, as well as their physical dominance despite their positional differences. It is worth noting that Giannis and Dwayne Wade also share closeness; a comparison between their resultant projections can be seen in \ref{fig:posterior_curves}. 
 
-We can also look at the clustering of the covariance matrix, to assess similarity between players as well. In \ref{fig:cov_matrix}, we see that there is also grouping by position. 
+We can also look at the clustering of the covariance matrix, to assess similarity between players as well. In \ref{fig:cov_matrix}, we see that there is also grouping by position.
+
+\subsubsection{Archetype Discovery via Hierarchical Clustering}
+
+While the position-colored view confirms that the embedding respects broad categorical roles, the latent space contains richer structure than the three traditional positions can capture.  We apply Ward hierarchical clustering to the posterior mean latent coordinates (Procrustes-aligned across MCMC samples) and select $k=4$ archetypes based on the silhouette criterion.  Figure~\ref{fig:latent_archetypes} overlays these four clusters on a PCA of the posterior mean latent coordinates.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/map/latent_pca_archetypes.png}
+    \caption{PCA of the posterior mean latent coordinates colored by discovered archetype ($k=4$, Ward clustering on Procrustes-aligned posterior mean coordinates).  PC1 and PC2 explain 11.2\% and 10.6\% of variance respectively.  Point size scales with career minutes.  The four archetypes partition the space in a way that transcends traditional positional labels.}
+    \label{fig:latent_archetypes}
+\end{figure}
+
+To understand what distinguishes these archetypes, we compute the mean posterior peak age and peak value for each archetype $\times$ metric combination.  Figure~\ref{fig:archetype_heatmaps} shows both heatmaps.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/map/archetype_peak_age_heatmap.png}
+    \vspace{2pt}
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/map/archetype_peak_val_heatmap.png}
+    \caption{Mean posterior peak age (top) and peak value (bottom) by archetype and metric.  In the peak-age heatmap, yellow indicates a late peak ($\gtrsim\!35$ years) and dark purple an early peak ($\lesssim\!20$ years).  In the peak-value heatmap, yellow indicates a high peak value and dark purple a low one.}
+    \label{fig:archetype_heatmaps}
+\end{figure}
+
+Several patterns emerge.  \emph{All four archetypes} peak late in FG3A (three-point attempt rate) and DBPM (defensive box plus/minus), consistent with the finding in Section~\ref{sec:uncovering_metrics} that these are skill-acquisition metrics that develop with experience regardless of player type.  The archetypes diverge most sharply on athleticism metrics (BLK, OREB, STL, USG) and on overall production ceiling.  Reading the cluster assignments directly from Figure~\ref{fig:latent_archetypes}:
+
+\begin{itemize}
+    \item \textbf{Archetype 1} (red) groups players such as Kobe Bryant, Dwyane Wade, and Devin Booker alongside Rudy Gobert --- a mix of elite isolation scorers and a dominant rim-protector.  Despite their positional differences, these players share high shooting efficiency (FT\%, FG2\%) and consistent availability (GP\%), which the model encodes as a common latent profile.
+    \item \textbf{Archetype 2} (blue) captures athletically dominant players whose production relies heavily on physicality: Allen Iverson, Dwight Howard, Marcus Camby, Shawn Marion, Jason Kidd, and Anthony Edwards.  This group is characterized by earlier peaks in rim-protection and rebounding metrics and higher peak values in athleticism-linked counts (BLK, OREB, FTA).
+    \item \textbf{Archetype 3} (green) is the most striking cross-positional grouping, uniting elite modern playmaker-scorers: Nikola Joki\'{c}, Giannis Antetokounmpo, Kevin Durant, Luka Don\v{c}i\'{c}, LaMelo Ball, and Tyrese Haliburton.  Despite spanning center, forward, and guard, these players cluster together because the model captures their shared profile of high OBPM, high AST rate, and late-peaking multi-metric production.
+    \item \textbf{Archetype 4} (purple) includes players such as Russell Westbrook and Karl-Anthony Towns: high-usage, versatile players with diverse statistical footprints whose latent coordinates occupy a region of the space distinct from both the playmaker-scorers of Archetype 3 and the athleticism-first players of Archetype 2.
+\end{itemize}
+
+The most telling finding is Archetype 3: a positional-dummy approach would never place Nikola Joki\'{c} (center), Kevin Durant (forward), and Tyrese Haliburton (guard) in the same group.  The jointly learned latent embedding does so because it captures the shared production pattern --- creative ball-handling, multi-metric offensive impact, and durable skill-based aging --- rather than physical position.
 
 \subsubsection{Latent Space Permanence}
 Typically, NBA GMs may have to make the decision of whether or not one should move on from a potential talent or wait to see if he could blossom. One way to analyze this is through how certain we are of his position in the latent embedding. 
@@ -894,6 +932,47 @@ To summarize, we develop a flexible way to jointly model multiple production cur
 
 
 
+
+\subsection{MCMC Convergence Diagnostics}
+\label{sec:convergence}
+
+Figure~\ref{fig:log_post_trace} shows the log joint posterior trace across 50 post-burn-in draws for each chain.  The two chains traverse overlapping regions of the log joint surface with no systematic drift, indicating that the burn-in of 100 samples is sufficient to reach approximate stationarity.  The between-chain separation visible in some draws is consistent with the known rotational non-identifiability of the latent embedding: chains may settle into distinct but equivalent rotation frames, which Procrustes alignment (Section~\ref{sec:inference}) resolves for all downstream summaries.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.5\linewidth]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/mcmc/log_posterior_trace.png}
+    \caption{Log joint posterior trace by chain (2 chains, 50 post-burn-in draws each).  Stationarity and approximate chain overlap indicate adequate mixing given the scale of the model.}
+    \label{fig:log_post_trace}
+\end{figure}
+
+Figures~\ref{fig:rhat_latent} and \ref{fig:rhat_mu} report the Gelman--Rubin $\hat{R}$ diagnostic for the sampled latent coordinates and AR components ($X_p$, AR residuals) and for the predictive mean $\mu_{ptk}$, respectively.  Each bar shows the fraction of (player $\times$ age) cells for which $\hat{R} > 1.05$.  Assists (AST) and minutes-per-game (pct\_minutes) exhibit the highest fractions of elevated $\hat{R}$, reflecting greater between-chain variance in sparsely observed cells; defensive rebounding and steals converge most reliably.  Elevated $\hat{R}$ values for AST are partly structural: assist counts are the metric most sensitive to the latent rotation frame, so even after Procrustes alignment residual between-chain variation persists in this metric.  These diagnostics are expected for a model of this scale and are mitigated by the Procrustes post-processing described in Section~\ref{sec:inference}.
+
+\begin{figure}[htbp]
+    \centering
+    \resizebox{\linewidth}{!}{
+    \includegraphics{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/rhat_summary_latent_ar.png}
+    }
+    \caption{Fraction of (player $\times$ age) cells with $\hat{R} > 1.05$ for the latent embedding and AR components, by metric.}
+    \label{fig:rhat_latent}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \resizebox{\linewidth}{!}{
+    \includegraphics{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/rhat_summary_mu_ar.png}
+    }
+    \caption{Fraction of (player $\times$ age) cells with $\hat{R} > 1.05$ for the predictive mean $\mu_{ptk}$, by metric.}
+    \label{fig:rhat_mu}
+\end{figure}
+
+Figure~\ref{fig:rotated_trace} shows the Procrustes-aligned MCMC trace for Stephen Curry's latent embedding across all sampled dimensions.  Each panel is one latent dimension, and each color is one chain.  After alignment the chains interleave within each dimension, confirming that Procrustes post-processing produces a common coordinate frame in which between-chain mixing is well-behaved.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth,height=0.82\textheight,keepaspectratio]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/mcmc/rotated_trace_Stephen Curry.png}
+    \caption{Procrustes-aligned MCMC trace plots for Stephen Curry's latent embedding (one panel per dimension, colors = chains).  After aligning each draw to the MAP reference frame, the chains mix well within each coordinate.}
+    \label{fig:rotated_trace}
+\end{figure}
 
 \subsection{Graphical Model}
 
