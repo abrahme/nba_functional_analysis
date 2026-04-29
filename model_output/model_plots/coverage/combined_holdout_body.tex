@@ -1,0 +1,306 @@
+
+\newcommand{\tblnote}[1]{\smallskip\noindent\footnotesize #1}
+
+\begin{table}[ht]
+\centering
+\small
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrr}
+\toprule
+Metric & Base & AR & Injury & Naive AR \\
+  & \small RMSE (bias) & \small RMSE (bias) & \small RMSE (bias) & \small RMSE (bias) \\
+\midrule
+GP\% & 0.385 (-0.306) & \textbf{0.266 (-0.192)} & 0.351 (-0.216) & 0.511 (-0.464) \\
+USG\% & 0.075 (-0.024) & \textbf{0.072 (-0.020)} & 0.076 (-0.021) & 0.231 (+0.219) \\
+MPG & 0.171 (-0.016) & \textbf{0.146 (-0.021)} & 0.157 (-0.006) & 0.170 (+0.106) \\
+OBPM & \textbf{2.626 (+0.887)} & 2.799 (+0.971) & 2.682 (+1.095) & 2.697 (+1.157) \\
+DBPM & 1.210 (+0.333) & 1.206 (+0.279) & 1.215 (+0.269) & \textbf{1.126 (+0.057)} \\
+BLK & 0.388 (+0.314) & 0.384 (+0.319) & \textbf{0.364 (+0.299)} & $7.41\times10^{12}$ (+$5.30\times10^{8}$) \\
+STL & \textbf{0.838 (+0.787)} & 0.911 (+0.884) & 0.933 (+0.914) & 50.387 (+48.122) \\
+AST & 1.516 (+1.083) & 1.471 (+1.035) & \textbf{1.459 (+0.989)} & 16.964 (+13.734) \\
+DREB & 1.301 (+0.320) & \textbf{1.202 (+0.345)} & 1.209 (+0.399) & 27.822 (+24.230) \\
+OREB & \textbf{0.580 (+0.532)} & 0.745 (+0.621) & 0.931 (+0.872) & 42.650 (+35.515) \\
+TOV & \textbf{0.641 (+0.180)} & 0.655 (+0.263) & 0.649 (+0.294) & 55.096 (+34.291) \\
+FTA & 2.197 (+1.786) & \textbf{1.951 (+1.544)} & 2.235 (+1.805) & 35.225 (+31.681) \\
+FG2A & 2.749 (+0.793) & \textbf{2.663 (+0.908)} & 2.738 (+1.257) & 20.196 (+18.562) \\
+FG3A & 1.182 (+0.442) & \textbf{1.157 (+0.476)} & 1.278 (+0.549) & $3.07\times10^{28}$ (+$2.34\times10^{24}$) \\
+FT\% & 0.363 (-0.077) & \textbf{0.336 (-0.041)} & 0.343 (-0.055) & 0.487 (-0.346) \\
+FG2\% & 0.528 (+0.527) & 0.525 (+0.525) & 0.529 (+0.528) & \textbf{0.500 (+0.500)} \\
+FG3\% & 0.332 (+0.235) & \textbf{0.327 (+0.213)} & 0.332 (+0.219) & 0.449 (+0.383) \\
+\bottomrule
+\end{tabular}
+}
+\caption{Holdout RMSE and bias (in parentheses) by metric — Hold-out Last $k$ scheme.}
+\label{tab:coverage_holdout_last_k}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\small
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrr}
+\toprule
+Metric & Base & AR & Injury & Naive AR \\
+  & \small RMSE (bias) & \small RMSE (bias) & \small RMSE (bias) & \small RMSE (bias) \\
+\midrule
+GP\% & 0.282 (-0.234) & \textbf{0.244 (-0.161)} & 0.285 (-0.187) & 0.468 (-0.442) \\
+USG\% & 0.067 (-0.019) & \textbf{0.064 (-0.015)} & 0.065 (-0.022) & 0.226 (+0.216) \\
+MPG & 0.177 (-0.042) & 0.166 (-0.034) & \textbf{0.156 (-0.033)} & 0.167 (+0.065) \\
+OBPM & 2.500 (+0.396) & \textbf{2.494 (+0.382)} & 2.600 (+0.298) & 2.597 (+0.920) \\
+DBPM & 1.173 (+0.004) & 1.182 (+0.017) & 1.222 (+0.066) & \textbf{1.137 (+0.081)} \\
+BLK & 0.451 (+0.341) & \textbf{0.448 (+0.358)} & 0.472 (+0.369) & 117.411 (+62.703) \\
+STL & 1.021 (+0.976) & 0.983 (+0.938) & \textbf{0.919 (+0.856)} & 30.247 (+29.779) \\
+AST & 2.853 (+2.751) & 2.509 (+2.304) & \textbf{2.337 (+1.928)} & 47.854 (+46.709) \\
+DREB & 1.162 (+0.193) & \textbf{1.074 (+0.296)} & 1.121 (+0.236) & 30.554 (+26.591) \\
+OREB & \textbf{0.960 (+0.957)} & 1.210 (+1.170) & 1.246 (+1.233) & 32.215 (+31.754) \\
+TOV & 0.659 (+0.143) & \textbf{0.627 (+0.138)} & 0.627 (+0.117) & 67.714 (+40.425) \\
+FTA & 4.855 (+4.855) & \textbf{3.971 (+3.971)} & 4.202 (+4.202) & 36.000 (+36.000) \\
+FG2A & 2.779 (+1.421) & 2.737 (+1.107) & \textbf{2.734 (+1.030)} & 20.753 (+19.229) \\
+FG3A & 1.238 (+0.341) & 1.099 (+0.318) & \textbf{0.789 (+0.238)} & $1.82\times10^{15}$ (+$2.60\times10^{14}$) \\
+FT\% & 0.245 (-0.129) & 0.227 (-0.108) & \textbf{0.222 (-0.103)} & 0.469 (-0.425) \\
+FG2\% & 0.537 (+0.536) & 0.520 (+0.520) & 0.527 (+0.526) & \textbf{0.500 (+0.499)} \\
+FG3\% & 0.259 (+0.203) & \textbf{0.224 (+0.151)} & 0.246 (+0.171) & 0.446 (+0.429) \\
+\bottomrule
+\end{tabular}
+}
+\caption{Holdout RMSE and bias (in parentheses) by metric — Hold-out First $k$ scheme.}
+\label{tab:coverage_holdout_first_k}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\small
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrr}
+\toprule
+Metric & Base & AR & Injury & Naive AR \\
+  & \small RMSE (bias) & \small RMSE (bias) & \small RMSE (bias) & \small RMSE (bias) \\
+\midrule
+GP\% & 0.258 (-0.216) & \textbf{0.211 (-0.133)} & 0.220 (-0.148) & 0.300 (-0.215) \\
+USG\% & 0.025 (+0.001) & \textbf{0.023 (-0.001)} & 0.034 (-0.006) & 0.079 (+0.071) \\
+MPG & 0.111 (-0.012) & \textbf{0.103 (-0.026)} & 0.109 (-0.026) & 0.103 (-0.015) \\
+OBPM & \textbf{1.391 (-0.159)} & 1.692 (-0.460) & 1.586 (-0.367) & 1.785 (+0.034) \\
+DBPM & 0.758 (-0.047) & 0.755 (-0.023) & \textbf{0.742 (-0.029)} & 0.825 (-0.053) \\
+BLK & 0.231 (+0.203) & 0.194 (+0.164) & \textbf{0.193 (+0.165)} & 170.433 (+1.310) \\
+STL & \textbf{0.253 (+0.068)} & 0.281 (+0.044) & 0.311 (+0.085) & 39.355 (+9.925) \\
+AST & 0.587 (+0.115) & \textbf{0.582 (+0.023)} & 0.658 (-0.009) & 9.544 (+6.070) \\
+DREB & \textbf{0.662 (+0.088)} & 0.788 (+0.036) & 0.779 (+0.080) & 7.980 (+5.808) \\
+OREB & \textbf{0.306 (+0.061)} & 0.372 (+0.054) & 0.405 (+0.105) & 204.348 (+33.890) \\
+TOV & \textbf{0.380 (+0.079)} & 0.420 (+0.090) & 0.438 (+0.116) & 15.616 (+6.707) \\
+FTA & 0.875 (+0.178) & \textbf{0.837 (+0.118)} & 0.867 (+0.127) & 10.343 (+6.235) \\
+FG2A & 1.421 (+0.110) & \textbf{1.364 (+0.051)} & 1.476 (+0.062) & 5.394 (+4.656) \\
+FG3A & 0.098 (+0.043) & \textbf{0.055 (+0.027)} & 0.058 (+0.030) & 274.442 (+14.586) \\
+FT\% & 0.381 (-0.114) & 0.394 (-0.142) & \textbf{0.322 (-0.058)} & 0.370 (-0.214) \\
+FG2\% & \textbf{0.039 (+0.001)} & 0.046 (-0.003) & 0.047 (+0.004) & 0.040 (-0.001) \\
+FG3\% & 0.274 (+0.167) & \textbf{0.233 (+0.099)} & 0.235 (+0.102) & 0.346 (+0.259) \\
+\bottomrule
+\end{tabular}
+}
+\caption{Holdout RMSE and bias (in parentheses) by metric — Random Interior scheme.}
+\label{tab:coverage_random_interior}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\small
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrr}
+\toprule
+Metric & Base & AR & Injury & Naive AR \\
+  & \small RMSE (bias) & \small RMSE (bias) & \small RMSE (bias) & \small RMSE (bias) \\
+\midrule
+GP\% & 0.256 (-0.226) & 0.214 (-0.155) & \textbf{0.208 (-0.147)} & 0.270 (-0.232) \\
+USG\% & \textbf{0.046 (-0.006)} & 0.047 (-0.004) & 0.053 (-0.008) & 0.128 (+0.106) \\
+MPG & 0.130 (-0.057) & 0.125 (-0.061) & 0.124 (-0.059) & \textbf{0.117 (+0.008)} \\
+OBPM & 2.075 (-0.188) & 2.016 (-0.287) & 2.624 (-0.462) & \textbf{1.880 (+0.333)} \\
+DBPM & 1.008 (-0.066) & 2.144 (-0.157) & 1.858 (-0.110) & \textbf{0.891 (-0.011)} \\
+BLK & 0.481 (+0.379) & 0.497 (+0.426) & \textbf{0.445 (+0.370)} & 28.414 (+24.417) \\
+STL & 1.444 (+1.444) & 1.373 (+1.373) & \textbf{1.344 (+1.344)} & 36.001 (+36.000) \\
+AST & 1.804 (+1.212) & 1.627 (+1.125) & \textbf{1.620 (+1.139)} & 16.778 (+9.355) \\
+DREB & \textbf{0.946 (+0.149)} & 0.970 (+0.138) & 0.948 (+0.155) & 12.067 (+8.834) \\
+OREB & 2.256 (+1.990) & 1.964 (+1.919) & \textbf{1.840 (+1.809)} & 26.159 (+23.477) \\
+TOV & 0.565 (+0.203) & 0.550 (+0.190) & \textbf{0.527 (+0.172)} & 14.568 (+9.279) \\
+FTA & 4.415 (+4.415) & \textbf{4.403 (+4.403)} & 4.441 (+4.441) & 36.000 (+35.999) \\
+FG2A & \textbf{2.061 (+0.662)} & 2.074 (+0.570) & 2.070 (+0.574) & 10.716 (+7.986) \\
+FG3A & 0.994 (+0.210) & 0.840 (+0.184) & \textbf{0.687 (+0.153)} & 12.133 (+6.299) \\
+FT\% & 0.283 (-0.154) & 0.290 (-0.115) & \textbf{0.276 (-0.134)} & 0.503 (-0.431) \\
+FG2\% & 0.057 (-0.008) & 0.069 (-0.008) & 0.063 (-0.008) & \textbf{0.049 (-0.004)} \\
+FG3\% & 0.273 (+0.126) & 0.267 (+0.080) & \textbf{0.255 (+0.068)} & 0.408 (+0.307) \\
+\bottomrule
+\end{tabular}
+}
+\caption{Holdout RMSE and bias (in parentheses) by metric — Hold-out Peak scheme.}
+\label{tab:coverage_holdout_peak}
+\end{table}
+
+\bigskip
+{\centering\large\textbf{Log-Loss Tables}\\[4pt]}
+
+\begin{table}[ht]
+\centering
+\small
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrr}
+\toprule
+Metric & Base & AR & Injury & Naive AR \\
+  & \small Avg log-loss & \small Avg log-loss & \small Avg log-loss & \small Avg log-loss \\
+\midrule
+GP\% & \textbf{4.6887} & 21.6004 & 25.2487 & 15.2378 \\
+USG\% & \textbf{6.4390} & 16.1495 & 17.8516 & 113.8261 \\
+MPG & \textbf{0.7214} & 0.7986 & 1.1220 & 1.3141 \\
+OBPM & \textbf{3.1105} & $1.44\times10^{4}$ & $1.36\times10^{4}$ & $1.41\times10^{4}$ \\
+DBPM & \textbf{1.9869} & 2794.9612 & 2851.8147 & 2447.7358 \\
+BLK & 4.5569 & \textbf{4.0038} & 4.1056 & $8.68\times10^{15}$ \\
+STL & \textbf{4.1239} & 4.2532 & 4.1432 & 1453.2442 \\
+AST & 9.6367 & \textbf{7.5517} & 7.5718 & 546.5043 \\
+DREB & 7.4940 & 6.7717 & \textbf{6.5298} & 353.6009 \\
+OREB & \textbf{5.7170} & 5.8950 & 6.2766 & 1806.6776 \\
+TOV & 4.9588 & 4.8615 & \textbf{4.8259} & 648.2259 \\
+FTA & \textbf{5.5207} & 9.6447 & 10.2002 & 280.3030 \\
+FG2A & \textbf{6.4782} & 12.0893 & 11.4840 & 151.4511 \\
+FG3A & \textbf{5.6886} & 12.9213 & 13.5248 & 466.5124 \\
+FT\% & 3.5796 & 3.6427 & \textbf{3.5046} & 7.0413 \\
+FG2\% & 4.2688 & 4.3093 & 4.4390 & \textbf{3.9744} \\
+FG3\% & \textbf{3.0932} & 3.5053 & 3.5532 & 5.1406 \\
+\bottomrule
+\end{tabular}
+}
+\caption{Holdout average log-loss by metric — Hold-out Last $k$ scheme.}
+\label{tab:logloss_holdout_last_k}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\small
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrr}
+\toprule
+Metric & Base & AR & Injury & Naive AR \\
+  & \small Avg log-loss & \small Avg log-loss & \small Avg log-loss & \small Avg log-loss \\
+\midrule
+GP\% & \textbf{4.3799} & 20.0489 & 20.9422 & 18.8388 \\
+USG\% & \textbf{6.7018} & 16.3629 & 17.4867 & 142.6769 \\
+MPG & \textbf{1.0497} & 1.8286 & 1.4510 & 1.6910 \\
+OBPM & \textbf{3.3430} & $1.58\times10^{4}$ & $1.72\times10^{4}$ & $1.76\times10^{4}$ \\
+DBPM & \textbf{2.1523} & 3632.7932 & 3900.4009 & 3376.8857 \\
+BLK & 6.2929 & 6.2917 & \textbf{6.0104} & $1.46\times10^{4}$ \\
+STL & \textbf{5.1172} & 5.4449 & 5.3442 & 2586.2088 \\
+AST & 11.1988 & \textbf{8.3220} & 8.4777 & 904.2668 \\
+DREB & 8.5627 & \textbf{7.1637} & 7.7668 & 541.5919 \\
+OREB & 7.4260 & \textbf{6.6218} & 7.0699 & 2172.3799 \\
+TOV & 6.1450 & \textbf{5.8882} & 6.0009 & 1141.6279 \\
+FTA & \textbf{5.3677} & 10.2562 & 11.5131 & 356.2699 \\
+FG2A & \textbf{6.0336} & 11.5673 & 11.9183 & 171.6877 \\
+FG3A & \textbf{6.5902} & 15.0331 & 13.3566 & 519.2286 \\
+FT\% & \textbf{4.3380} & 4.6650 & 4.6491 & 10.2962 \\
+FG2\% & 6.0674 & 5.6895 & 5.3785 & \textbf{4.1395} \\
+FG3\% & \textbf{3.4359} & 4.1320 & 4.2020 & 5.3403 \\
+\bottomrule
+\end{tabular}
+}
+\caption{Holdout average log-loss by metric — Hold-out First $k$ scheme.}
+\label{tab:logloss_holdout_first_k}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\small
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrr}
+\toprule
+Metric & Base & AR & Injury & Naive AR \\
+  & \small Avg log-loss & \small Avg log-loss & \small Avg log-loss & \small Avg log-loss \\
+\midrule
+GP\% & \textbf{4.0124} & 13.1615 & 14.2215 & 13.8518 \\
+USG\% & \textbf{-1.9911} & -1.2100 & 1.2757 & 21.9055 \\
+MPG & \textbf{-0.6389} & -0.4832 & -0.3231 & -0.4604 \\
+OBPM & \textbf{1.9377} & 9997.6497 & 8567.9109 & $1.14\times10^{4}$ \\
+DBPM & \textbf{1.2982} & 2039.7545 & 1970.4715 & 2436.7558 \\
+BLK & \textbf{4.0778} & 4.9158 & 5.4400 & $1.85\times10^{5}$ \\
+STL & \textbf{3.7962} & 4.2289 & 4.3878 & 356.6367 \\
+AST & \textbf{5.8509} & 6.0171 & 7.0774 & 134.9452 \\
+DREB & \textbf{5.3583} & 6.4753 & 6.2329 & 91.1697 \\
+OREB & \textbf{4.4506} & 5.3345 & 5.5839 & 567.9585 \\
+TOV & \textbf{4.4265} & 4.6825 & 4.7341 & 186.4767 \\
+FTA & \textbf{4.8233} & 7.1475 & 7.6509 & 81.8215 \\
+FG2A & \textbf{5.2880} & 7.1630 & 7.6813 & 33.1588 \\
+FG3A & \textbf{4.7127} & 8.1094 & 12.6275 & 118.8138 \\
+FT\% & \textbf{3.3844} & 3.7228 & 4.7479 & 5.2281 \\
+FG2\% & \textbf{3.9769} & 4.3774 & 4.4924 & 4.0041 \\
+FG3\% & \textbf{3.0279} & 3.9465 & 4.1354 & 3.3435 \\
+\bottomrule
+\end{tabular}
+}
+\caption{Holdout average log-loss by metric — Random Interior scheme.}
+\label{tab:logloss_random_interior}
+\end{table}
+
+\begin{table}[ht]
+\centering
+\small
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrr}
+\toprule
+Metric & Base & AR & Injury & Naive AR \\
+  & \small Avg log-loss & \small Avg log-loss & \small Avg log-loss & \small Avg log-loss \\
+\midrule
+GP\% & \textbf{4.2234} & 20.9395 & 21.1353 & 18.0535 \\
+USG\% & \textbf{2.7020} & 9.1314 & 11.3528 & 57.9469 \\
+MPG & \textbf{-0.0594} & 0.4575 & 0.4309 & 0.0929 \\
+OBPM & \textbf{2.9874} & $1.37\times10^{4}$ & $2.29\times10^{4}$ & $1.22\times10^{4}$ \\
+DBPM & \textbf{1.8874} & $1.58\times10^{4}$ & $1.19\times10^{4}$ & 2730.0448 \\
+BLK & \textbf{5.9303} & 6.3537 & 7.0392 & 397.7000 \\
+STL & \textbf{5.9023} & 6.3270 & 7.1355 & 301.0275 \\
+AST & 11.1215 & \textbf{8.7358} & 9.0793 & 218.2602 \\
+DREB & \textbf{7.1409} & 7.4473 & 7.2100 & 167.2265 \\
+OREB & \textbf{6.0621} & 6.9747 & 6.7869 & 277.9467 \\
+TOV & 5.9622 & 5.9932 & \textbf{5.8947} & 246.9998 \\
+FTA & \textbf{6.4078} & 10.7663 & 11.4426 & 129.1071 \\
+FG2A & \textbf{6.4165} & 10.4567 & 12.5467 & 75.4710 \\
+FG3A & \textbf{7.2652} & 12.6819 & 15.6698 & 134.8907 \\
+FT\% & \textbf{3.9581} & 4.1265 & 4.5284 & 6.4054 \\
+FG2\% & 5.2437 & 6.7093 & 5.8624 & \textbf{4.3541} \\
+FG3\% & 4.5295 & 7.2693 & 7.1491 & \textbf{3.9415} \\
+\bottomrule
+\end{tabular}
+}
+\caption{Holdout average log-loss by metric — Hold-out Peak scheme.}
+\label{tab:logloss_holdout_peak}
+\end{table}
+
+\bigskip
+{\centering\large\textbf{Coverage Tables (95\% HDI)}\\[4pt]}
+
+\begin{table}[ht]
+\centering
+\small
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrr}
+\toprule
+Metric & Base & AR & Injury & Naive AR \\
+  & \small Val\% (In-Samp\%) & \small Val\% (In-Samp\%) & \small Val\% (In-Samp\%) & \small Val\% (In-Samp\%) \\
+\midrule
+GP\% & 94.2\% (95.6\%) & 92.2\% (93.0\%) & 93.5\% (95.1\%) & \textbf{96.4\% (98.2\%)} \\
+MPG & 93.2\% (93.0\%) & 91.6\% (93.1\%) & 88.9\% (91.1\%) & \textbf{95.4\% (98.7\%)} \\
+OBPM & 70.5\% (52.4\%) & \textbf{83.5\% (87.0\%)} & 80.1\% (78.1\%) & 58.3\% (87.6\%) \\
+DBPM & 56.7\% (51.9\%) & \textbf{78.5\% (91.6\%)} & 78.0\% (90.8\%) & 78.2\% (92.4\%) \\
+BLK & 79.1\% (79.6\%) & \textbf{84.8\% (92.4\%)} & 83.0\% (92.2\%) & 74.5\% (98.4\%) \\
+STL & 73.3\% (83.0\%) & 76.6\% (91.6\%) & \textbf{78.3\% (91.1\%)} & 63.9\% (93.5\%) \\
+AST & 77.9\% (74.1\%) & 84.0\% (95.0\%) & \textbf{85.4\% (94.9\%)} & 79.9\% (96.5\%) \\
+DREB & 78.1\% (78.4\%) & 85.6\% (94.7\%) & 85.1\% (94.5\%) & \textbf{86.9\% (96.0\%)} \\
+OREB & 72.4\% (79.7\%) & 80.7\% (93.6\%) & \textbf{81.2\% (93.3\%)} & 73.4\% (95.3\%) \\
+TOV & 75.1\% (79.2\%) & 80.8\% (92.9\%) & \textbf{81.3\% (92.9\%)} & 74.9\% (95.3\%) \\
+FTA & 84.7\% (89.6\%) & 84.4\% (93.1\%) & \textbf{85.3\% (91.5\%)} & 79.7\% (96.1\%) \\
+FG2A & 85.9\% (91.1\%) & 88.7\% (95.6\%) & 88.2\% (92.0\%) & \textbf{88.9\% (96.4\%)} \\
+FG3A & 90.9\% (93.7\%) & \textbf{91.4\% (97.0\%)} & 90.3\% (96.5\%) & 85.9\% (98.7\%) \\
+FT\% & 94.2\% (93.7\%) & 95.6\% (98.8\%) & 95.7\% (98.6\%) & \textbf{97.3\% (98.9\%)} \\
+FG2\% & 92.1\% (93.8\%) & 95.1\% (98.7\%) & 93.2\% (98.2\%) & \textbf{95.7\% (98.7\%)} \\
+FG3\% & 94.7\% (95.0\%) & \textbf{96.3\% (96.4\%)} & 95.8\% (95.9\%) & 95.6\% (96.1\%) \\
+USG & 96.4\% (99.7\%) & 95.7\% (99.6\%) & 86.3\% (91.1\%) & \textbf{99.0\% (99.9\%)} \\
+EXIT\_AGE & 22.7\% (18.3\%) & 23.6\% (19.5\%) & \textbf{99.3\% (99.5\%)} & 2.7\% (2.8\%) \\
+\bottomrule
+\end{tabular}
+}
+\caption{Holdout (val) and in-sample 95\% HDI coverage by metric --- Hold-out Last $k$ scheme. Best validation coverage per metric in bold.}
+\label{tab:hdi_coverage_holdout_last_k}
+\end{table}

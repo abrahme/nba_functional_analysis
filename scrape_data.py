@@ -53,19 +53,43 @@ def _extract_height_from_soup(soup, meta_div=None):
     return "NA"
 
 
+def debut_date_to_season_year(debut_text):
+    """
+    Convert a debut date string (e.g. 'December 2, 1997' or 'April 15, 1998')
+    to the NBA season year (the year the season ends).
+
+    October–December belong to season year+1; January–September belong to season year.
+    Returns the season year as a string, or "NA" if the date cannot be parsed.
+    """
+    month_map = {
+        'january': 1, 'february': 2, 'march': 3, 'april': 4,
+        'may': 5, 'june': 6, 'july': 7, 'august': 8, 'september': 9,
+        'october': 10, 'november': 11, 'december': 12,
+    }
+    match = re.search(r'(\w+)\s+\d+,\s+(\d{4})', debut_text)
+    if not match:
+        return "NA"
+    month_str = match.group(1).lower()
+    year = int(match.group(2))
+    month = month_map.get(month_str)
+    if month is None:
+        return "NA"
+    return str(year + 1) if month >= 10 else str(year)
+
+
 def fetch_player_draft_and_height(player_id, session=None, headers=None, timeout=20):
     """
-    Fetch draft position and height from a Basketball Reference player page.
+    Fetch draft year, draft position, and height from a Basketball Reference player page.
 
-    Returns a tuple: (draft_position, height)
+    Returns a tuple: (draft_year, draft_position, height)
     Missing values are returned as "NA".
     """
     if pd.isna(player_id):
-        return "NA", "NA"
+        return "NA", "NA", "NA"
 
     player_id = str(player_id).strip()
     if not player_id:
-        return "NA", "NA"
+        return "NA", "NA", "NA"
 
     if session is None:
         session = requests
@@ -84,13 +108,14 @@ def fetch_player_draft_and_height(player_id, session=None, headers=None, timeout
     try:
         response = session.get(url, headers=headers, timeout=timeout)
         if response.status_code != 200:
-            return "NA", "NA"
+            return "NA", "NA", "NA"
     except Exception:
-        return "NA", "NA"
+        return "NA", "NA", "NA"
 
     soup = BeautifulSoup(response.content, 'html.parser')
 
     draft_position = "NA"
+    draft_year = "NA"
     meta_div = soup.find('div', {'id': 'meta'})
     height = _extract_height_from_soup(soup, meta_div=meta_div)
     if meta_div:
@@ -105,9 +130,22 @@ def fetch_player_draft_and_height(player_id, session=None, headers=None, timeout
                     undrafted = re.search(r'Undrafted', draft_text, flags=re.IGNORECASE)
                     if undrafted:
                         draft_position = "Undrafted"
+                year_match = re.search(r'(\d{4})\s+NBA\s+Draft', draft_text, flags=re.IGNORECASE)
+                if year_match:
+                    draft_year = str(int(year_match.group(1)) + 1)
                 break
 
-    return draft_position, height
+    # Fallback: if draft year still unknown, derive season year from NBA debut date
+    if draft_year == "NA" and meta_div:
+        for paragraph in meta_div.find_all('p'):
+            text = paragraph.get_text(" ", strip=True)
+            if 'NBA Debut' in text:
+                debut_match = re.search(r'NBA Debut:\s*(.+)', text)
+                if debut_match:
+                    draft_year = debut_date_to_season_year(debut_match.group(1))
+                break
+
+    return draft_year, draft_position, height
 
 
 def collect_unique_player_ids(input_csv, id_column='id'):
@@ -132,6 +170,7 @@ def get_draft_position_and_height(input_csv, output_csv=None, id_column='id', sl
     Given an input CSV of players with Basketball Reference IDs, create a new
     DataFrame with one row per unique ID and columns:
       - id
+      - draft_year
       - draft_position
       - height
 
@@ -161,17 +200,15 @@ def get_draft_position_and_height(input_csv, output_csv=None, id_column='id', sl
     unique_player_ids = collect_unique_player_ids(input_csv, id_column=id_column)
     print(f"Collected {len(unique_player_ids)} unique player IDs from {input_csv}")
 
-    # Resume: if output already exists, only fetch players missing height
+    # Resume: if output already exists, only fetch players missing height or draft_year
     existing = None
     if os.path.exists(output_csv):
         existing = pd.read_csv(output_csv, dtype=str)
-        already_done = set(
-            existing.loc[
-                existing["height"].notna() & (existing["height"] != "NA"), "id"
-            ].tolist()
-        )
+        has_height = existing["height"].notna() & (existing["height"] != "NA")
+        has_draft_year = existing["draft_year"].notna() & (existing["draft_year"] != "NA")
+        already_done = set(existing.loc[has_height & has_draft_year, "id"].tolist())
         ids_to_fetch = [pid for pid in unique_player_ids if pid not in already_done]
-        print(f"Resuming: {len(already_done)} players already have height, fetching {len(ids_to_fetch)} remaining")
+        print(f"Resuming: {len(already_done)} players complete, fetching {len(ids_to_fetch)} remaining")
     else:
         ids_to_fetch = unique_player_ids
 
@@ -180,13 +217,14 @@ def get_draft_position_and_height(input_csv, output_csv=None, id_column='id', sl
     with requests.Session() as session:
         total = len(ids_to_fetch)
         for idx, player_id in enumerate(ids_to_fetch, start=1):
-            draft_pos, height = fetch_player_draft_and_height(
+            draft_year, draft_pos, height = fetch_player_draft_and_height(
                 player_id,
                 session=session,
                 headers=headers
             )
             rows.append({
                 'id': player_id,
+                'draft_year': draft_year,
                 'draft_position': draft_pos,
                 'height': height
             })
@@ -196,7 +234,7 @@ def get_draft_position_and_height(input_csv, output_csv=None, id_column='id', sl
 
             time.sleep(sleep_seconds)
 
-    new_df = pd.DataFrame(rows, columns=['id', 'draft_position', 'height'])
+    new_df = pd.DataFrame(rows, columns=['id', 'draft_year', 'draft_position', 'height'])
 
     if existing is not None and len(new_df) > 0:
         # Update existing rows with freshly fetched data, then append any new ids

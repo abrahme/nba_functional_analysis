@@ -9,7 +9,7 @@ season_ending <- injury_data |>
   mutate(name = gsub("^\\s*|\\s*\\([^)]*\\)\\s*", "", name)) |>
   mutate(year = if_else(month(Date) >= 10, year(Date) + 1, year(Date))) |>
   mutate(season = paste(as.character(as.integer(year) - 1), str_sub(year, 3, 4), sep = "-")) |>
-  filter((season >= 1997))  |>
+  filter((season >= 1980))  |>
   mutate(injury_type =
   case_when(str_detect(Notes, regex("rupture|torn|repair|tear", ignore_case = TRUE)) & str_detect(Notes, regex("achilles", ignore_case = TRUE)) ~ "Achilles",
     str_detect(Notes, regex("rupture|torn|repair|tear", ignore_case = TRUE)) & str_detect(Notes, regex("ACL", ignore_case = TRUE)) ~ "ACL",

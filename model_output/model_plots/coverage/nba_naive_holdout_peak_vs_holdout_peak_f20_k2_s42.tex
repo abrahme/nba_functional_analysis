@@ -1,0 +1,61 @@
+\begin{table}
+\caption{Bias and RMSE by metric for nba_naive_holdout_peak (validation: holdout_peak, fraction=0.2, k=2, seed=42)}
+\label{tab:nba_naive_holdout_peak_vs_holdout_peak_f20_k2_s42_bias_rmse}
+\begin{tabular}{llrrrr}
+\toprule
+split & metric & bias & rmse & avg\_log\_loss & n\_obs \\
+\midrule
+all & games & -0.0282 & 0.0897 & 2.5918 & 12327 \\
+all & usg & 0.0041 & 0.0244 & -1.2337 & 12327 \\
+all & pct\_minutes & 0.0012 & 0.0240 & -1.7553 & 12327 \\
+all & obpm & 0.0121 & 0.3584 & 440.5980 & 12327 \\
+all & dbpm & -0.0004 & 0.1699 & 96.4240 & 12327 \\
+all & blk & 1.2519 & 6.3928 & 16.6663 & 12327 \\
+all & stl & 1.1511 & 6.3220 & 13.4986 & 12327 \\
+all & ast & 1.5698 & 6.7667 & 10.8987 & 12327 \\
+all & dreb & 0.3305 & 2.3258 & 9.2982 & 12327 \\
+all & oreb & 1.1173 & 5.5906 & 12.7781 & 12327 \\
+all & tov & 0.0761 & 0.0872 & 11.8113 & 12327 \\
+all & fta & 1.0302 & 5.9344 & 7.7669 & 12327 \\
+all & fg2a & 0.0838 & 0.0870 & 6.3484 & 12327 \\
+all & fg3a & 0.2976 & 2.6088 & 7.5513 & 12327 \\
+all & ftm & -0.0566 & 0.1306 & 2.3816 & 12298 \\
+all & fg2m & 0.0790 & 0.0800 & 2.9612 & 12326 \\
+all & fg3m & 0.0741 & 0.1115 & 2.1694 & 11154 \\
+holdout & games & -0.2323 & 0.2704 & 18.0535 & 450 \\
+holdout & usg & 0.1059 & 0.1283 & 57.9469 & 450 \\
+holdout & pct\_minutes & 0.0076 & 0.1171 & 0.0929 & 450 \\
+holdout & obpm & 0.3334 & 1.8804 & 12158.1164 & 450 \\
+holdout & dbpm & -0.0106 & 0.8914 & 2730.0448 & 450 \\
+holdout & blk & 24.4170 & 28.4140 & 397.7000 & 450 \\
+holdout & stl & 36.0001 & 36.0009 & 301.0275 & 450 \\
+holdout & ast & 9.3551 & 16.7778 & 218.2602 & 450 \\
+holdout & dreb & 8.8340 & 12.0674 & 167.2265 & 450 \\
+holdout & oreb & 23.4769 & 26.1589 & 277.9467 & 450 \\
+holdout & tov & 9.2789 & 14.5682 & 246.9998 & 450 \\
+holdout & fta & 35.9995 & 35.9997 & 129.1071 & 450 \\
+holdout & fg2a & 7.9859 & 10.7157 & 75.4710 & 450 \\
+holdout & fg3a & 6.2987 & 12.1332 & 134.8907 & 450 \\
+holdout & ftm & -0.4311 & 0.5026 & 6.4054 & 449 \\
+holdout & fg2m & -0.0038 & 0.0490 & 4.3541 & 450 \\
+holdout & fg3m & 0.3070 & 0.4077 & 3.9415 & 399 \\
+non\_holdout & games & -0.0030 & 0.0031 & 2.0060 & 11877 \\
+non\_holdout & usg & 0.0003 & 0.0004 & -3.4759 & 11877 \\
+non\_holdout & pct\_minutes & 0.0009 & 0.0056 & -1.8253 & 11877 \\
+non\_holdout & obpm & 0.0000 & 0.0001 & -3.3595 & 11877 \\
+non\_holdout & dbpm & 0.0000 & 0.0000 & -3.3596 & 11877 \\
+non\_holdout & blk & 0.0168 & 0.0214 & 2.2296 & 11877 \\
+non\_holdout & stl & 0.0423 & 0.0441 & 2.6046 & 11877 \\
+non\_holdout & ast & 0.0576 & 0.0597 & 3.0421 & 11877 \\
+non\_holdout & dreb & 0.0024 & 0.0043 & 3.3145 & 11877 \\
+non\_holdout & oreb & 0.0472 & 0.0492 & 2.7313 & 11877 \\
+non\_holdout & tov & 0.0760 & 0.0761 & 2.9003 & 11877 \\
+non\_holdout & fta & 0.0535 & 0.0575 & 3.1695 & 11877 \\
+non\_holdout & fg2a & 0.0837 & 0.0837 & 3.7295 & 11877 \\
+non\_holdout & fg3a & 0.0067 & 0.0101 & 2.7266 & 11877 \\
+non\_holdout & ftm & -0.0345 & 0.0568 & 2.2292 & 11849 \\
+non\_holdout & fg2m & 0.0791 & 0.0800 & 2.9084 & 11876 \\
+non\_holdout & fg3m & 0.0667 & 0.0867 & 2.1037 & 10755 \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -20,8 +20,11 @@ RUN apt-get update && \
         tmux \
         curl \
         chromium \
-
-
+        # LaTeX for paper compilation
+        texlive-latex-base \
+        texlive-latex-extra \
+        texlive-fonts-recommended \
+        texlive-science \
         ###################################################
         ### Add your own system dependencies installed  ###
         ### with `apt-get` as needed below this comment ###
@@ -54,7 +57,8 @@ RUN pip install \
         ridgeplot \
         beautifulsoup4 \
         lxml \
-        html5lib
+        html5lib \
+        pyarrow
 
 # RUN pip install --upgrade "jax[cuda12]"
 ENV XLA_FLAGS="--xla_cpu_multi_thread_eigen=true"

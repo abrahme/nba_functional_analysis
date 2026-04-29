@@ -157,6 +157,156 @@ All models are implemented in **JAX** with `jit` compilation and `vmap` over pla
 
 ---
 
+## Running the Pipeline
+
+All runs are driven by `config/model_config.yaml`. Three model families are available:
+
+| Family | Model name prefix | Description |
+|--------|------------------|-------------|
+| Base | `nba_convex_max_tvlinearlvm` | Latent LVM + concave trajectory |
+| AR | `nba_convex_max_tvlinearlvm_AR` | + AR(1) temporal process |
+| Injury | `nba_convex_max_tvlinearlvm_injury` | + injury effects + survival |
+
+### Container prerequisites
+
+Jobs are dispatched via `docker exec` into three long-running containers. Start them once before invoking any Make target:
+
+```bash
+# GPU training (MAP + MCMC) — 2 GPUs
+docker run --name mcmc -dt --rm \
+  -v .:/home/joyvan/work -w /home/joyvan/work \
+  nba-functional-analysis-mcmc
+
+# CPU Python analysis (eval-only, coverage combine, export)
+docker run --name mcmc-analysis -dt --rm \
+  -v .:/home/joyvan/work -w /home/joyvan/work \
+  nba-functional-analysis-mcmc-analysis
+
+# R diagnostics
+docker run --name r-new -dt --rm \
+  -v .:/home/joyvan/work -w /home/joyvan/work \
+  nba-functional-analysis-r
+```
+
+All three containers mount the project root at `/home/joyvan/work` and share the same filesystem, so model outputs written by the `mcmc` container are immediately visible to `r-new` for diagnostics.
+
+Every Make target starts with a `check-containers` guard that fails fast if any container is not running:
+
+```
+ERROR: container 'r-new' is not running
+make: *** [check-containers] Error 1
+```
+
+### Job routing
+
+| Work | Container | Resources |
+|------|-----------|-----------|
+| MAP training (`run_job`, `run_pinned`) | `mcmc` | GPU 0 or 1 via `CUDA_VISIBLE_DEVICES` |
+| MCMC training | `mcmc` | both GPUs |
+| Eval-only / coverage combine / export | `mcmc-analysis` | CPU |
+| `model_diagnostics.r`, `injury_causal.r` | `r-new` | CPU |
+
+### Makefile shortcuts
+
+Each recipe emits timestamped `START` / `DONE` lines so you can follow progress in a log file:
+
+```
+=== [14:03:22] START map/nba_convex_max_tvlinearlvm_AR_holdout_last_k (gpu 0) ===
+=== [14:11:47] DONE  map/nba_convex_max_tvlinearlvm_AR_holdout_last_k ===
+```
+
+If a job fails, Make stops and prints the failing target; the last `START` line in the log shows what was running and when.
+
+```bash
+# MAP holdout runs per family (sequential, GPU 0)
+make base        # base LVM, all four holdout schemes
+make ar          # + AR(1)
+make injury      # + injury effects + survival
+make naive       # naive baseline
+
+# All MAP holdout runs across two GPUs in parallel
+make -j2 all
+
+# Then combine holdout coverage tables (runs in mcmc-analysis container)
+make coverage
+
+# MCMC — individual families
+make tvlvm_mcmc
+make ar_mcmc
+make injury_mcmc
+make naive_mcmc
+
+# Full MCMC for all families, then R diagnostics
+make mcmc
+make diagnostics
+
+# Per-scheme MCMC (all four families, sequential)
+make mcmc_holdout_last_k
+make mcmc_holdout_first_k
+make mcmc_random_interior
+make mcmc_holdout_peak
+
+# All 16 scheme × family MCMC jobs in sequence (pipe output to a log)
+nohup make mcmc_all > make_mcmc.log 2>&1 & echo $! > make_mcmc.pid
+
+# MCMC + R diagnostics chained per scheme
+make coverage_mcmc
+
+# R diagnostics only (after MCMC artifacts exist)
+make diagnostics_holdout_last_k
+make diagnostics_holdout_first_k
+make diagnostics_random_interior
+make diagnostics_holdout_peak
+
+# Recompute coverage metrics without retraining (uses mcmc-analysis container)
+make recompute_coverage
+make recompute_coverage_naive
+```
+
+To monitor a long background run:
+
+```bash
+# Watch live
+tail -f make_mcmc.log
+
+# Quick timeline — what started and finished, and any errors
+grep -E "START|DONE|Error|Traceback" make_mcmc.log
+```
+
+### Output layout
+
+```
+model_output/
+  nba_convex_max_tvlinearlvm_AR/
+    map/                    ← MAP artifacts
+      samples.pkl
+      state.pkl
+      latent_space.csv
+      map_peaks.csv
+      map_peak_vals.csv
+      plots/
+        latent_space/map/
+        peaks/map/
+        player_plots/map/
+    mcmc/                   ← MCMC artifacts
+      samples.pkl
+      posterior_ar.csv
+      posterior_mu_ar.csv
+      posterior_peaks_ar.csv
+      ...
+      plots/
+        peaks/mcmc/
+        latent_space/mcmc/
+        player_plots/mcmc/
+        coverage/
+    holdout_last_k/map/     ← Holdout variant artifacts
+    holdout_first_k/map/
+    ...
+  model_plots/coverage/     ← Cross-model coverage tables (combine_holdout_tables.py)
+```
+
+---
+
 ## Repository Structure
 
 ```
