@@ -20,6 +20,7 @@ library(arrow)
 args             <- commandArgs(trailingOnly = TRUE)
 model_dir        <- if (length(args) >= 1) args[1] else stop("Usage: Rscript model_diagnostics.r <model_dir> [validation_year]")
 validation_year  <- if (length(args) >= 2) as.integer(args[2]) else 2021L
+min_minutes_threshold <- 100L   # discard player-seasons with fewer than this many minutes
 
 posterior_plot_names <-  c("Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash",
                 "Chris Paul", "Shaquille O'Neal","Anthony Edwards", "Jamal Murray", "Donovan Mitchell", "Ray Allen", "Klay Thompson",
@@ -30,6 +31,13 @@ posterior_plot_names <-  c("Stephen Curry", "Kevin Durant", "LeBron James", "Kob
 
 posterior_data <- read_parquet(file.path(model_dir, "posterior_ar.parquet")) |>
   mutate(value = if_else(metric == "pct_minutes", value * 48, value))
+conditional_parquet_path <- file.path(model_dir, "posterior_ar_conditional.parquet")
+has_conditional <- file.exists(conditional_parquet_path)
+if (has_conditional) {
+  posterior_conditional_data <- read_parquet(conditional_parquet_path) |>
+    mutate(value = if_else(metric == "pct_minutes", value * 48, value)) |>
+    rename(value_conditional = value)
+}
 age_min   <- min(posterior_data$age)
 age_max   <- max(posterior_data$age)
 fake_data <- data.frame(age = age_min:age_max, name = "No Name", id = "99999999",
@@ -535,6 +543,15 @@ joined_data <- posterior_data |>
                 ) |>
                 select(-first_obs, -last_obs)
 
+# Join per-season minutes so we can filter low-minutes player-seasons out of
+# coverage and bias computations.
+player_season_minutes <- data |>
+  filter(!is.na(minutes)) |>
+  select(id, age, minutes)
+
+joined_data <- joined_data |>
+  left_join(player_season_minutes, by = c("player" = "id", "age"))
+
 # Attach split label — use explicit holdout mask when available (scheme variants),
 # fall back to year-based split for base MCMC models.
 holdout_csv <- file.path(model_dir, "holdout_indices.csv")
@@ -560,7 +577,7 @@ if (file.exists(holdout_csv)) {
   holdout_players <- NULL
 }
 
-validation_coverage_df <- joined_data |> filter(split == "holdout") |> group_by(metric, player, age) |> 
+validation_coverage_df <- joined_data |> filter(split == "holdout", metric != "retirement", is.na(minutes) | minutes >= min_minutes_threshold) |> group_by(metric, player, age) |>
                           summarize(lower = HDInterval::hdi(value, credMass = 0.95)["lower"], upper = HDInterval::hdi(value, credMass = 0.95)["upper"], obs_value = first(obs_value), year = min(year), posterior_mean = mean(value, na.rm = TRUE) ) |> 
                           ungroup() |>
 
@@ -574,7 +591,7 @@ validation_coverage_df <- joined_data |> filter(split == "holdout") |> group_by(
                               metric == "PCT_MINUTES" ~ "MPG",
                               .default = metric))
 
-in_sample_coverage_df <- joined_data |> filter(split == "train") |> group_by(metric, player, age) |> summarize(lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
+in_sample_coverage_df <- joined_data |> filter(split == "train", metric != "retirement", is.na(minutes) | minutes >= min_minutes_threshold) |> group_by(metric, player, age) |> summarize(lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
     upper = HDInterval::hdi(value, credMass = 0.95)["upper"], obs_value = first(obs_value), year = min(year)) |> ungroup() |>  
     mutate(
     in_sample_coverage = between(obs_value, lower, upper)) |> ungroup() |> filter(!is.na(obs_value)) |> 
@@ -646,34 +663,93 @@ in_sample_coverage_summary <- in_sample_coverage_df |>
 
 
 
-coverage_plt_basic <- validation_coverage_summary |>
-                      inner_join(in_sample_coverage_summary, by = "metric") |> 
-                      pivot_longer(cols = c(in_sample_coverage,validation_coverage),  names_to = "coverage_type", values_to = "Coverage") |>
-                      mutate(coverage_type = case_when(coverage_type == "in_sample_coverage" ~ "In-Sample Coverage",
-                                                        coverage_type == "validation_coverage" ~ "Validation Coverage")) |>
-                      ggplot(aes(x  = coverage_type, y = Coverage, fill = coverage_type)) + geom_col(position = "dodge") +facet_wrap(~ metric, scales = "fixed") +
+# Conditional coverage: conditions on observed holdout games and pct_minutes as exposures,
+# isolating metric-rate predictive uncertainty from exposure uncertainty.
+if (has_conditional) {
+  rename_metrics <- function(df) {
+    df |> mutate(metric = toupper(metric),
+                 metric = case_when(metric == "GAMES" ~ "GP%",
+                                    metric == "FG2M"  ~ "FG2%",
+                                    metric == "FG3M"  ~ "FG3%",
+                                    metric == "FTM"   ~ "FT%",
+                                    metric == "PCT_MINUTES" ~ "MPG",
+                                    .default = metric))
+  }
+
+  joined_data_conditional <- joined_data |>
+    left_join(
+      posterior_conditional_data |> select(chain, sample, player, metric, age, value_conditional),
+      by = c("chain", "sample", "player", "metric", "age")
+    )
+
+  conditional_coverage_df <- joined_data_conditional |>
+    filter(split == "holdout", metric != "retirement",
+           is.na(minutes) | minutes >= min_minutes_threshold) |>
+    group_by(metric, player, age) |>
+    summarize(
+      lower          = HDInterval::hdi(value_conditional, credMass = 0.95)["lower"],
+      upper          = HDInterval::hdi(value_conditional, credMass = 0.95)["upper"],
+      obs_value      = first(obs_value),
+      year           = min(year),
+      posterior_mean = mean(value_conditional, na.rm = TRUE),
+      .groups = "drop"
+    ) |>
+    mutate(conditional_coverage = between(obs_value, lower, upper)) |>
+    filter(!is.na(obs_value)) |>
+    rename_metrics()
+
+  conditional_coverage_summary <- conditional_coverage_df |>
+    group_by(metric) |>
+    summarize(conditional_coverage = mean(conditional_coverage, na.rm = TRUE), .groups = "drop")
+}
+
+coverage_base_tbl <- validation_coverage_summary |>
+  inner_join(in_sample_coverage_summary, by = "metric")
+if (has_conditional) {
+  coverage_base_tbl <- coverage_base_tbl |>
+    left_join(conditional_coverage_summary, by = "metric")
+  plt_cols <- c(in_sample_coverage   = "In-Sample",
+                validation_coverage  = "Validation (marginal)",
+                conditional_coverage = "Validation (conditional)")
+} else {
+  plt_cols <- c(in_sample_coverage  = "In-Sample",
+                validation_coverage = "Validation")
+}
+coverage_plt_basic <- coverage_base_tbl |>
+                      pivot_longer(cols = names(plt_cols), names_to = "coverage_type", values_to = "Coverage") |>
+                      mutate(coverage_type = recode(coverage_type, !!!plt_cols)) |>
+                      filter(!is.na(Coverage)) |>
+                      ggplot(aes(x = coverage_type, y = Coverage, fill = coverage_type)) +
+                      geom_col(position = "dodge") + facet_wrap(~ metric, scales = "fixed") +
                       coord_cartesian(ylim = c(0, 1)) +
-                      theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Coverage (In-Sample vs. Validation)") + labs(x = NULL, fill = "Coverage Type") + theme(axis.text.x = element_blank())
+                      theme_bw() + scale_fill_brewer(palette = "Set1") +
+                      ggtitle("Per Metric Coverage") +
+                      labs(x = NULL, fill = "Coverage Type") +
+                      theme(axis.text.x = element_blank())
 ggsave(file.path(plots_dir, "coverage", "coverage_basic.png"), coverage_plt_basic)
 
-latex_code <- validation_coverage_summary |>
-            inner_join(in_sample_coverage_summary, by = "metric") |>
-                      mutate(
-                          in_sample_coverage = paste0(round(in_sample_coverage * 100, 1), "%"),
-                          validation_coverage = paste0(round(validation_coverage * 100, 1), "%")) |> gt() |>
-                        cols_label(
-                          metric = "Metric",
-                          in_sample_coverage = "In-Sample Coverage",
-                          validation_coverage = "Validation Coverage"
-                        ) |>
-                        tab_header(title = "Coverage Summary") |>
-                        as_latex()
+latex_tbl <- coverage_base_tbl |>
+  mutate(in_sample_coverage  = paste0(round(in_sample_coverage  * 100, 1), "%"),
+         validation_coverage = paste0(round(validation_coverage * 100, 1), "%"))
+latex_col_labels <- list(metric              = "Metric",
+                         in_sample_coverage  = "In-Sample Coverage",
+                         validation_coverage = "Validation Coverage")
+if (has_conditional) {
+  latex_tbl <- latex_tbl |>
+    mutate(conditional_coverage = paste0(round(as.numeric(conditional_coverage) * 100, 1), "%"))
+  latex_col_labels[["conditional_coverage"]] <- "Conditional Coverage"
+}
+latex_code <- latex_tbl |>
+  gt() |>
+  cols_label(!!!latex_col_labels) |>
+  tab_header(title = "Coverage Summary") |>
+  as_latex()
 writeLines(latex_code, file.path(plots_dir, "coverage", "coverage_basic.tex"))
 
 # Posterior Bias Table (mean [95% HDI]) — rows: metrics, cols: in-sample / validation
 # Compute per-sample mean bias for continuous metrics
 validation_bias_samples <- joined_data |>
-  filter(split == "holdout", metric != "retirement") |>
+  filter(split == "holdout", metric != "retirement", is.na(minutes) | minutes >= min_minutes_threshold) |>
   filter(!is.na(obs_value)) |>
   group_by(chain, sample, metric) |>
   summarize(mean_bias = mean(value - obs_value, na.rm = TRUE), .groups = "drop") |>
@@ -686,7 +762,7 @@ validation_bias_samples <- joined_data |>
                             .default = metric))
 
 in_sample_bias_samples <- joined_data |>
-  filter(split == "train", metric != "retirement") |>
+  filter(split == "train", metric != "retirement", is.na(minutes) | minutes >= min_minutes_threshold) |>
   filter(!is.na(obs_value)) |>
   group_by(chain, sample, metric) |>
   summarize(mean_bias = mean(value - obs_value, na.rm = TRUE), .groups = "drop") |>
@@ -847,59 +923,53 @@ ggsave(file.path(plots_dir, "latent_space", "map", "latent_space_functional_pca.
 
 
 plot_posterior <- function(grouped_data_set, hold_out_year, plot_obs = TRUE) {
-
   group_name <- unique(grouped_data_set$name)
-  raw_plt <-
-  grouped_data_set |> mutate(
-    age_of_holdout = if_else(year ==  hold_out_year, age, Inf),
-    age_of_holdout = min(age_of_holdout)
-  ) 
-  
-  validation_label <- "Hold-Out"
-  
-  plt <- raw_plt |>
-    ggplot(aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
-                                       fill = "gray",
-                                       alpha = 0.4) +
+
+  plt <- grouped_data_set |>
+    ggplot(aes(x = age)) +
+    geom_ribbon(aes(ymin = lower, ymax = upper), fill = "gray", alpha = 0.4) +
     geom_line(aes(x = age, y = posterior_mean)) +
-    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF", linewidth = 1) + 
-    
-    geom_vline(aes(xintercept = age_of_holdout),
-               linetype = "dashed",
-               color = "red") +
-    facet_wrap( ~ metric, scales = "free_y") + theme_bw() + 
-    labs(x = "Age", y = "Metric Value") + ggtitle(paste("Posterior Predictive Career Trajectory: ", group_name))
+    geom_line(aes(x = age, y = mu), color = "#4DAF4AFF", linewidth = 1) +
+    facet_wrap(~ metric, scales = "free_y") + theme_bw() +
+    labs(x = "Age", y = "Metric Value") +
+    ggtitle(paste("Posterior Predictive Career Trajectory:", group_name))
+
+  # Observed value points for non-survival metrics only
   if (plot_obs) {
-    plt <- plt + geom_point(aes(x = age, y = obs_value), color = "black")
+    non_surv <- filter(grouped_data_set, metric != "EXIT_SURVIVAL")
+    if (nrow(non_surv) > 0)
+      plt <- plt + geom_point(data = non_surv, aes(x = age, y = obs_value), color = "black")
   }
+
+  # Survival panel: vertical line at exit age (solid = retired, dashed = censored)
+  surv_meta <- grouped_data_set |>
+    filter(metric == "EXIT_SURVIVAL", !is.na(observed_exit_age)) |>
+    slice(1)
+  if (nrow(surv_meta) > 0) {
+    plt <- plt + geom_vline(
+      data = surv_meta |> select(metric, observed_exit_age, exit_censored),
+      aes(xintercept = observed_exit_age),
+      linetype = if_else(surv_meta$exit_censored == 1L, "dashed", "solid"),
+      color = "black"
+    )
+  }
+
   return(plt)
 }
 
 
 plot_posterior_mu_spaghetti <- function(grouped_data_set){
   group_name <- unique(grouped_data_set$name)
-  hold_out_year <- 2021
-  raw_plt <- grouped_data_set |> mutate(
-    age_of_holdout = if_else(year ==  hold_out_year, age, Inf),
-    age_of_holdout = min(age_of_holdout)
-  ) 
-    
-  validation_label <- "Hold-Out"
-    
-  
-  
-  plt <- raw_plt |>
-    ggplot(aes(x = age))  +
-    geom_line(aes(x = age, y = mu, group = interaction(chain, sample), color = factor(chain)),  alpha = .2) +
+
+  plt <- grouped_data_set |>
+    ggplot(aes(x = age)) +
+    geom_line(aes(x = age, y = mu, group = interaction(chain, sample), color = factor(chain)), alpha = .2) +
     scale_color_brewer(palette = "Set1", name = "Chain") +
-    geom_point(aes(x = age, y = obs_value), color = "black") + 
-    geom_vline(aes(xintercept = age_of_holdout),
-               linetype = "dashed",
-               color = "red") + 
-    geom_line(aes(x = age, y = posterior_mean)) + 
-    
-    facet_wrap( ~ metric, scales = "free_y") + theme_bw() + 
-    labs(x = "Age", y = "Metric Value") + ggtitle(paste("Posterior Latent Career Trajectory: ", group_name))
+    geom_point(aes(x = age, y = obs_value), color = "black") +
+    geom_line(aes(x = age, y = posterior_mean)) +
+    facet_wrap(~ metric, scales = "free_y") + theme_bw() +
+    labs(x = "Age", y = "Metric Value") +
+    ggtitle(paste("Posterior Latent Career Trajectory:", group_name))
   return(plt)
 }
 
@@ -951,7 +1021,7 @@ survival_plot_df <- posterior_survival_data |>
     year = base_year + (age - base_age),
     mu = posterior_mean
   ) |>
-  select(metric, player, age, lower, upper, obs_value, year, posterior_mean, mu)
+  select(metric, player, age, lower, upper, obs_value, year, posterior_mean, mu, observed_exit_age, exit_censored)
 
 plots_list <- bind_rows(metric_plot_df, survival_plot_df) |>
   inner_join(latent_space |> filter(name %in% posterior_plot_names) |> select(name,id), by = c("player" = "id")) %>%
@@ -1074,62 +1144,38 @@ label_df <- player_plot_df |> group_by(metric, player) |> summarize(max_upper = 
 derrick_rose <- player_plot_df |> filter(name == "Derrick Rose") |> ggplot(aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
                                        fill = "gray",
                                        alpha = 0.4) +
-    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF", linewidth = 1) + 
-    
-    geom_vline(aes(xintercept = age_of_holdout),
-               linetype = "dashed",
-               color = "red") +
-    geom_vline(aes(xintercept = age_of_injury), linetype = "dashed", color = "blue") +  
-    geom_point(aes(x = age, y = obs_value), color = "black") + 
+    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF", linewidth = 1) +
+    geom_vline(aes(xintercept = age_of_injury), linetype = "dashed", color = "blue") +
+    geom_point(aes(x = age, y = obs_value), color = "black") +
     geom_text(data = label_df |> filter(name == "Derrick Rose"),
       size = 3,
-      aes(x = age_of_injury, y = .65*max_upper, label = first_major_injury)) + 
-    geom_text( 
-      data = label_df |> filter(name == "Derrick Rose"),
-      size = 3,
-      aes(x = age_of_holdout, y = .65*min_lower, label = "Hold-Out Year")) + 
+      aes(x = age_of_injury, y = .65*max_upper, label = first_major_injury)) +
     facet_wrap(~ metric, scales = "free") + theme_bw() +
-    labs(x = "Age", y = "") 
+    labs(x = "Age", y = "")
 
 kevin_durant <- player_plot_df |> filter(name == "Kevin Durant") |> ggplot(aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
                                        fill = "gray",
                                        alpha = 0.4) +
-    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF", linewidth = 1) + 
-    
-    geom_vline(aes(xintercept = age_of_holdout),
-               linetype = "dashed",
-               color = "red") +
-    geom_vline(aes(xintercept = age_of_injury), linetype = "dashed", color = "blue") +  
-    geom_point(aes(x = age, y = obs_value), color = "black") + 
+    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF", linewidth = 1) +
+    geom_vline(aes(xintercept = age_of_injury), linetype = "dashed", color = "blue") +
+    geom_point(aes(x = age, y = obs_value), color = "black") +
     geom_text(data = label_df |> filter(name == "Kevin Durant"),
       size = 3,
-      aes(x = age_of_injury, y = .65*max_upper, label = first_major_injury)) + 
-    geom_text( 
-      data = label_df |> filter(name == "Kevin Durant"),
-      size = 3,
-      aes(x = age_of_holdout, y = .65*min_lower, label = "Hold-Out Year")) + 
+      aes(x = age_of_injury, y = .65*max_upper, label = first_major_injury)) +
     facet_wrap(~ metric, scales = "free") + theme_bw() +
-    labs(x = "Age", y = "")  
+    labs(x = "Age", y = "")
 
 stephen_curry <- player_plot_df |> filter(name == "Stephen Curry") |> ggplot(aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
                                        fill = "gray",
                                        alpha = 0.4) +
-    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF", linewidth = 1) + 
-    
-    geom_vline(aes(xintercept = age_of_holdout),
-               linetype = "dashed",
-               color = "red") +
-    geom_vline(aes(xintercept = age_of_injury), linetype = "dashed", color = "blue") +  
-    geom_point(aes(x = age, y = obs_value), color = "black") + 
+    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF", linewidth = 1) +
+    geom_vline(aes(xintercept = age_of_injury), linetype = "dashed", color = "blue") +
+    geom_point(aes(x = age, y = obs_value), color = "black") +
     geom_text(data = label_df |> filter(name == "Stephen Curry"),
       size = 3,
-      aes(x = age_of_injury, y = .65*max_upper, label = first_major_injury)) + 
-    geom_text( 
-      data = label_df |> filter(name == "Stephen Curry"),
-      size = 3,
-      aes(x = age_of_holdout, y = .65*min_lower, label = "Hold-Out Year")) + 
+      aes(x = age_of_injury, y = .65*max_upper, label = first_major_injury)) +
     facet_wrap(~ metric, scales = "free") + theme_bw() +
-    labs(x = "Age", y = "") 
+    labs(x = "Age", y = "")
 
 player_plots <- (derrick_rose / kevin_durant / stephen_curry) + plot_annotation(title = "Posterior Predictive Production Curves", tag_levels = list(c("Derrick Rose", "Kevin Durant", "Stephen Curry")))
 

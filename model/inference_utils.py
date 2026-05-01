@@ -298,7 +298,7 @@ def match_align(Phi):
     return Phi_star
 
 def create_metric_trajectory_all(posterior_mean_samples, observations, exposures, metric_outputs: list[str], metrics: list[str], exposure_names: list[str], posterior_variance_samples = None, posterior_dispersion_samples = None, posterior_kappa_samples=None,
-                                 posterior_neg_bin_samples = None):
+                                 posterior_neg_bin_samples = None, condition_on_observed: bool = False):
     posterior_kappa_samples = 1 if posterior_kappa_samples is None else posterior_kappa_samples
     posterior_dispersion_samples = 1 if posterior_dispersion_samples is None else posterior_dispersion_samples
     posterior_variance_samples = 1 if posterior_variance_samples is None else posterior_variance_samples
@@ -335,7 +335,15 @@ def create_metric_trajectory_all(posterior_mean_samples, observations, exposures
     obs_games = observations[games_index]
     # posterior_predictions_games_exposure = jnp.where(~jnp.isnan(obs_games)[None, None, ...], obs_games[None,None,...], jnp.squeeze(posterior_predictions_games))
     posterior_predictions_games_exposure = posterior_predictions_games * posterior_predictions_retirement if has_retirement else posterior_predictions_games
-    #### then sample minutes 
+    if condition_on_observed:
+        # When conditioning on observed exposures: replace sampled games with observed games
+        # wherever the observation is not NaN (i.e. training cells and filled-in holdout cells).
+        posterior_predictions_games_exposure = jnp.where(
+            ~jnp.isnan(obs_games)[None, None, ...],
+            obs_games[None, None, ...],
+            posterior_predictions_games_exposure,
+        )
+    #### then sample minutes
     post_min = posterior_mean_samples[..., minutes_index, :, :]
     posterior_predictions_min = BetaProportion(jsc.special.expit(post_min), posterior_dispersion_samples[beta_index][..., None, None] * (posterior_predictions_games_exposure + 1)).sample(key = key) * (48 * posterior_predictions_games)
     beta_index += 1

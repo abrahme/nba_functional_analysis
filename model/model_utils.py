@@ -1385,7 +1385,7 @@ def make_survival_linear_injury_mcmc(
         (sampled_init, cumulative_h_init, active_init),
     )
     sampled_exit_duration = jnp.where(active_final, jnp.asarray(float(num_intervals), dtype=sampled_exit_duration.dtype), sampled_exit_duration)
-    sampled_exit_age = 18.0 + sampled_exit_duration
+    sampled_exit_age = float(age_min) + sampled_exit_duration
 
     return {
         "exit_survival": exit_survival,
@@ -1504,7 +1504,7 @@ def make_survival_linear_mcmc(
     )
     max_duration = float(basis_duration[-1])
     sampled_exit_duration = jnp.clip(sampled_exit_duration, entrance_latent, max_duration)
-    sampled_exit_age = 18.0 + sampled_exit_duration
+    sampled_exit_age = float(age_min) + sampled_exit_duration
 
     return {
         "exit_survival": exit_survival,

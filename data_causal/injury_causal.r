@@ -1564,6 +1564,200 @@ survival_curve_plot <- ggplot(survival_conditional,
 ggsave(file.path(plots_dir, "causal", "exit_survival_curves_by_injury_type.png"),
        survival_curve_plot, width = 14, height = 10)
 
+### -----------------------------------------------------------------------
+### Individual player survival curves (observed vs counterfactual)
+### -----------------------------------------------------------------------
+# Each player is conditioned on their own injury age (not the group median),
+# then thin spaghetti lines are overlaid with the aggregate mean + 95% CI band.
+
+individual_survival_by_player <- exit_survival_data |>
+  inner_join(injury_type_by_player |> select(id, first_major_injury), by = c("player" = "id")) |>
+  filter(first_major_injury %in% focal_injuries) |>
+  inner_join(injury_age_by_player, by = c("player" = "id")) |>
+  filter(age >= floor(injury_age)) |>
+  group_by(first_major_injury, player, scenario, age) |>
+  summarize(posterior_mean = mean(value, na.rm = TRUE), .groups = "drop") |>
+  group_by(first_major_injury, player, scenario) |>
+  mutate(
+    s0             = posterior_mean[which.min(age)],
+    posterior_mean = if_else(s0 > 0, posterior_mean / s0, NA_real_)
+  ) |>
+  ungroup() |>
+  inner_join(latent_space |> select(id, name), by = c("player" = "id"))
+
+individual_survival_plot <- ggplot() +
+  geom_line(
+    data = individual_survival_by_player,
+    aes(x = age, y = posterior_mean,
+        group = interaction(player, scenario), color = scenario),
+    alpha = 0.2, linewidth = 0.35
+  ) +
+  geom_ribbon(
+    data = survival_conditional,
+    aes(x = age, ymin = lower, ymax = upper, fill = scenario),
+    alpha = 0.15, color = NA
+  ) +
+  geom_line(
+    data = survival_conditional,
+    aes(x = age, y = posterior_mean, color = scenario),
+    linewidth = 1.1
+  ) +
+  scale_color_manual(
+    values = c("observed" = "steelblue", "counterfactual" = "tomato"),
+    labels = c("observed" = "Observed (injured)", "counterfactual" = "Counterfactual (no injury)")
+  ) +
+  scale_fill_manual(
+    values = c("observed" = "steelblue", "counterfactual" = "tomato"),
+    labels = c("observed" = "Observed (injured)", "counterfactual" = "Counterfactual (no injury)")
+  ) +
+  facet_wrap(~first_major_injury, nrow = 3) +
+  labs(
+    x = "Age",
+    y = "Conditional survival P(active at t | active at own injury age)",
+    color = NULL, fill = NULL,
+    title = "Individual Exit Survival Curves by Injury Type",
+    subtitle = "Thin lines = individual players (own-injury-age conditioning); thick = posterior mean ± 95% CI"
+  ) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+
+ggsave(
+  file.path(plots_dir, "causal", "exit_survival_individual_curves_by_injury_type.png"),
+  individual_survival_plot, width = 14, height = 10
+)
+
+### -----------------------------------------------------------------------
+### Career minutes lost: absolute and survival-integrated
+### -----------------------------------------------------------------------
+
+# ---- 1. Absolute career minutes lost (counterfactual - observed) ----
+# Uses minutes_lost_player which already has diff = total_pred_min - total_min_obs.
+
+minutes_lost_abs_by_type <- minutes_lost_player |>
+  group_by(first_major_injury, chain, sample) |>
+  summarize(diff = sum(diff, na.rm = TRUE), .groups = "drop") |>
+  bind_rows(
+    minutes_lost_player |>
+      group_by(chain, sample) |>
+      summarize(
+        first_major_injury = "All Injuries",
+        diff               = sum(diff, na.rm = TRUE),
+        .groups = "drop"
+      ),
+    minutes_lost_contrast |>
+      mutate(
+        first_major_injury = "Placebo",
+        diff               = total_pred_min - total_min_obs
+      ) |>
+      select(chain, sample, first_major_injury, diff)
+  )
+
+placebo_mean_diff <- minutes_lost_contrast |>
+  summarize(m = mean(total_pred_min - total_min_obs)) |>
+  pull(m)
+
+career_min_lost_plt <- minutes_lost_abs_by_type |>
+  inner_join(injury_summary, by = "first_major_injury") |>
+  filter(n >= 1) |>
+  mutate(first_major_injury = fct_reorder(first_major_injury, diff, .fun = mean, .desc = TRUE)) |>
+  ggplot(aes(x = diff, y = first_major_injury)) +
+  stat_pointinterval() +
+  geom_vline(xintercept = placebo_mean_diff, linetype = "dashed", color = "gray50") +
+  geom_text(
+    data = injury_summary |> filter(n >= 1),
+    aes(x = -500, y = first_major_injury, label = glue("N = {n}"))
+  ) +
+  theme_classic() +
+  labs(
+    x = "Counterfactual Minus Observed Career Minutes Post-Injury",
+    y = "First Major Injury",
+    title = "Career Minutes Lost by Injury Type",
+    subtitle = "Posterior distribution of absolute minutes lost; dashed line = placebo mean"
+  )
+ggsave(file.path(plots_dir, "causal", "career_minutes_lost.png"),
+       career_min_lost_plt, width = 10, height = 7)
+
+# ---- 2. Survival-integrated career minutes lost ----
+# Counterfactual minutes at each post-injury age are weighted by the counterfactual
+# survival probability, giving credit for career-years that would have existed
+# without the injury.  P(still active at t | no injury) × cf_min_per_season(t).
+
+surv_cf <- exit_survival_data |>
+  filter(scenario == "counterfactual") |>
+  inner_join(injury_type_by_player |> select(id, first_major_injury), by = c("player" = "id")) |>
+  filter(first_major_injury %in% focal_injuries) |>
+  select(player, age, chain, sample, first_major_injury, survival_cf = value)
+
+cf_min_age <- joined_data |>
+  filter(metric %in% c("GP%", "MPG"), !is.na(first_major_injury), year <= 2026) |>
+  pivot_wider(names_from = metric, values_from = value) |>
+  group_by(player, chain, sample) |>
+  mutate(
+    age_of_injury = if_else(injury_period == "post-injury", age, Inf),
+    age_of_injury = min(age_of_injury)
+  ) |>
+  ungroup() |>
+  filter(age > age_of_injury + 1) |>
+  mutate(cf_min_season = 82 * `MPG` * `GP%`) |>
+  select(player, age, chain, sample, first_major_injury, cf_min_season, age_of_injury)
+
+surv_weighted_injured <- cf_min_age |>
+  left_join(surv_cf, by = c("player", "age", "chain", "sample", "first_major_injury")) |>
+  replace_na(list(survival_cf = 0)) |>
+  mutate(surv_cf_min = cf_min_season * survival_cf) |>
+  left_join(min_data, by = c("age", "player" = "id")) |>
+  group_by(first_major_injury, player, chain, sample) |>
+  summarize(
+    total_surv_cf_min = sum(surv_cf_min, na.rm = TRUE),
+    total_obs_min     = sum(replace_na(normalized_min_played, 0)),
+    career_min_lost   = total_surv_cf_min - total_obs_min,
+    .groups = "drop"
+  )
+
+surv_career_by_type <- surv_weighted_injured |>
+  group_by(first_major_injury, chain, sample) |>
+  summarize(career_min_lost = sum(career_min_lost), .groups = "drop") |>
+  bind_rows(
+    surv_weighted_injured |>
+      group_by(chain, sample) |>
+      summarize(
+        first_major_injury = "All Injuries",
+        career_min_lost    = sum(career_min_lost),
+        .groups = "drop"
+      ),
+    minutes_lost_contrast |>
+      mutate(
+        first_major_injury = "Placebo",
+        career_min_lost    = total_pred_min - total_min_obs
+      ) |>
+      select(chain, sample, first_major_injury, career_min_lost)
+  )
+
+placebo_mean_surv <- surv_career_by_type |>
+  filter(first_major_injury == "Placebo") |>
+  summarize(m = mean(career_min_lost)) |>
+  pull(m)
+
+surv_career_min_lost_plt <- surv_career_by_type |>
+  inner_join(injury_summary, by = "first_major_injury") |>
+  filter(n >= 1) |>
+  mutate(first_major_injury = fct_reorder(first_major_injury, career_min_lost, .fun = mean, .desc = TRUE)) |>
+  ggplot(aes(x = career_min_lost, y = first_major_injury)) +
+  stat_pointinterval() +
+  geom_vline(xintercept = placebo_mean_surv, linetype = "dashed", color = "gray50") +
+  geom_text(
+    data = injury_summary |> filter(n >= 1),
+    aes(x = -1000, y = first_major_injury, label = glue("N = {n}"))
+  ) +
+  theme_classic() +
+  labs(
+    x = "Survival-Weighted Counterfactual Minus Observed Career Minutes Post-Injury",
+    y = "First Major Injury",
+    title = "Career Minutes Lost by Injury Type (Survival-Integrated)",
+    subtitle = "Counterfactual minutes weighted by P(active | no injury); dashed line = placebo mean"
+  )
+ggsave(file.path(plots_dir, "causal", "career_minutes_lost_survival_integrated.png"),
+       surv_career_min_lost_plt, width = 10, height = 7)
 
 ### -----------------------------------------------------------------------
 ### Identification test: is injury type predictable from X and/or volume?

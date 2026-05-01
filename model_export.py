@@ -647,6 +647,7 @@ if __name__ == "__main__":
                 basis=basis,
                 sigma_exit_scale=results_mcmc["sigma_exit_scale"],
                 scale_global_log=results_mcmc.get("scale_global_log", jnp.log(11.5)),
+                age_min=age_min,
             )
 
             observed_surv_df = pd.DataFrame(
@@ -680,6 +681,7 @@ if __name__ == "__main__":
                 basis=basis,
                 sigma_exit_scale=results_mcmc["sigma_exit_scale"],
                 scale_global_log=results_mcmc.get("scale_global_log", jnp.log(11.5)),
+                age_min=age_min,
             )
 
 
@@ -816,6 +818,7 @@ if __name__ == "__main__":
                 basis=basis,
                 sigma_exit_scale=results_mcmc.get("sigma_exit_scale", 1.0),
                 scale_global_log=results_mcmc.get("scale_global_log", jnp.log(11.5)),
+                age_min=age_min,
             )
 
         observed_surv_df = pd.DataFrame(
@@ -935,6 +938,43 @@ if __name__ == "__main__":
 
     posterior_df = posterior_to_df(pos, id_df["id"], metrics, range(age_min, age_max + 1))
     posterior_df.to_parquet(os.path.join(model_dir, "posterior_ar.parquet"), index=False)
+
+    # Conditional posterior: for holdout cells, condition on observed games and pct_minutes as
+    # exposures so that only metric-rate uncertainty (FG2A/36, etc.) is propagated.  This enables
+    # "conditional coverage" in model_diagnostics.r — coverage that removes the contribution of
+    # minutes/games uncertainty and tests only the rate predictions.
+    minutes_index = metrics.index("pct_minutes")
+    games_index   = metrics.index("games")
+    _pct_min_pivot = (
+        data.pivot_table(index="id", columns="age", values="pct_minutes", aggfunc="first")
+        .reindex(index=id_df["id"].tolist(), columns=range(age_min, age_max + 1))
+    )
+    _pct_min_obs = jnp.array(_pct_min_pivot.values.astype(np.float64))  # (n, j)
+    _holdout_pct_obs = jnp.array(validation_mask) & ~jnp.isnan(_pct_min_obs)
+
+    _games_pivot = (
+        data.pivot_table(index="id", columns="age", values="games", aggfunc="first")
+        .reindex(index=id_df["id"].tolist(), columns=range(age_min, age_max + 1))
+    )
+    _games_obs = jnp.array(_games_pivot.values.astype(np.float64))  # (n, j)
+    _holdout_games_obs = jnp.array(validation_mask) & ~jnp.isnan(_games_obs)
+
+    Y_conditional = (
+        Y
+        .at[minutes_index].set(jnp.where(_holdout_pct_obs, _pct_min_obs, Y[minutes_index]))
+        .at[games_index].set(jnp.where(_holdout_games_obs, _games_obs, Y[games_index]))
+    )
+    _, pos_conditional = create_metric_trajectory_all(
+        latent_val, Y_conditional, exposures,
+        metric_output, metrics, exposure_list,
+        jnp.transpose(results_mcmc["sigma"], (2, 0, 1)),
+        jnp.transpose(results_mcmc["sigma_beta"], (2, 0, 1)),
+        posterior_kappa_samples=jnp.transpose(results_mcmc["sigma_beta_binomial"], (2, 0, 1)),
+        posterior_neg_bin_samples=_neg_bin_samples,
+        condition_on_observed=True,
+    )
+    posterior_conditional_df = posterior_to_df(pos_conditional, id_df["id"], metrics, range(age_min, age_max + 1))
+    posterior_conditional_df.to_parquet(os.path.join(model_dir, "posterior_ar_conditional.parquet"), index=False)
 
     if peaks is not None:
         posterior_peaks = posterior_peaks_to_df(peaks, id_df["id"], metrics)

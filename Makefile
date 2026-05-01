@@ -69,13 +69,26 @@ endef
 
 # MCMC training (GPU container) then immediate R diagnostics (r-new container).
 # $(1) model_name   $(2) mcmc model_dir
-define run_coverage_mcmc_job
+# MCMC training (GPU) then export (mcmc-analysis container).
+# $(1) model_name
+define run_mcmc_job
 	@echo "=== [$$(date '+%H:%M:%S')] START mcmc/$(1) ==="
 	$(D_GPU) python main.py \
 	    --model_name=$(1) \
 	    --model_config=$(MODEL_CONFIG) \
 	    --inference_method=mcmc
-	@echo "=== [$$(date '+%H:%M:%S')] DONE  mcmc/$(1) — running diagnostics ==="
+	@echo "=== [$$(date '+%H:%M:%S')] START export/$(1) ==="
+	$(D_CPU) python model_export.py \
+	    --model_name=$(1) \
+	    --model_config=$(MODEL_CONFIG)
+	@echo "=== [$$(date '+%H:%M:%S')] DONE  mcmc+export/$(1) ==="
+endef
+
+# MCMC + export then immediate R diagnostics.
+# $(1) model_name   $(2) mcmc model_dir
+define run_coverage_mcmc_job
+	$(call run_mcmc_job,$(1))
+	@echo "=== [$$(date '+%H:%M:%S')] START diagnostics/$(2) ==="
 	$(D_R) Rscript data_analysis/model_diagnostics.r $(2) $(VALIDATION_YEAR)
 	@echo "=== [$$(date '+%H:%M:%S')] DONE  diagnostics/$(2) ==="
 endef
@@ -166,70 +179,43 @@ naive_holdout_peak: check-containers
 # ── Individual MCMC targets (mcmc container, all GPUs) ────────────────────────
 
 tvlvm_mcmc: check-containers
-	@echo "=== [$$(date '+%H:%M:%S')] START mcmc/nba_convex_max_tvlinearlvm ==="
-	$(D_GPU) python main.py --model_name=nba_convex_max_tvlinearlvm \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	@echo "=== [$$(date '+%H:%M:%S')] DONE  mcmc/nba_convex_max_tvlinearlvm ==="
+	$(call run_mcmc_job,nba_convex_max_tvlinearlvm)
 
 ar_mcmc: check-containers
-	@echo "=== [$$(date '+%H:%M:%S')] START mcmc/nba_convex_max_tvlinearlvm_AR ==="
-	$(D_GPU) python main.py --model_name=nba_convex_max_tvlinearlvm_AR \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	@echo "=== [$$(date '+%H:%M:%S')] DONE  mcmc/nba_convex_max_tvlinearlvm_AR ==="
+	$(call run_mcmc_job,nba_convex_max_tvlinearlvm_AR)
 
 injury_mcmc: check-containers
-	@echo "=== [$$(date '+%H:%M:%S')] START mcmc/nba_convex_max_tvlinearlvm_injury ==="
-	$(D_GPU) python main.py --model_name=nba_convex_max_tvlinearlvm_injury \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	@echo "=== [$$(date '+%H:%M:%S')] DONE  mcmc/nba_convex_max_tvlinearlvm_injury ==="
+	$(call run_mcmc_job,nba_convex_max_tvlinearlvm_injury)
 
 naive_mcmc: check-containers
-	@echo "=== [$$(date '+%H:%M:%S')] START mcmc/nba_naive ==="
-	$(D_GPU) python main.py --model_name=nba_naive \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	@echo "=== [$$(date '+%H:%M:%S')] DONE  mcmc/nba_naive ==="
+	$(call run_mcmc_job,nba_naive)
 
 # Per-scheme MCMC: all 4 model families sequentially so they don't compete for
 # GPU memory.  Usage: make mcmc_holdout_last_k
 
 mcmc_holdout_last_k: check-containers
-	$(D_GPU) python main.py --model_name=nba_convex_max_tvlinearlvm_holdout_last_k --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	$(D_GPU) python main.py --model_name=nba_convex_max_tvlinearlvm_AR_holdout_last_k \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	$(D_GPU) python main.py --model_name=nba_convex_max_tvlinearlvm_injury_holdout_last_k \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	$(D_GPU) python main.py --model_name=nba_naive_holdout_last_k \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
+	$(call run_mcmc_job,nba_convex_max_tvlinearlvm_holdout_last_k)
+	$(call run_mcmc_job,nba_convex_max_tvlinearlvm_AR_holdout_last_k)
+	$(call run_mcmc_job,nba_convex_max_tvlinearlvm_injury_holdout_last_k)
+	$(call run_mcmc_job,nba_naive_holdout_last_k)
 
 mcmc_holdout_first_k: check-containers
-	$(D_GPU) python main.py --model_name=nba_convex_max_tvlinearlvm_holdout_first_k \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	$(D_GPU) python main.py --model_name=nba_convex_max_tvlinearlvm_AR_holdout_first_k \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	$(D_GPU) python main.py --model_name=nba_convex_max_tvlinearlvm_injury_holdout_first_k \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	$(D_GPU) python main.py --model_name=nba_naive_holdout_first_k \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
+	$(call run_mcmc_job,nba_convex_max_tvlinearlvm_holdout_first_k)
+	$(call run_mcmc_job,nba_convex_max_tvlinearlvm_AR_holdout_first_k)
+	$(call run_mcmc_job,nba_convex_max_tvlinearlvm_injury_holdout_first_k)
+	$(call run_mcmc_job,nba_naive_holdout_first_k)
 
 mcmc_random_interior: check-containers
-	$(D_GPU) python main.py --model_name=nba_convex_max_tvlinearlvm_random_interior \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	$(D_GPU) python main.py --model_name=nba_convex_max_tvlinearlvm_AR_random_interior \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	$(D_GPU) python main.py --model_name=nba_convex_max_tvlinearlvm_injury_random_interior \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	$(D_GPU) python main.py --model_name=nba_naive_random_interior \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
+	$(call run_mcmc_job,nba_convex_max_tvlinearlvm_random_interior)
+	$(call run_mcmc_job,nba_convex_max_tvlinearlvm_AR_random_interior)
+	$(call run_mcmc_job,nba_convex_max_tvlinearlvm_injury_random_interior)
+	$(call run_mcmc_job,nba_naive_random_interior)
 
 mcmc_holdout_peak: check-containers
-	$(D_GPU) python main.py --model_name=nba_convex_max_tvlinearlvm_holdout_peak \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	$(D_GPU) python main.py --model_name=nba_convex_max_tvlinearlvm_AR_holdout_peak \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	$(D_GPU) python main.py --model_name=nba_convex_max_tvlinearlvm_injury_holdout_peak \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	$(D_GPU) python main.py --model_name=nba_naive_holdout_peak \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
+	$(call run_mcmc_job,nba_convex_max_tvlinearlvm_holdout_peak)
+	$(call run_mcmc_job,nba_convex_max_tvlinearlvm_AR_holdout_peak)
+	$(call run_mcmc_job,nba_convex_max_tvlinearlvm_injury_holdout_peak)
+	$(call run_mcmc_job,nba_naive_holdout_peak)
 
 # All 16 scheme×model MCMC jobs sequentially.
 # Usage: nohup make mcmc_all > make_mcmc.log 2>&1 & echo $! > make_mcmc.pid
@@ -352,14 +338,10 @@ coverage_mcmc: check-containers
 # Full MCMC run (mcmc container) then full R diagnostics (r-new container).
 # Usage: make mcmc  /  make diagnostics
 mcmc: check-containers
-	$(D_GPU) python main.py --model_name=nba_convex_max_tvlinearlvm \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	$(D_GPU) python main.py --model_name=nba_convex_max_tvlinearlvm_AR \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	$(D_GPU) python main.py --model_name=nba_convex_max_tvlinearlvm_injury \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
-	$(D_GPU) python main.py --model_name=nba_naive \
-	    --model_config=$(MODEL_CONFIG) --inference_method=mcmc
+	$(call run_mcmc_job,nba_convex_max_tvlinearlvm)
+	$(call run_mcmc_job,nba_convex_max_tvlinearlvm_AR)
+	$(call run_mcmc_job,nba_convex_max_tvlinearlvm_injury)
+	$(call run_mcmc_job,nba_naive)
 
 diagnostics: mcmc
 	$(D_R) Rscript data_analysis/model_diagnostics.r \

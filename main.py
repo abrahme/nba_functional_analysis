@@ -85,7 +85,7 @@ if __name__ == "__main__":
     mcmc_inference = (inference_method == "mcmc")
     prior_predictive = (inference_method == "prior")
     num_warmup, num_samples, num_chains = args["num_warmup"], args["num_samples"], args["num_chains"]
-    thinning = int(num_samples / args.get("thinning", 250))
+    thinning = int(num_samples / (args.get("thinning") or 250))
     initial_params_path = args["init_path"]
     model_name = args["model_name"]
     basis_dims = args["basis_dims"]
@@ -607,18 +607,6 @@ if __name__ == "__main__":
                 f.close()
                 print("saved state")
 
-            if mcmc_inference:
-                if not initial_params_path:
-                    print("Warning: init_path unset — skipping MCMC export")
-                else:
-                    import subprocess, sys as _sys
-                    subprocess.run(
-                        [_sys.executable, "model_export.py",
-                         "--model_name", model_name,
-                         "--model_config", _cli["model_config"]],
-                        check=True,
-                    )
-                    print(f"MCMC export complete: {model_dir}")
 
     if map_inference:
         if "max" in model_name:
@@ -1170,6 +1158,7 @@ if __name__ == "__main__":
         category_to_color = {cat: cmap(i) for i, cat in enumerate(categories)}
         data["color"] = data["position_group"].map(category_to_color)
         id_df = data[["position_group","name","id", "minutes", "color"]].groupby("id").max().reset_index()
+        id_df["id"] = id_df["id"].astype(str)
 
         if "max" in model_name:
 
