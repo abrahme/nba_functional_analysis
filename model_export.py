@@ -286,10 +286,6 @@ if __name__ == "__main__":
         "injury_factor",
         "injury_exit_loading",
         "injury_exit_global_offset",
-        "sigma_injury_exit",
-        "injury_exit_raw",
-        "injury_player_x",
-        "injury_player_exit"
     }
     has_survival_injury = all(key in results_mcmc for key in survival_injury_keys)
 
@@ -564,13 +560,28 @@ if __name__ == "__main__":
     if injury:
         injury_loading = results_mcmc["injury_loading"]
         injury_factor = results_mcmc["injury_factor"]
-        sigma_injury = results_mcmc["sigma_injury"]
-        injury_player_x = results_mcmc["injury_player_x"]
-        injury_player_effect = jnp.einsum("...nr, ...rki -> ...kni", X_mcmc_aug, injury_player_x)[:,:, :, :, None, :]
-        injury_mean_prior = jnp.einsum("...ip, ...kp -> ...ki", injury_factor, injury_loading )
-        injury_raw = results_mcmc["injury_raw"]
-        injury_effect_raw = injury_mean_prior[:,:,:,None, None, :] + injury_raw * sigma_injury[..., None, None, None] + injury_player_effect
-        injury_effect = jnp.take_along_axis(jnp.concatenate([jnp.zeros_like(AR)[..., None], injury_effect_raw ], -1), injury_types[..., None][None, None], -1).squeeze(-1) 
+        injury_mean_prior = jnp.einsum("...ip, ...kp -> ...ki", injury_factor, injury_loading)
+        # (chains, draws, k, i)
+        _injury_global_offset = results_mcmc.get("injury_global_offset", jnp.zeros(injury_mean_prior.shape[-2]))
+        _sigma_injury = results_mcmc.get("sigma_injury")       # (chains, draws, k) or None
+        _injury_time_raw = results_mcmc.get("injury_time_raw") # (chains, draws, j, i) or None
+        if _sigma_injury is not None and _injury_time_raw is not None:
+            injury_effect_raw = (
+                injury_mean_prior[:, :, :, None, None, :]                                              # (chains, draws, k, 1, 1, i)
+                + _injury_global_offset[:, :, :, None, None, None]                                    # (chains, draws, k, 1, 1, 1)
+                + _sigma_injury[:, :, :, None, None, None] * _injury_time_raw[:, :, None, None, :, :] # (chains, draws, k, 1, j, i)
+            )  # (chains, draws, k, 1, j, i)
+        else:
+            injury_effect_raw = (
+                injury_mean_prior[:, :, :, None, None, :]
+                + _injury_global_offset[:, :, :, None, None, None]
+            )  # (chains, draws, k, 1, 1, i) — decay model fallback
+        injury_effect_padded = jnp.concatenate(
+            [jnp.zeros(injury_effect_raw.shape[:-1] + (1,), dtype=injury_effect_raw.dtype),
+             injury_effect_raw],
+            axis=-1
+        )  # (..., k, 1, T, i+1) — take_along_axis broadcasts over n
+        injury_effect = jnp.take_along_axis(injury_effect_padded, injury_types[..., None][None, None], -1).squeeze(-1)
         latent_val = latent_val + injury_effect
 
         injury_posterior_df = posterior_injury_to_df(
@@ -621,6 +632,31 @@ if __name__ == "__main__":
             injury_type_labels,
         )
         injury_prior_df.to_parquet(os.path.join(model_dir, "posterior_injury_prior_mean.parquet"), index=False)
+
+        # Export global injury offsets (per metric + survival) separately
+        _go = np.array(_injury_global_offset)                          # (chains, draws, k)
+        _n_chains, _n_draws, _k = _go.shape
+        _ci, _si, _ki = np.meshgrid(np.arange(_n_chains), np.arange(_n_draws), np.arange(_k), indexing="ij")
+        global_offset_df = pd.DataFrame({
+            "chain":  _ci.ravel(),
+            "sample": _si.ravel(),
+            "metric": np.array(list(metrics))[_ki.ravel()],
+            "value":  _go.ravel(),
+        })
+        _ci2, _si2 = np.meshgrid(np.arange(_n_chains), np.arange(_n_draws), indexing="ij")
+        if "injury_exit_global_offset" in results_mcmc:
+            _ego = np.array(results_mcmc["injury_exit_global_offset"])
+            global_offset_df = pd.concat([global_offset_df, pd.DataFrame({
+                "chain": _ci2.ravel(), "sample": _si2.ravel(),
+                "metric": "exit_hazard", "value": _ego.ravel(),
+            })], ignore_index=True)
+        if "injury_scale_global_offset" in results_mcmc:
+            _sgo = np.array(results_mcmc["injury_scale_global_offset"])
+            global_offset_df = pd.concat([global_offset_df, pd.DataFrame({
+                "chain": _ci2.ravel(), "sample": _si2.ravel(),
+                "metric": "exit_scale", "value": _sgo.ravel(),
+            })], ignore_index=True)
+        global_offset_df.to_parquet(os.path.join(model_dir, "posterior_injury_global_offset.parquet"), index=False)
     else:
         injury_effect = jnp.zeros_like(latent_val)
 
@@ -633,13 +669,9 @@ if __name__ == "__main__":
                 injury_factor=results_mcmc["injury_factor"],
                 injury_exit_loading=results_mcmc["injury_exit_loading"],
                 injury_exit_global_offset=results_mcmc["injury_exit_global_offset"],
-                sigma_injury_exit=results_mcmc["sigma_injury_exit"],
-                injury_player_exit=results_mcmc["injury_player_exit"],
-                injury_exit_raw=results_mcmc["injury_exit_raw"],
                 injury_scale_loading=results_mcmc["injury_scale_loading"],
                 injury_scale_global_offset=results_mcmc["injury_scale_global_offset"],
                 sigma_injury_scale=results_mcmc["sigma_injury_scale"],
-                injury_player_scale=results_mcmc["injury_player_scale"],
                 injury_scale_raw=results_mcmc["injury_scale_raw"],
                 injury_indicator=injury_masks,
                 injury_type=injury_types,
@@ -667,13 +699,9 @@ if __name__ == "__main__":
                 injury_factor=results_mcmc["injury_factor"],
                 injury_exit_loading=results_mcmc["injury_exit_loading"],
                 injury_exit_global_offset=results_mcmc["injury_exit_global_offset"],
-                sigma_injury_exit=results_mcmc["sigma_injury_exit"],
-                injury_player_exit=results_mcmc["injury_player_exit"],
-                injury_exit_raw=results_mcmc["injury_exit_raw"],
                 injury_scale_loading=results_mcmc["injury_scale_loading"],
                 injury_scale_global_offset=results_mcmc["injury_scale_global_offset"],
                 sigma_injury_scale=results_mcmc["sigma_injury_scale"],
-                injury_player_scale=results_mcmc["injury_player_scale"],
                 injury_scale_raw=results_mcmc["injury_scale_raw"],
                 injury_indicator=jnp.zeros_like(injury_masks),
                 injury_type=jnp.zeros_like(injury_types),   # type=0 → true no-injury baseline
@@ -746,7 +774,7 @@ if __name__ == "__main__":
         # Naive survival: per-player Weibull with no latent X.
         # concentration = 1 + 2*sigmoid(exit_global_offset), scale = exp(scale_global_log).
         _naive_surv_key = jax.random.PRNGKey(42)
-        def _naive_surv_one_draw(exit_global_off, scale_global_log, entrance_times):
+        def _naive_surv_one_draw(key, exit_global_off, scale_global_log, entrance_times):
             concentration = 1.0 + 2.0 * jax.nn.sigmoid(exit_global_off.squeeze(-1))  # (n,)
             scale = jnp.exp(scale_global_log.squeeze(-1))                              # (n,)
             tenure_grid = jnp.maximum(basis - age_min, 1e-6)                          # (j,)
@@ -757,7 +785,7 @@ if __name__ == "__main__":
             exit_survival = s_grid / jnp.maximum(s_entrance, 1e-8)                    # (n, j)
             exit_hazard   = vmap(lambda c, s: (c / s) * jnp.power(jnp.maximum(tenure_grid / s, 1e-6), c - 1))(concentration, scale)
             # Weibull inverse-CDF conditioned on T > entrance: t = scale * (target + (ent/scale)^k)^(1/k)
-            u = jnp.clip(jax.random.uniform(_naive_surv_key, shape=concentration.shape), 1e-6, 1.0 - 1e-6)
+            u = jnp.clip(jax.random.uniform(key, shape=concentration.shape), 1e-6, 1.0 - 1e-6)
             target = -jnp.log(u)
             entrance_term = jnp.power(jnp.maximum(entrance_times, 0.0) / scale, concentration)
             sampled_duration = scale * jnp.power(jnp.maximum(target + entrance_term, 1e-6), 1.0 / jnp.maximum(concentration, 1e-6))
@@ -765,8 +793,11 @@ if __name__ == "__main__":
             exit_age_sample = float(age_min) + sampled_duration
             return {"exit_survival": exit_survival, "exit_hazard": exit_hazard, "exit_age_sample": exit_age_sample}
 
-        _naive_surv_vmap = vmap(vmap(lambda a, b: _naive_surv_one_draw(a, b, Y_surv[:, 0] - age_min + 1e-6)))
+        _n_chains, _n_draws = results_mcmc["exit_global_offset"].shape[:2]
+        _naive_surv_keys = jax.random.split(_naive_surv_key, _n_chains * _n_draws).reshape(_n_chains, _n_draws, 2)
+        _naive_surv_vmap = vmap(vmap(lambda k, a, b: _naive_surv_one_draw(k, a, b, Y_surv[:, 0] - age_min + 1e-6)))
         surv_posterior = _naive_surv_vmap(
+            _naive_surv_keys,
             results_mcmc["exit_global_offset"],  # (chains, draws, n, 1)
             results_mcmc["scale_global_log"],    # (chains, draws, n, 1)
         )

@@ -697,16 +697,21 @@ if __name__ == "__main__":
                             injury_global_offset[:, None] + injury_mean_prior
                         )  # (k, i)
                     else:
-                        injury_raw = samples["injury_raw__loc"]
-                        sigma_injury = samples["sigma_injury__loc"]
-                        injury_player_effect = jnp.einsum("nr, rki -> kni", psi_x, injury_player_x)[:, :, None, :]
-
-                        # static model: injury_raw is (k, n, t, i)
-                        injury_effect_component = injury_global_offset[:, None, None, None] + injury_mean_prior[:, None, None, :] + injury_raw * sigma_injury[:, None, None, None] + injury_player_effect
-                        injury_effect_raw = jnp.concatenate([jnp.zeros_like(injury_indicator)[..., None], injury_effect_component], -1)
+                        injury_time_raw_map = samples.get("injury_time_raw__loc", jnp.zeros((len(basis), int(data["injury_code"].max()))))  # (j, i)
+                        sigma_injury_map = samples.get("sigma_injury__loc", jnp.zeros(len(metrics)))  # (k,)
+                        injury_effect_component = (
+                            injury_global_offset[:, None, None, None]                                        # (k, 1, 1, 1)
+                            + injury_mean_prior[:, None, None, :]                                            # (k, 1, 1, i)
+                            + sigma_injury_map[:, None, None, None] * injury_time_raw_map[None, None, :, :]  # (k, 1, j, i)
+                        )  # (k, 1, j, i) — uniform over players
+                        injury_effect_padded = jnp.concatenate(
+                            [jnp.zeros(injury_effect_component.shape[:-1] + (1,), dtype=injury_effect_component.dtype),
+                             injury_effect_component],
+                            axis=-1
+                        )  # (k, 1, j, i+1) — take_along_axis broadcasts over n
                         full_mask = (injury_indicator * masks)[..., None]
-                        avg_injury_effect = (injury_effect_raw * full_mask).sum(axis=(1, 2)) / full_mask.sum(axis=(1, 2))
-                        injury_effect = jnp.take_along_axis(injury_effect_raw, injury_type[..., None], -1).squeeze(-1) * injury_indicator
+                        avg_injury_effect = (injury_effect_padded * full_mask).sum(axis=(1, 2)) / full_mask.sum(axis=(1, 2))
+                        injury_effect = jnp.take_along_axis(injury_effect_padded, injury_type[..., None], -1).squeeze(-1) * injury_indicator
                     injuries = data["first_major_injury"].cat.categories[1:]
                     injury_effect_data = pd.DataFrame(injury_mean_prior + injury_global_offset[:, None], columns = injuries, index = metrics)
                     plot_metric_names = list(metrics)

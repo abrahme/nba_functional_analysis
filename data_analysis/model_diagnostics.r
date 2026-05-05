@@ -161,6 +161,8 @@ posterior_mu_data    <- read_parquet(file.path(model_dir, "posterior_mu_ar.parqu
 posterior_peaks      <- read_parquet_if_exists(file.path(model_dir, "posterior_peaks_ar.parquet"))
 posterior_peak_vals  <- read_parquet_if_exists(file.path(model_dir, "posterior_peak_vals_ar.parquet"))
 latent_space         <- read_parquet_if_exists(file.path(model_dir, "latent_space.parquet"))
+injury_global_offset <- read_parquet_if_exists(file.path(model_dir, "posterior_injury_global_offset.parquet"))
+injury_prior_mean    <- read_parquet_if_exists(file.path(model_dir, "posterior_injury_prior_mean.parquet"))
 phi_X                <- read_parquet_if_exists(file.path(model_dir, "phi_X.parquet"))
 third_deriv          <- read_parquet_if_exists(file.path(model_dir, "posterior_third_deriv_ar.parquet"))
 log_posterior        <- read_parquet_if_exists(file.path(model_dir, "log_posterior.parquet"))
@@ -678,7 +680,8 @@ if (has_conditional) {
 
   joined_data_conditional <- joined_data |>
     left_join(
-      posterior_conditional_data |> select(chain, sample, player, metric, age, value_conditional),
+      posterior_conditional_data |>
+        select(chain, sample, player, metric, age, value_conditional),
       by = c("chain", "sample", "player", "metric", "age")
     )
 
@@ -871,6 +874,106 @@ ggsave(file.path(plots_dir, "coverage", "coverage_in_sample_minutes.png"), cover
 
 
 
+
+# ── Injury effect decomposition: global offset + type-specific ───────────────
+if (!is.null(injury_global_offset) && !is.null(injury_prior_mean)) {
+  dir.create(file.path(plots_dir, "injury"), recursive = TRUE, showWarnings = FALSE)
+
+  rename_injury_metrics <- function(df) {
+    df |> mutate(metric = toupper(metric),
+                 metric = case_when(metric == "GAMES"       ~ "GP%",
+                                    metric == "FG2M"        ~ "FG2%",
+                                    metric == "FG3M"        ~ "FG3%",
+                                    metric == "FTM"         ~ "FT%",
+                                    metric == "PCT_MINUTES" ~ "MPG",
+                                    metric == "EXIT_HAZARD" ~ "Exit Hazard",
+                                    metric == "EXIT_SCALE"  ~ "Exit Scale",
+                                    .default = metric))
+  }
+
+  # Global offset: one row per (chain, sample, metric) — HDI per metric
+  global_summary <- injury_global_offset |>
+    rename_injury_metrics() |>
+    group_by(metric) |>
+    summarize(
+      mean  = mean(value, na.rm = TRUE),
+      lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
+      upper = HDInterval::hdi(value, credMass = 0.95)["upper"],
+      .groups = "drop"
+    ) |>
+    mutate(metric = fct_reorder(metric, mean))
+
+  global_plt <- global_summary |>
+    ggplot(aes(x = mean, y = metric)) +
+    geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
+    geom_errorbarh(aes(xmin = lower, xmax = upper), height = 0.3) +
+    geom_point(size = 2) +
+    labs(title = "Global injury offset per metric (95% HDI)",
+         subtitle = "Applied uniformly to all injury types during post-injury seasons",
+         x = "Effect on metric (model units)", y = NULL) +
+    theme_bw()
+  ggsave(file.path(plots_dir, "injury", "injury_global_offset.png"), global_plt,
+         width = 8, height = 7)
+
+  # Type-specific component: one row per (chain, sample, metric, injury_type)
+  # filter to performance metrics only (exclude exit_hazard/exit_scale — those bake in global already)
+  type_summary <- injury_prior_mean |>
+    filter(!metric %in% c("exit_hazard", "exit_scale")) |>
+    rename_injury_metrics() |>
+    group_by(metric, injury_type) |>
+    summarize(
+      mean  = mean(value, na.rm = TRUE),
+      lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
+      upper = HDInterval::hdi(value, credMass = 0.95)["upper"],
+      .groups = "drop"
+    )
+
+  type_plt <- type_summary |>
+    ggplot(aes(x = injury_type, y = mean, colour = injury_type)) +
+    geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+    geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.3) +
+    geom_point(size = 2) +
+    facet_wrap(~ metric, scales = "free_y") +
+    scale_colour_brewer(palette = "Set1") +
+    labs(title = "Type-specific injury effect per metric (95% HDI)",
+         subtitle = "Factor-model component — incremental over global offset",
+         x = NULL, y = "Effect (model units)", colour = "Injury type") +
+    theme_bw() +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+          legend.position = "bottom")
+  ggsave(file.path(plots_dir, "injury", "injury_type_specific.png"), type_plt,
+         width = 14, height = 10)
+
+  # Survival-specific: exit_hazard and exit_scale global + type-specific side by side
+  surv_metrics <- c("Exit Hazard", "Exit Scale")
+  surv_global <- global_summary |> filter(metric %in% surv_metrics)
+  surv_type   <- injury_prior_mean |>
+    filter(metric %in% c("exit_hazard", "exit_scale")) |>
+    rename_injury_metrics() |>
+    group_by(metric, injury_type) |>
+    summarize(mean  = mean(value, na.rm = TRUE),
+              lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
+              upper = HDInterval::hdi(value, credMass = 0.95)["upper"],
+              .groups = "drop")
+
+  if (nrow(surv_global) > 0 && nrow(surv_type) > 0) {
+    surv_type_plt <- surv_type |>
+      ggplot(aes(x = injury_type, y = mean, colour = injury_type)) +
+      geom_hline(data = surv_global, aes(yintercept = mean), linetype = "dashed") +
+      geom_hline(yintercept = 0, colour = "grey70") +
+      geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.3) +
+      geom_point(size = 2) +
+      facet_wrap(~ metric, scales = "free_y") +
+      scale_colour_brewer(palette = "Set1") +
+      labs(title = "Survival injury effects: global (dashed) + type-specific (95% HDI)",
+           x = NULL, y = "Effect (log-hazard / log-scale units)", colour = "Injury type") +
+      theme_bw() +
+      theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+            legend.position = "bottom")
+    ggsave(file.path(plots_dir, "injury", "injury_survival_effects.png"), surv_type_plt,
+           width = 10, height = 6)
+  }
+}
 
 if (!is.null(latent_space)) {
 

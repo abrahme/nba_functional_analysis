@@ -1214,13 +1214,9 @@ def make_survival_linear_injury_mcmc(
     injury_factor,
     injury_exit_loading,
     injury_exit_global_offset,
-    sigma_injury_exit,
-    injury_player_exit,
-    injury_exit_raw,
     injury_scale_loading,
     injury_scale_global_offset,
     sigma_injury_scale,
-    injury_player_scale,
     injury_scale_raw,
     injury_indicator,
     injury_type,
@@ -1251,7 +1247,6 @@ def make_survival_linear_injury_mcmc(
         injury_scale_global_offset[..., None, None]                            # (..., 1, 1)
         + injury_scale_mean[..., None, :]                                      # (..., 1, i)
         + injury_scale_raw * sigma_injury_scale[..., None, None]               # (..., n, i)
-        + jnp.einsum("...nr,...ri->...ni", X, injury_player_scale)             # (..., n, i)
     )  # (..., n, i)
     injury_type_scalar = injury_type[:, -1]  # (n,) — final injury-type code per player
     _scale_lookup = jnp.concatenate([jnp.zeros_like(injury_scale_total[..., :1]), injury_scale_total], axis=-1)
@@ -1265,8 +1260,6 @@ def make_survival_linear_injury_mcmc(
     injury_exit_total = (
         injury_exit_global_offset[..., None, None, None]
         + injury_exit_mean[..., None, None, :]
-        + injury_exit_raw * sigma_injury_exit[..., None, None, None]
-        + jnp.einsum("...nr, ...ri -> ...ni", X, injury_player_exit)[..., None, :]
     )
     _exit_lookup = jnp.concatenate([jnp.zeros_like(injury_exit_total[..., :1]), injury_exit_total], axis=-1)
     injury_effect_exit = jnp.take_along_axis(
@@ -1419,8 +1412,8 @@ def make_survival_linear_mcmc(
     entrance_latent = entrance_times[None, None]
 
     r = exit.shape[-1]
-    exit_raw = jnp.einsum("...nr,...r->...n", X, exit) / jnp.sqrt(r) * sigma_exit_scale  # (..., n)
-    scale = jnp.exp(scale_global_log + exit_raw)[..., None]  # (..., n, 1)
+    exit_raw = jnp.einsum("...nr,...r->...n", X, exit) / jnp.sqrt(r) * sigma_exit_scale[..., None]  # (..., n)
+    scale = jnp.exp(scale_global_log[..., None] + exit_raw)[..., None]  # (..., n, 1)
     exit_rate_base = jnp.einsum("...nr,...r->...n", X, exit_rate)[..., None]
     exit_rate_raw = exit_rate_base + jnp.asarray(exit_global_offset)[..., None, None]
     concentration = 1.0 + 2*jax.nn.sigmoid(exit_rate_raw)
@@ -1488,11 +1481,11 @@ def make_survival_linear_mcmc(
     exit_hazard = (concentration_grid / scale) * jnp.power(duration_grid / scale, concentration_grid - 1.0)
     exit_hazard = jnp.where(at_risk, exit_hazard, jnp.nan)
 
-    key = random.PRNGKey(random_seed)
-    u = jnp.clip(random.uniform(key, shape=entrance_latent.shape), eps, 1.0 - eps)
-    target = -jnp.log(u)
-
     scale_base = scale.squeeze(-1)
+
+    key = random.PRNGKey(random_seed)
+    u = jnp.clip(random.uniform(key, shape=scale_base.shape), eps, 1.0 - eps)
+    target = -jnp.log(u)
     # concentration has shape (..., n_players, 1) — constant hazard across time.
     # Use Weibull inverse-CDF directly, conditioning on T > entrance_latent:
     #   H(t) = (t / scale)^k  =>  t = scale * (target + (entrance/scale)^k)^(1/k)

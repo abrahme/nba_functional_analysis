@@ -3369,22 +3369,19 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
         self.prior["injury_factor"] = Normal(0, 1)
         self.prior["injury_loading"] = Normal(0, 1)
         self.prior["injury_global_offset"] = Normal(0, 1)
-        self.prior["injury_player_x"] = Normal(0, 1)
-        self.prior["injury_raw"] = Normal()
-        self.prior["sigma_injury"] = HalfNormal()
         self.prior["sigma_c"] = HalfNormal(1.5)           # unit-scale: multiplied by sqrt(c_max_var) per metric in model_fn; loosened to allow elite-player peaks (LeBron, KG, etc.)
         self.prior["sigma_t"] = HalfNormal()
         self.prior["injury_exit_loading"] = Normal(0, 1)
         self.prior["injury_exit_global_offset"] = Normal(0, 1)
         self.prior["sigma_injury_exit"] = HalfNormal()
         self.prior["injury_exit_raw"] = Normal()
-        self.prior["injury_player_exit"] = Normal(0, 1)
         self.prior["injury_scale_loading"] = Normal(0, 1)
         self.prior["injury_scale_global_offset"] = Normal(0, 1)
         self.prior["sigma_injury_scale"] = HalfNormal()
         self.prior["injury_scale_raw"] = Normal()
-        self.prior["injury_player_scale"] = Normal(0, 1)
         self.prior["scale_global_log"] = Normal(jnp.log(11.5), 0.5)
+        self.prior["injury_time_raw"] = Normal()
+        self.prior["sigma_injury"] = HalfNormal()
 
     def compute_survival_likelihood(self, X, injury_factor, offsets = {}) -> None:
         required_keys = ("entrance_times", "exit_times", "right_censor", "injury_indicator", "injury_type")
@@ -3402,13 +3399,9 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
         exit_raw = make_psi_gamma(X, exit) / jnp.sqrt(effective_r) * sigma_exit_scale
         injury_exit_loading = self._resolve_prior("injury_exit_loading", sample_shape=(self.p,))
         injury_exit_global_offset = self._resolve_prior("injury_exit_global_offset")
-        injury_exit_player = self._resolve_prior("injury_player_exit", sample_shape=(effective_r, self.i))
-        sigma_injury_exit = self._resolve_prior("sigma_injury_exit")
         injury_exit_raw = (
             injury_exit_global_offset
             + jnp.einsum("ip,p->i", injury_factor, injury_exit_loading)[None, None, :]
-            + jnp.einsum("nr,ri->ni", X, injury_exit_player)[:, None, :]
-            + self._resolve_prior("injury_exit_raw", sample_shape=(self.n, self.t, self.i)) * sigma_injury_exit
         )
 
         injury_indicator = offsets["injury_indicator"]
@@ -3418,21 +3411,22 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
         if injury_type.ndim == 3:
             injury_type = injury_type[0]
 
+        injury_exit_padded = jnp.concatenate(
+            [jnp.zeros(injury_exit_raw.shape[:-1] + (1,), dtype=injury_exit_raw.dtype),
+             injury_exit_raw],
+            axis=-1,
+        )  # (1, 1, i+1) — take_along_axis broadcasts over (n, t)
         injury_effect_exit = jnp.take_along_axis(
-            jnp.concatenate([jnp.zeros_like(injury_indicator)[..., None], injury_exit_raw], -1),
-            injury_type[..., None],
-            -1,
+            injury_exit_padded, injury_type[..., None], -1
         ).squeeze(-1)
 
         # ---- Injury effect on Weibull scale (career-length shift) ---- #
         injury_scale_loading = self._resolve_prior("injury_scale_loading", sample_shape=(self.p,))
         injury_scale_global_offset = self._resolve_prior("injury_scale_global_offset")
-        injury_player_scale = self._resolve_prior("injury_player_scale", sample_shape=(effective_r, self.i))
         sigma_injury_scale = self._resolve_prior("sigma_injury_scale")
         injury_scale_raw = (
             injury_scale_global_offset
             + jnp.einsum("ip,p->i", injury_factor, injury_scale_loading)[None, :]   # (1, i)
-            + jnp.einsum("nr,ri->ni", X, injury_player_scale)                        # (n, i)
             + self._resolve_prior("injury_scale_raw", sample_shape=(self.n, self.i)) * sigma_injury_scale
         )  # (n, i)
         # Use the player's final injury-type code (0 = uninjured → zero effect)
@@ -3579,18 +3573,20 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
         injury_loading = self._resolve_prior("injury_loading", sample_shape=(self.k, self.p))
         injury_factor = self._resolve_prior("injury_factor", sample_shape=(self.i, self.p))
         injury_global_offset = self._resolve_prior("injury_global_offset", sample_shape=(self.k,))
-        sigma_injury = self._resolve_prior("sigma_injury", sample_shape=(self.k,))
         injury_mean_prior = jnp.einsum("ip, kp -> ki", injury_factor, injury_loading)
-        injury_player_x = self._resolve_prior("injury_player_x", sample_shape=(effective_r, self.k, self.i))
-        injury_effect_player = jnp.einsum("rki, nr -> kni", injury_player_x, psi_x)
-        injury_raw = self._resolve_prior("injury_raw", sample_shape=(self.k, self.n, self.t, self.i))
+        sigma_injury = self._resolve_prior("sigma_injury", sample_shape=(self.k,))  # (k,)
+        injury_time_raw = self._resolve_prior("injury_time_raw", sample_shape=(self.j, self.i))  # (j, i)
         injury_effect_raw = (
-            injury_global_offset[:, None, None, None]
-            + injury_mean_prior[:, None, None, :]
-            + injury_raw * sigma_injury[:, None, None, None]
-            + injury_effect_player[:, :, None, :]
-        )
-        injury_effect = jnp.take_along_axis(jnp.concatenate([jnp.zeros_like(injury_indicator)[..., None], injury_effect_raw ], -1), injury_type[..., None], -1).squeeze(-1) 
+            injury_global_offset[:, None, None, None]                              # (k, 1, 1, 1)
+            + injury_mean_prior[:, None, None, :]                                  # (k, 1, 1, i)
+            + sigma_injury[:, None, None, None] * injury_time_raw[None, None, :, :]  # (k, 1, j, i)
+        )  # (k, 1, j, i) — uniform over players, time-varying per injury type
+        injury_effect_padded = jnp.concatenate(
+            [jnp.zeros(injury_effect_raw.shape[:-1] + (1,), dtype=injury_effect_raw.dtype),
+             injury_effect_raw],
+            axis=-1
+        )  # (k, 1, j, i+1) — take_along_axis broadcasts over n
+        injury_effect = jnp.take_along_axis(injury_effect_padded, injury_type[..., None], -1).squeeze(-1)
         mu_base = self._compute_convex_mu(
             psi_x,
             weights,
@@ -3685,9 +3681,10 @@ class ConvexMaxDecayInjuryTVLinearLVM(ConvexMaxInjuryTVLinearLVM):
         self.prior["lambda_global_offset"] = Normal(0, 1)       # (k, i) -- per metric x injury type
         # Exit-hazard decay-rate priors
         self.prior["lambda_exit_global_offset"] = Normal(0, 1)  # (i,) -- per injury type
-        # beta_0 is (k, i) in this model -- nullify per-player noise sites from parent
+        # beta_0 is (k, i) in this model — decay handles time variation; nullify parent's noise sites
         self.prior["injury_raw"] = None
         self.prior["sigma_injury"] = None
+        self.prior["injury_time_raw"] = None
 
     def compute_survival_likelihood(self, X, injury_factor, offsets={}) -> None:
         required_keys = ("entrance_times", "exit_times", "right_censor", "injury_indicator", "injury_type")
@@ -3748,12 +3745,10 @@ class ConvexMaxDecayInjuryTVLinearLVM(ConvexMaxInjuryTVLinearLVM):
         # ---- Injury effect on Weibull scale (career-length shift) ---- #
         injury_scale_loading = self._resolve_prior("injury_scale_loading", sample_shape=(self.p,))
         injury_scale_global_offset = self._resolve_prior("injury_scale_global_offset")
-        injury_player_scale = self._resolve_prior("injury_player_scale", sample_shape=(effective_r, self.i))
         sigma_injury_scale = self._resolve_prior("sigma_injury_scale")
         injury_scale_raw_val = (
             injury_scale_global_offset
             + jnp.einsum("ip,p->i", injury_factor, injury_scale_loading)[None, :]  # (1, i)
-            + jnp.einsum("nr,ri->ni", X, injury_player_scale)                       # (n, i)
             + self._resolve_prior("injury_scale_raw", sample_shape=(self.n, self.i)) * sigma_injury_scale
         )  # (n, i)
         injury_type_scalar = injury_type[:, -1]  # (n,)

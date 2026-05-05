@@ -43,4 +43,8 @@ RUN (type -p wget >/dev/null || ( apt update &&  apt-get install wget -y)) \
 &&  apt update \
 &&  apt install gh -y
 
-RUN install2.r --error --deps TRUE uwot HDInterval ggrepel ggridges ggnewscale pheatmap gt ggdist nnTensor ggbeeswarm umap dbscan arrow
+RUN Rscript -e '\
+  pkgs <- c("uwot","HDInterval","ggrepel","ggridges","ggnewscale","pheatmap","gt","ggdist","nnTensor","ggbeeswarm","umap","dbscan","arrow","patchwork"); \
+  install.packages(pkgs, repos="https://cloud.r-project.org"); \
+  missing <- pkgs[!pkgs %in% installed.packages()[,"Package"]]; \
+  if (length(missing)) stop(paste("Failed to install:", paste(missing, collapse=", ")))'

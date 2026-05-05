@@ -1627,6 +1627,89 @@ ggsave(
 )
 
 ### -----------------------------------------------------------------------
+### Per-player survival curves: observed vs counterfactual
+### (one .png per player, causal/survival/<name>.png)
+###
+### NOTE on inversion (counterfactual < observed):
+### Some players show a lower counterfactual survival curve, implying the
+### model predicts they would have had *shorter* careers without the injury.
+### This is not a bug — it reflects that the posterior injury_scale_effect
+### is positive for that player's injury type (the model learned from data
+### that athletes who suffer those injuries, e.g. ACL in elite players, tend
+### to have longer careers, likely via selection/survivorship bias). The
+### subtitle flags these cases explicitly.
+### -----------------------------------------------------------------------
+dir.create(file.path(plots_dir, "causal", "survival"), showWarnings = FALSE)
+
+# Build per-chain-sample conditioned survival curves, then summarise with HDI.
+player_survival_hdi <- exit_survival_data |>
+  inner_join(injury_type_by_player |> select(id, first_major_injury), by = c("player" = "id")) |>
+  filter(first_major_injury %in% focal_injuries) |>
+  inner_join(injury_age_by_player, by = c("player" = "id")) |>
+  filter(age >= floor(injury_age)) |>
+  inner_join(latent_space |> select(id, name), by = c("player" = "id")) |>
+  # Condition each (chain, sample) curve on S(injury_age) = 1
+  group_by(player, name, first_major_injury, injury_age, scenario, chain, sample) |>
+  mutate(
+    s0    = value[which.min(age)],
+    value = if_else(s0 > 0, value / s0, NA_real_)
+  ) |>
+  ungroup() |>
+  group_by(player, name, first_major_injury, injury_age, scenario, age) |>
+  summarize(
+    posterior_mean = mean(value, na.rm = TRUE),
+    lower          = HDInterval::hdi(value, credMass = 0.95)["lower"],
+    upper          = HDInterval::hdi(value, credMass = 0.95)["upper"],
+    .groups        = "drop"
+  )
+
+# Detect inversion per player: is counterfactual posterior mean below observed
+# at any age past the injury age?
+player_inversion_flag <- player_survival_hdi |>
+  select(player, name, scenario, age, posterior_mean) |>
+  pivot_wider(names_from = scenario, values_from = posterior_mean) |>
+  group_by(player, name) |>
+  summarize(inverted = any(counterfactual < observed, na.rm = TRUE), .groups = "drop")
+
+player_survival_hdi <- player_survival_hdi |>
+  left_join(player_inversion_flag, by = c("player", "name"))
+
+player_survival_hdi |>
+  group_by(player, name, first_major_injury, injury_age, inverted) |>
+  group_walk(~ {
+    inv_note <- if (isTRUE(.y$inverted))
+      "⚠ Counterfactual dips below observed — model learned positive injury-scale association (selection bias likely)"
+    else
+      "Counterfactual ≥ observed at all ages — injury reduced predicted survival"
+
+    plt <- ggplot(.x, aes(x = age, y = posterior_mean, color = scenario, fill = scenario)) +
+      geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.15, color = NA) +
+      geom_line(linewidth = 0.9) +
+      scale_color_manual(
+        values = c("observed" = "steelblue", "counterfactual" = "tomato"),
+        labels = c("observed" = "Observed (injured)", "counterfactual" = "Counterfactual (no injury)")
+      ) +
+      scale_fill_manual(
+        values = c("observed" = "steelblue", "counterfactual" = "tomato"),
+        labels = c("observed" = "Observed (injured)", "counterfactual" = "Counterfactual (no injury)")
+      ) +
+      labs(
+        title    = glue("{.y$name} — {.y$first_major_injury} (injury age ≈ {round(.y$injury_age, 1)})"),
+        subtitle = inv_note,
+        x = "Age", y = "Conditional survival P(active at age t | active at injury age)",
+        color = NULL, fill = NULL
+      ) +
+      theme_bw() +
+      theme(legend.position = "bottom")
+
+    safe_name <- gsub("[^A-Za-z0-9_]", "_", .y$name)
+    ggsave(
+      file.path(plots_dir, "causal", "survival", glue("{safe_name}.png")),
+      plt, width = 8, height = 5
+    )
+  })
+
+### -----------------------------------------------------------------------
 ### Career minutes lost: absolute and survival-integrated
 ### -----------------------------------------------------------------------
 

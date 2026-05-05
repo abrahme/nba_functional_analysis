@@ -33,10 +33,12 @@ model_dir() {
 
 # ── Usage ─────────────────────────────────────────────────────────────────────
 # Interactive:    ./run_pipeline.sh
-# Non-interactive: ./run_pipeline.sh <scheme> "<model numbers>"
+# Non-interactive: ./run_pipeline.sh <scheme> "<model numbers>" [start_phase]
 #   scheme         : holdout_last_k | holdout_first_k | random_interior | holdout_peak
 #   model numbers  : space-separated subset of 1=tvlvm 2=ar 3=injury 4=naive
+#   start_phase    : 1=MAP 2=MCMC 3=Export 4=Diagnostics 5=Combine (default: 1)
 #   e.g.           : ./run_pipeline.sh holdout_last_k "1 2 4"
+#                  : ./run_pipeline.sh holdout_last_k "1 2" 3     # export+diag only
 
 VALID_SCHEMES=(holdout_last_k holdout_first_k random_interior holdout_peak)
 
@@ -89,9 +91,12 @@ if [[ ${#SELECTED_MODELS[@]} -eq 0 ]]; then
     exit 1
 fi
 
+START_PHASE=${3:-1}
+
 echo ""
-echo "Scheme : $SCHEME"
-echo "Models : ${SELECTED_MODELS[*]}"
+echo "Scheme      : $SCHEME"
+echo "Models      : ${SELECTED_MODELS[*]}"
+echo "Start phase : $START_PHASE"
 echo ""
 
 # ── Container health check ────────────────────────────────────────────────────
@@ -104,6 +109,7 @@ echo "All containers running."
 echo ""
 
 # ── Phase 1: MAP — two sequential GPU chains running in parallel ──────────────
+if [[ $START_PHASE -le 1 ]]; then
 echo "=== [$(date '+%H:%M:%S')] PHASE 1: MAP ==="
 
 gpu0_models=()
@@ -138,8 +144,10 @@ done
 wait
 echo "=== [$(date '+%H:%M:%S')] MAP done ==="
 echo ""
+fi  # end phase 1
 
 # ── Phase 2: MCMC — sequential to avoid GPU memory contention ────────────────
+if [[ $START_PHASE -le 2 ]]; then
 echo "=== [$(date '+%H:%M:%S')] PHASE 2: MCMC ==="
 for m in "${SELECTED_MODELS[@]}"; do
     mname=$(model_name "$m" "$SCHEME")
@@ -151,8 +159,10 @@ for m in "${SELECTED_MODELS[@]}"; do
 done
 echo "=== [$(date '+%H:%M:%S')] MCMC done ==="
 echo ""
+fi  # end phase 2
 
 # ── Phase 3: Export — parallel in mcmc-analysis container ────────────────────
+if [[ $START_PHASE -le 3 ]]; then
 echo "=== [$(date '+%H:%M:%S')] PHASE 3: Export ==="
 for m in "${SELECTED_MODELS[@]}"; do
     mname=$(model_name "$m" "$SCHEME")
@@ -164,8 +174,10 @@ done
 wait
 echo "=== [$(date '+%H:%M:%S')] Export done ==="
 echo ""
+fi  # end phase 3
 
 # ── Phase 4: R diagnostics — parallel in r-new container ─────────────────────
+if [[ $START_PHASE -le 4 ]]; then
 echo "=== [$(date '+%H:%M:%S')] PHASE 4: R diagnostics ==="
 for m in "${SELECTED_MODELS[@]}"; do
     mdir=$(model_dir "$m" "$SCHEME")
@@ -183,6 +195,7 @@ fi
 wait
 echo "=== [$(date '+%H:%M:%S')] Diagnostics done ==="
 echo ""
+fi  # end phase 4
 
 # ── Phase 5: Combine coverage tables ─────────────────────────────────────────
 echo "=== [$(date '+%H:%M:%S')] PHASE 5: Combine coverage tables ==="
