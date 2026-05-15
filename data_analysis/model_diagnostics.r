@@ -15,18 +15,20 @@ library(ggdist)
 library(uwot)
 library(patchwork)
 library(arrow)
+library(fdasrvf)
+library(dbscan)
 
+
+source("data_analysis/diagnostics_utils.r")
+
+options(expressions = 500000)  # raise R call-stack limit for deep dendrogram traversal
 
 args             <- commandArgs(trailingOnly = TRUE)
 model_dir        <- if (length(args) >= 1) args[1] else stop("Usage: Rscript model_diagnostics.r <model_dir> [validation_year]")
 validation_year  <- if (length(args) >= 2) as.integer(args[2]) else 2021L
 min_minutes_threshold <- 100L   # discard player-seasons with fewer than this many minutes
 
-posterior_plot_names <-  c("Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash",
-                "Chris Paul", "Shaquille O'Neal","Anthony Edwards", "Jamal Murray", "Donovan Mitchell", "Ray Allen", "Klay Thompson",
-                "Scottie Pippen", "Amar'e Stoudemire", "Shawn Marion", "Dirk Nowitzki", "Jason Kidd","Marcus Camby", "Rudy Gobert", "Tim Duncan",
-                 "Manu Ginobili", "James Harden", "Russell Westbrook", "Luka Doncic", "Devin Booker", "Paul Pierce", "Allen Iverson", "Tyrese Haliburton",
-                 "LaMelo Ball", "Carmelo Anthony", "Dwyane Wade", "Derrick Rose", "Chris Bosh", "Karl-Anthony Towns", "Kristaps Porzingis", "Giannis Antetokounmpo", "Jrue Holiday", "No Name")
+
 
 
 posterior_data <- read_parquet(file.path(model_dir, "posterior_ar.parquet")) |>
@@ -124,7 +126,8 @@ empirical_player_plt <- injury_data |> filter(name %in% c("Kobe Bryant", "Dwight
                               geom_smooth(method = "loess", se = FALSE) + facet_wrap(~metric, scales = "free_y") + theme_bw() + scale_colour_brewer(palette = "Set1") + 
                               ggtitle("An Empirical Production Curve Comparison by Metric") +xlab("Age") + ylab("Metric Value") +theme(legend.position = "bottom",
                               legend.justification = "center",
-                              legend.title = element_blank())
+                              legend.title = element_blank()) +
+                              scale_colour_brewer(palette = "Set1", labels = plot_name)
 
 ggsave("model_output/model_plots/empirical_production_player.png", empirical_player_plt)    
 
@@ -155,7 +158,6 @@ dir.create(file.path(plots_dir, "mcmc"),                          recursive = TR
 
 # posterior_data already loaded above (hoisted for age_min/age_max derivation)
 print("loaded the posterior data")
-read_parquet_if_exists <- function(path) if (file.exists(path)) read_parquet(path) else NULL
 
 posterior_mu_data    <- read_parquet(file.path(model_dir, "posterior_mu_ar.parquet"))
 posterior_peaks      <- read_parquet_if_exists(file.path(model_dir, "posterior_peaks_ar.parquet"))
@@ -164,8 +166,9 @@ latent_space         <- read_parquet_if_exists(file.path(model_dir, "latent_spac
 injury_global_offset <- read_parquet_if_exists(file.path(model_dir, "posterior_injury_global_offset.parquet"))
 injury_prior_mean    <- read_parquet_if_exists(file.path(model_dir, "posterior_injury_prior_mean.parquet"))
 phi_X                <- read_parquet_if_exists(file.path(model_dir, "phi_X.parquet"))
-third_deriv          <- read_parquet_if_exists(file.path(model_dir, "posterior_third_deriv_ar.parquet"))
-log_posterior        <- read_parquet_if_exists(file.path(model_dir, "log_posterior.parquet"))
+third_deriv              <- read_parquet_if_exists(file.path(model_dir, "posterior_third_deriv_ar.parquet"))
+log_posterior            <- read_parquet_if_exists(file.path(model_dir, "log_posterior.parquet"))
+posterior_metric_ll      <- read_parquet_if_exists(file.path(model_dir, "posterior_metric_log_loss.parquet"))
 
 posterior_retirement_data <- open_dataset(file.path(model_dir, "posterior_exit_age_sample.parquet")) |>
   filter(measure == "exit_age_sample", scenario == "observed", exit_censored == 0) |>
@@ -182,6 +185,17 @@ posterior_latent_X <- if (file.exists(file.path(model_dir, "posterior_latent_X.p
     select(id, name, chain, sample, starts_with("Dim")) |>
     collect()
 } else NULL
+
+posterior_latent_X_peak_age <- read_parquet_if_exists(file.path(model_dir, "posterior_latent_X_peak_age.parquet"))
+posterior_latent_X_peak_value <- read_parquet_if_exists(file.path(model_dir, "posterior_latent_X_peak_value.parquet"))
+phi_X_peak_age <- read_parquet_if_exists(file.path(model_dir, "phi_X_peak_age.parquet"))
+phi_X_peak_value <- read_parquet_if_exists(file.path(model_dir, "phi_X_peak_value.parquet"))
+
+curvature_post_paths <- list.files(
+  model_dir,
+  pattern = "^posterior_latent_X_curvature_m[0-9]+\\.parquet$",
+  full.names = TRUE
+)
 
 
 # obpm_curves <- posterior_mu_data |> filter(metric == "dbpm") |> group_by(player, age) |> summarize(value = mean(value)) |> ungroup() |> group_by(player) |> arrange(age, .by_group = TRUE) |>
@@ -264,7 +278,7 @@ peak_2019_class <- peaks_plt_df |> rename(peak_age = value) |> inner_join(peak_v
   group_by(player) |> summarize(peak_val = mean(peak_val), peak_age = mean(peak_age), position_group = first(position_group), name = first(name)) |> 
   ggplot(aes(x = peak_age, y = peak_val, color = position_group)) + 
   geom_point() + 
-  geom_text_repel(aes(label = name),
+  geom_text_repel(aes(label = plot_name(name)),
                   color = "black",
                   fontface = "bold",
                   max.overlaps = 5) + theme_bw() + 
@@ -321,6 +335,8 @@ ggsave(file.path(plots_dir, "peaks", "mcmc", "peak_class_2018.png"), peak_2019_c
 
 
 
+if (!is.null(latent_space)) {
+
 peaks_players <- peaks_plt_df %>% group_by(metric, player) %>% summarize(value = mean(value)) %>% ungroup() %>% pivot_wider(names_from = metric, values_from = value) %>% inner_join(latent_space %>% filter(minutes >= quantile(minutes, .75, na.rm = TRUE)) %>% select(id), by = c("player" = "id"))
 
 peaks_pca <- prcomp(peaks_players  %>% select(-c(player)) %>% data.matrix() , scale. = TRUE, center = TRUE)
@@ -337,25 +353,89 @@ bottoms <- c(peaks_pca_df %>% arrange(PC1) %>% pull(name) %>% head(10), peaks_pc
 
 pca_outlier_names <- unique(c(tops,bottoms, posterior_plot_names))
 
-peaks_pca_plot  <-filter(peaks_pca_df, name %in% pca_outlier_names) %>% ggplot(aes(x = PC1, y = PC2)) + 
-                      geom_text_repel(
-                      aes(label = name, x = PC1, y = PC2),
-                      size = 3,
-                      fontface = "bold",
-                      max.overlaps = 20,
-                      inherit.aes = FALSE) + 
-  coord_fixed() +
-  xlim(-max_range, max_range) +
-  ylim(-max_range, max_range) + 
-  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("PCA Visualization of Learned Metric Peaks") + labs(x = "PC 1", y = "PC 2")
-
-ggsave(file.path(plots_dir, "peaks", "mcmc", "peaks_pca.png"), peaks_pca_plot)
-
 # Extract loadings
 loadings <- as.data.frame(peaks_pca$rotation[, 1:2])
 loadings$metric <- rownames(loadings)
-db <- kmeans(loadings %>% select(-c(metric)), center = 3)
-loadings$metric_group <- as.factor(db$cluster) 
+loadings_mat <- loadings %>% select(-c(metric)) %>% as.matrix()
+k_dist <- kNNdist(loadings_mat, k = 2)
+eps_grid <- quantile(k_dist, probs = seq(0.3, 0.95, length.out = 30), na.rm = TRUE)
+target_k <- 3L
+
+db_candidates <- lapply(eps_grid, function(eps_val) {
+  db_try <- dbscan(loadings_mat, eps = eps_val, minPts = 2)
+  list(
+    db         = db_try,
+    n_clusters = length(setdiff(unique(db_try$cluster), 0L)),
+    n_noise    = sum(db_try$cluster == 0L)
+  )
+})
+
+# Prefer exact target_k, then minimise noise; break ties by choosing larger eps
+exact_3 <- Filter(function(x) x$n_clusters == target_k, db_candidates)
+if (length(exact_3) > 0) {
+  best <- exact_3[[which.min(sapply(exact_3, `[[`, "n_noise"))]]
+} else {
+  # Fall back: pick the eps closest to target_k
+  diffs <- sapply(db_candidates, function(x) abs(x$n_clusters - target_k))
+  best  <- db_candidates[[which.min(diffs)]]
+}
+db <- best$db
+loadings$metric_group <- as.factor(db$cluster)
+
+loadings_summary <- loadings |>
+  group_by(metric_group) |>
+  summarize(mean_pc1 = mean(PC1), mean_pc2 = mean(PC2), .groups = "drop")
+
+pc1_pos_group <- loadings_summary |> slice_max(mean_pc1, n = 1) |> pull(metric_group)
+pc1_neg_group <- loadings_summary |> slice_min(mean_pc1, n = 1) |> pull(metric_group)
+pc2_pos_group <- loadings_summary |> slice_max(mean_pc2, n = 1) |> pull(metric_group)
+pc2_neg_group <- loadings_summary |> slice_min(mean_pc2, n = 1) |> pull(metric_group)
+
+pc1_pos_label <- glue("Later cluster {pc1_pos_group} metric peak")
+pc1_neg_label <- glue("Earlier cluster {pc1_neg_group} metric peak")
+pc2_pos_label <- glue("Later cluster {pc2_pos_group} metric peak")
+pc2_neg_label <- glue("Earlier cluster {pc2_neg_group} metric peak")
+
+avg_minutes_df <- data |>
+  group_by(id) |>
+  summarize(avg_minutes = mean(minutes, na.rm = TRUE), .groups = "drop")
+
+peaks_pca_df <- peaks_pca_df |>
+  left_join(avg_minutes_df, by = c("id" = "id"))
+
+peaks_pca_plot  <-filter(peaks_pca_df, name %in% pca_outlier_names, avg_minutes > 2000) %>% ggplot(aes(x = PC1, y = PC2)) +
+  geom_text_repel(
+    aes(label = plot_name(name), x = PC1, y = PC2),
+    size = 3,
+    fontface = "bold",
+    max.overlaps = 20,
+    inherit.aes = FALSE
+  ) +
+  coord_fixed(clip = "off") +
+  xlim(-max_range, max_range) +
+  ylim(-max_range, max_range) +
+  geom_segment(
+    aes(x = -max_range, xend = max_range, y = 0, yend = 0),
+    arrow = arrow(ends = "both", length = grid::unit(0.12, "inches")),
+    color = "black",
+    linewidth = 0.4
+  ) +
+  geom_segment(
+    aes(x = 0, xend = 0, y = -max_range, yend = max_range),
+    arrow = arrow(ends = "both", length = grid::unit(0.12, "inches")),
+    color = "black",
+    linewidth = 0.4
+  ) +
+  annotate("text", x = max_range * 0.95, y = 0, label = pc1_pos_label, hjust = 0, vjust = -0.5, size = 3) +
+  annotate("text", x = -max_range * 0.95, y = 0, label = pc1_neg_label, hjust = 1, vjust = -0.5, size = 3) +
+  annotate("text", x = 0, y = max_range * 0.95, label = pc2_pos_label, hjust = -0.1, vjust = 0, size = 3) +
+  annotate("text", x = 0, y = -max_range * 0.95, label = pc2_neg_label, hjust = -0.1, vjust = 1, size = 3) +
+  theme_bw() +
+  theme(panel.grid = element_blank(), plot.margin = margin(10, 60, 10, 60)) +
+  ggtitle("PCA Visualization of Learned Metric Peaks") +
+  labs(x = "PC 1", y = "PC 2")
+
+ggsave(file.path(plots_dir, "peaks", "mcmc", "peaks_pca.png"), peaks_pca_plot)
 peaks_pca_loadings_plt <- ggplot(loadings, aes(x = PC1, y = PC2)) +
   geom_text(aes(label = metric, color = metric_group), size = 4,
                       fontface = "bold", show.legend = FALSE) +
@@ -385,7 +465,7 @@ pca_outlier_names <- unique(c(tops,bottoms, posterior_plot_names))
 
 peak_vals_pca_plot  <-  peak_vals_pca_df %>% ggplot(aes(x = PC1, y = PC2)) +  geom_point(aes(alpha = minutes, color = position_group)) + scale_alpha(range = c(0,1)) +
                       geom_text_repel(data = filter(peak_vals_pca_df, name %in% posterior_plot_names), 
-                      aes(label = name, x = PC1, y = PC2),
+                      aes(label = plot_name(name), x = PC1, y = PC2),
                       size = 3,
                       fontface = "bold",
                       max.overlaps = 20,
@@ -474,9 +554,6 @@ peaks_plt <- ggplot(peaks_plt_df |> inner_join(loadings, by = "metric") |> group
 
 ggsave(file.path(plots_dir, "peaks", "mcmc", "peaks.png"), peaks_plt)
 
-
-
-
 if (!is.null(third_deriv)) {
 
 third_deriv_plt <- ggplot(third_deriv |> inner_join(data |> group_by(id) |> summarize(name = first(name), position_group = first(position_group), minutes = sum(minutes)) |> ungroup(),
@@ -511,6 +588,8 @@ curve_third_deriv_plt <- ggplot(third_deriv |> filter(metric == "obpm") |> mutat
 ggsave(file.path(plots_dir, "peaks", "mcmc", "peaks_third_deriv_curves.png"), curve_third_deriv_plt)
 
 } # end if (!is.null(third_deriv))
+
+} # end if (!is.null(latent_space))
 
 posterior_data <- posterior_data  |>
                                     inner_join(posterior_peaks |>
@@ -745,8 +824,19 @@ if (has_conditional) {
 latex_code <- latex_tbl |>
   gt() |>
   cols_label(!!!latex_col_labels) |>
-  tab_header(title = "Coverage Summary") |>
   as_latex()
+latex_code <- gsub(
+  "\\\\begin\\{tabular\\*\\}\\{\\\\linewidth\\}\\{@\\{\\\\extracolsep\\{\\\\fill\\}\\}([^}]+)\\}",
+  "\\\\resizebox{\\\\linewidth}{!}{\\\\begin{tabular}{\\1}",
+  latex_code
+)
+latex_code <- gsub("\\\\end\\{tabular\\*\\}", "\\\\end{tabular}}", latex_code)
+latex_code <- gsub(
+  "\\\\begin\\{table\\}\\[t\\]",
+  "\\\\begin{table}[htbp]\n\\\\centering\n\\\\caption{95\\\\% HDI coverage by metric: validation (hold-out), in-sample, and conditional.}\n\\\\label{tab:coverage_basic}",
+  latex_code
+)
+latex_code <- gsub("\\\\fontsize\\{[0-9.]+\\}\\{[0-9.]+\\}\\\\selectfont[^\n]*\n?", "", latex_code)
 writeLines(latex_code, file.path(plots_dir, "coverage", "coverage_basic.tex"))
 
 # Posterior Bias Table (mean [95% HDI]) — rows: metrics, cols: in-sample / validation
@@ -838,6 +928,108 @@ bias_latex_code <- in_sample_bias_summary |>
   as_latex()
 
 writeLines(bias_latex_code, file.path(plots_dir, "coverage", "coverage_bias.tex"))
+
+# Export bias intervals as machine-readable CSV for combine_holdout_tables.py
+bias_intervals_val <- validation_bias_samples |>
+  group_by(metric) |>
+  summarise(
+    mean  = mean(mean_bias, na.rm = TRUE),
+    lower = HDInterval::hdi(mean_bias, credMass = 0.95)["lower"],
+    upper = HDInterval::hdi(mean_bias, credMass = 0.95)["upper"],
+    .groups = "drop"
+  ) |>
+  mutate(split = "holdout")
+
+bias_intervals_is <- in_sample_bias_samples |>
+  group_by(metric) |>
+  summarise(
+    mean  = mean(mean_bias, na.rm = TRUE),
+    lower = HDInterval::hdi(mean_bias, credMass = 0.95)["lower"],
+    upper = HDInterval::hdi(mean_bias, credMass = 0.95)["upper"],
+    .groups = "drop"
+  ) |>
+  mutate(split = "in_sample")
+
+write.csv(bind_rows(bias_intervals_val, bias_intervals_is),
+          file.path(plots_dir, "coverage", "coverage_bias_intervals.csv"),
+          row.names = FALSE)
+
+# Per-sample MSE (proportional to Gaussian NLL; posterior interval for predictive accuracy)
+rename_metric_vec <- function(m) {
+  m <- toupper(m)
+  dplyr::case_when(m == "GAMES" ~ "GP%", m == "FG2M" ~ "FG2%", m == "FG3M" ~ "FG3%",
+                   m == "FTM" ~ "FT%", m == "PCT_MINUTES" ~ "MPG", .default = m)
+}
+
+validation_mse_samples <- joined_data |>
+  filter(split == "holdout", metric != "retirement", is.na(minutes) | minutes >= min_minutes_threshold) |>
+  filter(!is.na(obs_value)) |>
+  group_by(chain, sample, metric) |>
+  summarise(mean_mse = mean((value - obs_value)^2, na.rm = TRUE), .groups = "drop") |>
+  mutate(metric = rename_metric_vec(metric))
+
+in_sample_mse_samples <- joined_data |>
+  filter(split == "train", metric != "retirement", is.na(minutes) | minutes >= min_minutes_threshold) |>
+  filter(!is.na(obs_value)) |>
+  group_by(chain, sample, metric) |>
+  summarise(mean_mse = mean((value - obs_value)^2, na.rm = TRUE), .groups = "drop") |>
+  mutate(metric = rename_metric_vec(metric))
+
+mse_intervals_val <- validation_mse_samples |>
+  group_by(metric) |>
+  summarise(
+    mean  = mean(mean_mse, na.rm = TRUE),
+    lower = HDInterval::hdi(mean_mse, credMass = 0.95)["lower"],
+    upper = HDInterval::hdi(mean_mse, credMass = 0.95)["upper"],
+    .groups = "drop"
+  ) |>
+  mutate(split = "holdout")
+
+mse_intervals_is <- in_sample_mse_samples |>
+  group_by(metric) |>
+  summarise(
+    mean  = mean(mean_mse, na.rm = TRUE),
+    lower = HDInterval::hdi(mean_mse, credMass = 0.95)["lower"],
+    upper = HDInterval::hdi(mean_mse, credMass = 0.95)["upper"],
+    .groups = "drop"
+  ) |>
+  mutate(split = "in_sample")
+
+write.csv(bind_rows(mse_intervals_val, mse_intervals_is),
+          file.path(plots_dir, "coverage", "coverage_mse_intervals.csv"),
+          row.names = FALSE)
+
+# Log-loss posterior interval from posterior_metric_log_loss.parquet (exact NLL per family)
+if (!is.null(posterior_metric_ll)) {
+  ll_renamed <- posterior_metric_ll |>
+    mutate(metric = rename_metric_vec(metric))
+
+  ll_intervals_val <- ll_renamed |>
+    filter(split == "holdout") |>
+    group_by(metric) |>
+    summarise(
+      mean  = mean(avg_log_loss, na.rm = TRUE),
+      lower = HDInterval::hdi(avg_log_loss, credMass = 0.95)["lower"],
+      upper = HDInterval::hdi(avg_log_loss, credMass = 0.95)["upper"],
+      .groups = "drop"
+    ) |>
+    mutate(split = "holdout")
+
+  ll_intervals_is <- ll_renamed |>
+    filter(split == "in_sample") |>
+    group_by(metric) |>
+    summarise(
+      mean  = mean(avg_log_loss, na.rm = TRUE),
+      lower = HDInterval::hdi(avg_log_loss, credMass = 0.95)["lower"],
+      upper = HDInterval::hdi(avg_log_loss, credMass = 0.95)["upper"],
+      .groups = "drop"
+    ) |>
+    mutate(split = "in_sample")
+
+  write.csv(bind_rows(ll_intervals_val, ll_intervals_is),
+            file.path(plots_dir, "coverage", "coverage_log_loss_intervals.csv"),
+            row.names = FALSE)
+}
 
 coverage_plt_yearly <- validation_coverage_df |> group_by(metric, year) |> summarize(Coverage = mean(validation_coverage, na.rm = TRUE), .groups = "drop") |> 
                         bind_rows(joined_data %>% filter(split == "holdout" & metric == "retirement") %>% mutate(metric = toupper(metric)) %>% filter(!is.na(obs_value)) %>% group_by(metric, year) %>% summarize(Coverage = mean(if_else(obs_value == 1, value, 1 - value), na.rm = TRUE), .groups = "drop")) |>
@@ -974,57 +1166,6 @@ if (!is.null(injury_global_offset) && !is.null(injury_prior_mean)) {
            width = 10, height = 6)
   }
 }
-
-if (!is.null(latent_space)) {
-
-latent_space_umap <- latent_space %>% select(starts_with("Dim")) %>% umap(n_neighbors = 50, min_dist = 0.001, verbose = TRUE) %>% as_tibble(.name_repair = "unique") %>% cbind(latent_space %>% select(-starts_with("Dim"))) %>% rename(UMAP1 = `...1`, UMAP2 = `...2`)
-
-latent_space_plot  <- latent_space_umap |> ggplot(aes(x = UMAP1, y = UMAP2)) + geom_point(aes(alpha = minutes, color = position_group)) + scale_alpha(range = c(0,1)) +
-                      geom_text_repel(
-                      data = filter(latent_space_umap, name %in% posterior_plot_names),
-                      aes(label = name, x = UMAP1, y = UMAP2),
-                      size = 4,
-                      fontface = "bold",
-                      max.overlaps = 5,
-                      inherit.aes = FALSE) +
-  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("UMAP Visualization of Learned Latent Embedding") + labs(x = "UMAP 1", y = "UMAP 2", alpha = "Minutes", color = "Position Group")
-
-ggsave(file.path(plots_dir, "latent_space", "map", "latent_space_umap.png"), latent_space_plot)
-
-functional_pca_result <-  posterior_mu_data %>% group_by(age, player, metric) %>% summarize(value = mean(value, na.rm = TRUE)) %>% ungroup() %>% pivot_wider(
-  names_from = c(metric, age),
-    values_from = value,
-    names_sep = "_"
-) 
-ids <- functional_pca_result$player 
-
-
-
-
-functional_pca_embedding <- functional_pca_result %>% 
-  select(-player) %>% 
-  prcomp(center = TRUE, scale. = TRUE) %>%       # perform PCA
-  .$x %>%                                       # extract principal component scores
-  as.data.frame() %>%                            # convert to data frame
-  as_tibble(.name_repair = "unique") %>%        # repair names
-  rename(PCA1 = `PC1`, PCA2 = `PC2`)            # rename first two components
-
-functional_pca_embedding$player = ids 
-functional_pca_embedding <- functional_pca_embedding %>% inner_join( latent_space %>% select(id, name, position_group, minutes), by = c("player" = "id"))
-functional_pca_plt <- functional_pca_embedding %>% filter(PCA1 <= 20 & PCA2 <=20) %>%
-                       ggplot(aes(x = PCA1, y = PCA2)) + geom_point(aes(alpha = minutes, color = position_group)) + scale_alpha(range = c(0,1)) +
-                      geom_text_repel(
-                      data = filter(functional_pca_embedding, name %in% posterior_plot_names),
-                      aes(label = name, x = PCA1, y = PCA2),
-                      size = 2,
-                      fontface = "bold",
-                      max.overlaps = 20,
-                      inherit.aes = FALSE) +
-  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("PCA Visualization of Learned Metric Functionals") + labs(x = "PC 1", y = "PC 2", alpha = "Minutes", color = "Position Group")
-ggsave(file.path(plots_dir, "latent_space", "map", "latent_space_functional_pca.png"), functional_pca_plt)
-
-
-
 plot_posterior <- function(grouped_data_set, hold_out_year, plot_obs = TRUE) {
   group_name <- unique(grouped_data_set$name)
 
@@ -1075,7 +1216,6 @@ plot_posterior_mu_spaghetti <- function(grouped_data_set){
     ggtitle(paste("Posterior Latent Career Trajectory:", group_name))
   return(plt)
 }
-
 player_age_year_map <- data |> 
   group_by(id) |> 
   summarize(base_year = min(year, na.rm = TRUE),
@@ -1127,7 +1267,7 @@ survival_plot_df <- posterior_survival_data |>
   select(metric, player, age, lower, upper, obs_value, year, posterior_mean, mu, observed_exit_age, exit_censored)
 
 plots_list <- bind_rows(metric_plot_df, survival_plot_df) |>
-  inner_join(latent_space |> filter(name %in% posterior_plot_names) |> select(name,id), by = c("player" = "id")) %>%
+  inner_join(data |> distinct(id, name) |> filter(name %in% posterior_plot_names), by = c("player" = "id")) %>%
   group_by(player) %>%
   group_split() %>%               # splits into a list of grouped tibbles
   map(~ {
@@ -1160,7 +1300,7 @@ plots_list <- joined_data |> filter(metric != "retirement") |>
                     metric == "FG3M" ~ "FG3%",
                     metric == "FTM" ~ "FT%",
                     metric == "PCT_MINUTES" ~ "MPG",
-                    .default = metric)) |> inner_join(latent_space |> filter(name %in% posterior_plot_names) |> select(name,id), by = c("player" = "id")) %>%
+                    .default = metric)) |> inner_join(data |> distinct(id, name) |> filter(name %in% posterior_plot_names), by = c("player" = "id")) %>%
   group_by(player) %>%
   group_split() %>%               # splits into a list of grouped tibbles
   map(~ {
@@ -1172,41 +1312,6 @@ plots_list <- joined_data |> filter(metric != "retirement") |>
       plot = plt
     )
     })
-
-
-
-phi_X_mat <- phi_X |> select(starts_with("Dim")) |> as.matrix()
-
-# 2. Convert to similarity matrix
-K      <- phi_X_mat %*% t(phi_X_mat)
-D_inv  <- 1 / sqrt(diag(K))
-K_corr <- diag(D_inv) %*% K %*% diag(D_inv)
-
-K_subset <- K_corr[phi_X$name %in% posterior_plot_names, phi_X$name %in% posterior_plot_names]
-
-hr <- hclust(as.dist(1 - K_subset))
-
-# Step 2: reorder full matrix by clustering
-mat_subset <- K_subset[hr$order, hr$order]
-
-# Step 5: create subset labels (optional)
-labels_subset <- posterior_plot_names[hr$order]
-
-# Step 6: plot subset matrix, no reclustering
-pheatmap(mat_subset,
-         cluster_rows = FALSE,
-         cluster_cols = FALSE,
-         labels_row = labels_subset,
-         labels_col = labels_subset,
-         main = "Clustered Covariance of the Learned Latent Embedding",
-         filename = file.path(plots_dir, "latent_space", "K_X_heatmap.png"))
-
-
-
-
-
-
-
 ##### ACTUAL PLOTS FOR THE PAPER 
 ### PLAYER PLOT
 injury_summary <- joined_data |>  group_by(player) |> mutate(age_of_holdout = if_else(year ==  2021, age, Inf),
@@ -1236,7 +1341,7 @@ player_plot_df <- joined_data |>
                     metric == "FG3M" ~ "FG3%",
                     metric == "FTM" ~ "FT%",
                     metric == "PCT_MINUTES" ~ "MPG",
-                    .default = metric)) |> filter(metric %in% c("GP%", "FTA", "OBPM")) |> inner_join(latent_space |> filter(name %in% c("Stephen Curry", "Kevin Durant", "Derrick Rose")) |> select(name,id), by = c("player" = "id"))  |>
+                    .default = metric)) |> filter(metric %in% c("GP%", "FTA", "OBPM")) |> inner_join(data |> distinct(id, name) |> filter(name %in% c("Stephen Curry", "Kevin Durant", "Derrick Rose")), by = c("player" = "id"))  |>
             inner_join(injury_summary)        
 
 
@@ -1282,487 +1387,9 @@ stephen_curry <- player_plot_df |> filter(name == "Stephen Curry") |> ggplot(aes
 
 player_plots <- (derrick_rose / kevin_durant / stephen_curry) + plot_annotation(title = "Posterior Predictive Production Curves", tag_levels = list(c("Derrick Rose", "Kevin Durant", "Stephen Curry")))
 
+ggsave(file.path(plots_dir, "player_plots", "mcmc", "KD_Rose_Curry_comparison.png"),
+       player_plots, width = 14, height = 18)
 
-##### LOG POSTERIOR TRACE PLOT
-
-lp_trace_plt <- log_posterior |>
-  mutate(chain = factor(chain)) |>
-  ggplot(aes(x = draw, y = log_joint, color = chain, group = chain)) +
-  geom_line(alpha = 0.7, linewidth = 0.4) +
-  theme_bw() +
-  scale_colour_brewer(palette = "Set1") +
-  labs(title = "Log Joint Trace by Chain", x = "Draw", y = "Log Joint", color = "Chain")
-
-ggsave(file.path(plots_dir, "mcmc", "log_posterior_trace.png"), lp_trace_plt)
-
-##### LATENT SPACE MCMC DIAGNOSTICS (trace plots per player colored by chain)
-
-# Helper: compute R-hat (Gelman-Rubin) for a single parameter
-compute_rhat <- function(chain, value) {
-  chains <- split(value, chain)
-  n <- min(lengths(chains))
-  chains <- lapply(chains, function(x) x[seq_len(n)])
-  W <- mean(sapply(chains, var))
-  B <- n * var(sapply(chains, mean))
-  sqrt(((n - 1) / n * W + B / n) / W)
-}
-
-# 1. Pivot long, filter to players of interest
-trace_df <- posterior_latent_X |>
-  filter(name %in% posterior_plot_names) |>
-  mutate(chain = factor(chain)) |>
-  pivot_longer(cols = starts_with("Dim"), names_to = "dimension", values_to = "value")
-
-# 2. Compute R-hat per player x dimension, build strip label
-rhat_df <- trace_df |>
-  group_by(name, id, dimension) |>
-  summarise(rhat = compute_rhat(chain, value), .groups = "drop") |>
-  mutate(strip_label = glue("{dimension} (R-hat = {round(rhat, 3)})"))
-
-trace_df <- trace_df |>
-  left_join(rhat_df |> select(name, dimension, strip_label), by = c("name", "dimension")) |>
-  mutate(strip_label = factor(strip_label, levels = unique(rhat_df$strip_label)))
-
-# 3. Plot function: trace plots faceted by dimension for a single player
-plt_trace <- function(player_trace_df) {
-  player_name <- unique(player_trace_df$name)
-  ggplot(player_trace_df, aes(x = sample, y = value, color = chain)) +
-    geom_line(alpha = 0.6, linewidth = 0.3) +
-    facet_wrap(~ strip_label, scales = "free_y", ncol = 3) +
-    theme_bw() +
-    theme(strip.text = element_text(size = 7)) +
-    labs(title = glue("MCMC Trace Plots: {player_name}"), x = "Sample", y = "Value", color = "Chain")
-}
-
-# 4. Generate and save plots for all posterior_plot_names
-
-trace_df |>
-  group_by(id) |>
-  group_split() |>
-  walk(~ {
-    plt <- plt_trace(.x)
-    player_name <- unique(.x$name)
-    ggsave(
-      filename = file.path(plots_dir, "latent_space", "mcmc", glue("trace_{player_name}.png")),
-      plot = plt,
-      width = 14,
-      height = 18
-    )
-  })
-
-
-##### PEAK AGE / PEAK VALUE MCMC TRACE PLOTS
-
-rename_metrics <- function(df) {
-  df |>
-    mutate(
-      metric = toupper(metric),
-      metric = case_when(
-        metric == "GAMES"        ~ "GP%",
-        metric == "FG2M"         ~ "FG2%",
-        metric == "FG3M"         ~ "FG3%",
-        metric == "FTM"          ~ "FT%",
-        metric == "PCT_MINUTES"  ~ "MPG",
-        .default = metric
-      )
-    )
-}
-
-player_lookup <- data |>
-  group_by(id) |>
-  summarize(name = first(name), .groups = "drop")
-
-peaks_trace_df <- posterior_peaks |>
-  inner_join(player_lookup, by = c("player" = "id")) |>
-  filter(name %in% posterior_plot_names) |>
-  mutate(chain = factor(chain)) |>
-  rename_metrics()
-
-peak_vals_trace_df <- posterior_peak_vals |>
-  inner_join(player_lookup, by = c("player" = "id")) |>
-  filter(name %in% posterior_plot_names) |>
-  mutate(chain = factor(chain)) |>
-  rename_metrics()
-
-# R-hat per player x metric
-rhat_peaks_df <- peaks_trace_df |>
-  group_by(name, player, metric) |>
-  summarise(rhat = compute_rhat(chain, value), .groups = "drop") |>
-  mutate(strip_label = glue("{metric} (R-hat = {round(rhat, 3)})"))
-
-rhat_peak_vals_df <- peak_vals_trace_df |>
-  group_by(name, player, metric) |>
-  summarise(rhat = compute_rhat(chain, value), .groups = "drop") |>
-  mutate(strip_label = glue("{metric} (R-hat = {round(rhat, 3)})"))
-
-peaks_trace_df <- peaks_trace_df |>
-  left_join(rhat_peaks_df |> select(name, metric, strip_label), by = c("name", "metric"))
-
-peak_vals_trace_df <- peak_vals_trace_df |>
-  left_join(rhat_peak_vals_df |> select(name, metric, strip_label), by = c("name", "metric"))
-
-plt_peaks_trace <- function(player_df, title_suffix) {
-  player_name <- unique(player_df$name)
-  ordered_labels <- player_df |>
-    distinct(metric, strip_label) |>
-    arrange(metric) |>
-    pull(strip_label)
-  player_df <- player_df |>
-    mutate(strip_label = factor(strip_label, levels = ordered_labels))
-  ggplot(player_df, aes(x = sample, y = value, color = chain)) +
-    geom_line(alpha = 0.6, linewidth = 0.3) +
-    facet_wrap(~ strip_label, scales = "free_y", ncol = 3) +
-    theme_bw() +
-    theme(strip.text = element_text(size = 7)) +
-    labs(title = glue("{title_suffix}: {player_name}"), x = "Sample", y = "Value", color = "Chain")
-}
-
-
-peaks_trace_df |>
-  group_by(player) |>
-  group_split() |>
-  walk(~ {
-    plt <- plt_peaks_trace(.x, "Peak Age Trace")
-    player_name <- unique(.x$name)
-    ggsave(
-      filename = file.path(plots_dir, "peaks", "mcmc", "trace", glue("peak_age_{player_name}.png")),
-      plot = plt, width = 14, height = 18
-    )
-  })
-
-peak_vals_trace_df |>
-  group_by(player) |>
-  group_split() |>
-  walk(~ {
-    plt <- plt_peaks_trace(.x, "Peak Value Trace")
-    player_name <- unique(.x$name)
-    ggsave(
-      filename = file.path(plots_dir, "peaks", "mcmc", "trace", glue("peak_val_{player_name}.png")),
-      plot = plt, width = 14, height = 18
-    )
-  })
-
-##### PROCRUSTES-ALIGNED TRACE PLOTS
-
-dim_cols <- names(posterior_latent_X)[startsWith(names(posterior_latent_X), "Dim")]
-
-# phi_X is the MAP estimate — use it as the Procrustes reference target.
-# Order rows by id to ensure correspondence with posterior snapshots.
-phi_ref_ordered <- phi_X |>
-  arrange(id) |>
-  select(all_of(dim_cols)) |>
-  as.matrix()
-
-# Helper: find orthogonal R minimising ||B %*% R - A||_F
-procrustes_rotation <- function(B, A) {
-  sv <- svd(t(B) %*% A)
-  sv$u %*% t(sv$v)
-}
-
-# Align every (chain, sample) snapshot to phi_ref_ordered
-rotated_posterior_df <- posterior_latent_X |>
-  mutate(chain = factor(chain)) |>
-  group_by(chain, sample) |>
-  group_modify(~ {
-    B <- .x |> arrange(id) |> select(all_of(dim_cols)) |> as.matrix()
-    R <- procrustes_rotation(B, phi_ref_ordered)
-    B_rot <- B %*% R
-    colnames(B_rot) <- dim_cols
-    .x |>
-      arrange(id) |>
-      select(-all_of(dim_cols)) |>
-      bind_cols(as_tibble(B_rot))
-  }) |>
-  ungroup()
-
-# Pivot long, filter to players of interest
-rotated_trace_df <- rotated_posterior_df |>
-  filter(name %in% posterior_plot_names) |>
-  pivot_longer(cols = all_of(dim_cols), names_to = "dimension", values_to = "value")
-
-# R-hat on aligned samples
-rhat_rotated_df <- rotated_trace_df |>
-  group_by(name, id, dimension) |>
-  summarise(rhat = compute_rhat(chain, value), .groups = "drop") |>
-  mutate(strip_label = glue("{dimension} (R-hat = {round(rhat, 3)})"))
-
-rotated_trace_df <- rotated_trace_df |>
-  left_join(rhat_rotated_df |> select(name, dimension, strip_label), by = c("name", "dimension"))
-
-# Save aligned trace plots (reuses plt_trace which handles strip label ordering)
-rotated_trace_df |>
-  group_by(id) |>
-  group_split() |>
-  walk(~ {
-    plt <- plt_trace(.x)
-    player_name <- unique(.x$name)
-    ggsave(
-      filename = file.path(plots_dir, "latent_space", "mcmc", glue("rotated_trace_{player_name}.png")),
-      plot = plt,
-      width = 14,
-      height = 18
-    )
-  })
-
-##### ARCHETYPE CLUSTERING + NEAREST-NEIGHBOR TABLES + UNCERTAINTY
-
-library(cluster)  # silhouette — part of base R recommended packages
-
-# ── 1. Posterior mean of Procrustes-aligned samples ──────────────────────────
-posterior_mean_latent <- rotated_posterior_df |>
-  group_by(id, name) |>
-  summarise(across(all_of(dim_cols), mean), .groups = "drop")
-
-phi_mat   <- posterior_mean_latent |> arrange(id) |> select(all_of(dim_cols)) |> as.matrix()
-rownames(phi_mat) <- posterior_mean_latent |> arrange(id) |> pull(name)
-phi_mat   <- scale(phi_mat)
-phi_dist  <- dist(phi_mat)
-hc_latent <- hclust(phi_dist, method = "ward.D2")
-
-# ── 2. k diagnostics (WSS + silhouette, k = 2..10) ──────────────────────────
-wss_sil <- map_dfr(2:10, function(k) {
-  labs <- cutree(hc_latent, k)
-  wss  <- sum(sapply(unique(labs), function(cl) {
-    sub <- phi_mat[labs == cl, , drop = FALSE]
-    sum(scale(sub, scale = FALSE)^2)
-  }))
-  sil <- mean(silhouette(labs, phi_dist)[, "sil_width"])
-  tibble(k = k, wss = wss, silhouette = sil)
-})
-
-wss_plt <- ggplot(wss_sil, aes(x = k, y = wss)) +
-  geom_line() + geom_point() +
-  labs(title = "Within-cluster SS vs. k", x = "k", y = "WSS") + theme_bw()
-sil_plt <- ggplot(wss_sil, aes(x = k, y = silhouette)) +
-  geom_line() + geom_point() +
-  labs(title = "Mean silhouette vs. k", x = "k", y = "Avg silhouette") + theme_bw()
-ggsave(file.path(plots_dir, "latent_space", "map", "archetype_k_diagnostics.png"),
-       wss_plt + sil_plt, width = 12, height = 5)
-
-# ── 3. Dendrogram (base R — no ggdendro dependency) ─────────────────────────
-png(file.path(plots_dir, "latent_space", "map", "archetype_dendrogram.png"),
-    width = 1200, height = 2000, res = 120)
-par(mar = c(4, 1, 2, 8))
-plot(as.dendrogram(hc_latent), horiz = TRUE,
-     main = "Ward hierarchical clustering — posterior mean latent dims",
-     xlab = "Height")
-dev.off()
-
-# ── 4. Cut tree and assign archetypes ────────────────────────────────────────
-k_archetypes <- 4L
-message(glue("Optimal k by silhouette: {k_archetypes}"))
-
-archetype_labels <- cutree(hc_latent, k = k_archetypes)
-
-posterior_mean_latent <- posterior_mean_latent |>
-  arrange(id) |>
-  mutate(archetype = factor(unname(archetype_labels)))
-
-phi_X        <- phi_X        |> left_join(posterior_mean_latent |> select(id, archetype), by = "id")
-latent_space <- latent_space |> left_join(posterior_mean_latent |> select(id, archetype), by = "id")
-
-archetype_reps <- latent_space |>
-  filter(!is.na(archetype)) |>
-  group_by(archetype) |>
-  slice_max(minutes, n = 5) |>
-  select(archetype, name, position_group, minutes)
-print(archetype_reps)
-
-# ── 5. Archetype characterization heatmaps ───────────────────────────────────
-archetype_peak_ages <- peaks_plt_df |>
-  left_join(posterior_mean_latent |> select(id, archetype), by = c("player" = "id")) |>
-  filter(!is.na(archetype)) |>
-  group_by(archetype, metric) |>
-  summarise(mean_peak_age = mean(value, na.rm = TRUE), .groups = "drop")
-
-archetype_peak_vals <- peak_vals_plt_df |>
-  left_join(posterior_mean_latent |> select(id, archetype), by = c("player" = "id")) |>
-  filter(!is.na(archetype)) |>
-  group_by(archetype, metric) |>
-  summarise(mean_peak_val = mean(value, na.rm = TRUE), .groups = "drop")
-
-archetype_age_heatmap <- archetype_peak_ages |>
-  ggplot(aes(x = metric, y = archetype, fill = mean_peak_age)) +
-  geom_tile() + scale_fill_viridis_c() +
-  labs(title = "Mean posterior peak age by archetype × metric",
-       x = NULL, y = "Archetype", fill = "Mean peak age") +
-  theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-archetype_val_heatmap <- archetype_peak_vals |>
-  ggplot(aes(x = metric, y = archetype, fill = mean_peak_val)) +
-  geom_tile() + scale_fill_viridis_c() +
-  labs(title = "Mean posterior peak value by archetype × metric",
-       x = NULL, y = "Archetype", fill = "Mean peak value") +
-  theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-ggsave(file.path(plots_dir, "latent_space", "map", "archetype_peak_age_heatmap.png"),
-       archetype_age_heatmap, width = 14, height = 5)
-ggsave(file.path(plots_dir, "latent_space", "map", "archetype_peak_val_heatmap.png"),
-       archetype_val_heatmap, width = 14, height = 5)
-
-# ── 6. Archetype-coloured functional PCA plot ────────────────────────────────
-fpc_arch <- functional_pca_embedding |>
-  left_join(posterior_mean_latent |> select(id, archetype), by = c("player" = "id"))
-
-functional_pca_plt_archetype <- fpc_arch |>
-  filter(PCA1 <= 20 & PCA2 <= 20) |>
-  ggplot(aes(x = PCA1, y = PCA2, color = archetype)) +
-  geom_point(aes(alpha = minutes)) +
-  scale_alpha(range = c(0, 1)) +
-  geom_text_repel(
-    data = fpc_arch |> filter(name %in% posterior_plot_names),
-    aes(label = name, x = PCA1, y = PCA2),
-    size = 2, fontface = "bold", max.overlaps = 20,
-    inherit.aes = FALSE
-  ) +
-  theme_bw() + scale_colour_brewer(palette = "Set1") +
-  labs(title = "Latent Space — Archetype Clusters",
-       x = "PC 1", y = "PC 2", color = "Archetype", alpha = "Minutes")
-ggsave(file.path(plots_dir, "latent_space", "map", "latent_space_archetypes.png"),
-       functional_pca_plt_archetype, width = 12, height = 8)
-
-# ── 6b. PCA of posterior mean latent coords, coloured by archetype ───────────
-latent_pca        <- prcomp(phi_mat, center = FALSE, scale. = FALSE)  # phi_mat already scaled
-latent_pca_df     <- as_tibble(latent_pca$x[, 1:2]) |>
-  bind_cols(posterior_mean_latent |> arrange(id) |> select(id, name, archetype)) |>
-  left_join(latent_space |> select(id, position_group, minutes), by = "id")
-
-latent_pca_plt <- latent_pca_df |>
-  ggplot(aes(x = PC1, y = PC2, color = archetype)) +
-  geom_point(aes(alpha = minutes)) +
-  scale_alpha(range = c(0, 1)) +
-  geom_text_repel(
-    data = latent_pca_df |> filter(name %in% posterior_plot_names),
-    aes(label = name),
-    size = 2, fontface = "bold", max.overlaps = 20
-  ) +
-  theme_bw() + scale_colour_brewer(palette = "Set1") +
-  labs(title = "PCA of Posterior Mean Latent Coordinates — Archetype Clusters",
-       x = glue("PC 1 ({round(summary(latent_pca)$importance[2,1]*100,1)}% var)"),
-       y = glue("PC 2 ({round(summary(latent_pca)$importance[2,2]*100,1)}% var)"),
-       color = "Archetype", alpha = "Minutes")
-
-ggsave(file.path(plots_dir, "latent_space", "map", "latent_pca_archetypes.png"),
-       latent_pca_plt, width = 12, height = 8)
-
-# ── 7. Embedding uncertainty from aligned MCMC samples ───────────────────────
-map_positions <- phi_X |> arrange(id) |> select(id, all_of(dim_cols))
-
-embedding_uncertainty <- rotated_posterior_df |>
-  group_by(id, name) |>
-  group_modify(~ {
-    samp_mat <- .x |> select(all_of(dim_cols)) |> as.matrix()
-    map_pos  <- map_positions |> filter(id == .y$id) |> select(all_of(dim_cols)) |> as.matrix()
-    dists    <- sqrt(rowSums(sweep(samp_mat, 2, map_pos)^2))
-    cov_mat  <- cov(samp_mat)
-    tibble(
-      mean_dist_to_map = mean(dists),
-      sd_dist_to_map   = sd(dists),
-      cov_vol          = det(cov_mat)^(1 / ncol(samp_mat))
-    )
-  }) |>
-  ungroup() |>
-  left_join(latent_space |> select(id, position_group, archetype, minutes), by = "id")
-
-uncertainty_gt <- embedding_uncertainty |>
-  filter(name %in% posterior_plot_names) |>
-  arrange(desc(mean_dist_to_map)) |>
-  select(name, position_group, archetype, mean_dist_to_map, sd_dist_to_map) |>
-  gt() |>
-  fmt_number(columns = c(mean_dist_to_map, sd_dist_to_map), decimals = 3) |>
-  cols_label(
-    name             = "Player",
-    position_group   = "Position",
-    archetype        = "Archetype",
-    mean_dist_to_map = "Mean dist to MAP",
-    sd_dist_to_map   = "SD"
-  ) |>
-  tab_header(title = "Latent Embedding Uncertainty (Procrustes-aligned MCMC samples)")
-
-writeLines(as.character(as_latex(uncertainty_gt)),
-           file.path(plots_dir, "latent_space", "tables", "embedding_uncertainty.tex"))
-
-# ── 8. Nearest-neighbor tables ────────────────────────────────────────────────
-focal_ids <- latent_space |> filter(name %in% posterior_plot_names) |> pull(id)
-
-# 8A: Point-estimate neighbors from posterior mean positions
-pm_mat <- posterior_mean_latent |> arrange(id) |> select(all_of(dim_cols)) |> as.matrix()
-pm_ids <- posterior_mean_latent |> arrange(id) |> pull(id)
-D_mean <- as.matrix(dist(pm_mat))
-rownames(D_mean) <- colnames(D_mean) <- as.character(pm_ids)
-
-nn_mean <- map_dfr(focal_ids, function(fi) {
-  drow <- D_mean[as.character(fi), ]
-  drow[as.character(fi)] <- Inf
-  top5_ids   <- names(sort(drow)[1:5])
-  top5_dists <- as.numeric(sort(drow)[1:5])
-  tibble(focal_id    = fi,
-         neighbor_id = top5_ids,
-         rank_mean   = 1:5,
-         dist_mean   = top5_dists)
-}) |>
-  left_join(latent_space |> select(id, focal_name = name),
-            by = c("focal_id" = "id")) |>
-  left_join(latent_space |> select(id, neighbor_name = name,
-                                    neighbor_pos = position_group, archetype),
-            by = c("neighbor_id" = "id"))
-
-# 8B: Per-sample neighbor frequency across aligned MCMC snapshots
-n_snapshots <- rotated_posterior_df |> distinct(chain, sample) |> nrow()
-
-nn_freq_raw <- rotated_posterior_df |>
-  group_by(chain, sample) |>
-  group_modify(~ {
-    mat  <- .x |> arrange(id) |> select(all_of(dim_cols)) |> as.matrix()
-    ids  <- .x |> arrange(id) |> pull(id)
-    fidx <- which(ids %in% focal_ids)
-    D    <- as.matrix(dist(mat))
-    map_dfr(fidx, function(i) {
-      drow    <- D[i, ]
-      drow[i] <- Inf
-      top5    <- ids[order(drow)[1:5]]
-      tibble(focal_id = ids[i], neighbor_id = top5)
-    })
-  }) |>
-  ungroup()
-
-nn_freq <- nn_freq_raw |>
-  group_by(focal_id, neighbor_id) |>
-  summarise(freq_top5 = n() / n_snapshots, .groups = "drop")
-
-# 8C: Join point-estimate + frequency
-nn_top5 <- nn_mean |>
-  left_join(nn_freq, by = c("focal_id", "neighbor_id")) |>
-  mutate(freq_top5 = replace_na(freq_top5, 0))
-
-# 8D: Save one .tex file per focal player
-nn_top5 |>
-  group_by(focal_id, focal_name) |>
-  group_walk(~ {
-    tbl <- .x |>
-      arrange(rank_mean) |>
-      select(neighbor_name, neighbor_pos, archetype, rank_mean, dist_mean, freq_top5) |>
-      gt() |>
-      fmt_percent(columns = freq_top5, decimals = 0) |>
-      fmt_number(columns = c(rank_mean, dist_mean), decimals = 2) |>
-      cols_label(
-        neighbor_name = "Player",
-        neighbor_pos  = "Position",
-        archetype     = "Archetype",
-        rank_mean     = "Rank (mean)",
-        dist_mean     = "Distance (mean)",
-        freq_top5     = "% samples in top 5"
-      ) |>
-      tab_header(
-        title    = glue("5 Nearest Neighbors: {.y$focal_name}"),
-        subtitle = "Procrustes-aligned MCMC samples"
-      )
-    fname <- gsub("[^A-Za-z0-9_]", "_", .y$focal_name)
-    writeLines(as.character(as_latex(tbl)),
-               file.path(plots_dir, "latent_space", "tables", glue("{fname}_neighbors.tex")))
-  })
-
-} # end if (!is.null(latent_space))
 
 
 ### Causal Gap Plot: ATT by time-since-treatment (Injury vs Non-Injured control)

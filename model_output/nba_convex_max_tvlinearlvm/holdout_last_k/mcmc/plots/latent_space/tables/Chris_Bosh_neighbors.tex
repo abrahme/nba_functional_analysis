@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Chris Bosh\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Skal Labissiere & F & 4 & 1.00 & 2.30 & 10\% \\ 
-Yuta Watanabe & F & 4 & 2.00 & 2.36 & 6\% \\ 
-Richard Jefferson & F & 1 & 3.00 & 2.49 & 51\% \\ 
-Keldon Johnson & F & 1 & 4.00 & 2.63 & 18\% \\ 
-Tracy Moore & G & 4 & 5.00 & 2.63 & 2\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Skal Labissiere & F & 4 \\
+    2 & Yuta Watanabe & F & 4 \\
+    3 & Richard Jefferson & F & 1 \\
+    4 & Keldon Johnson & F & 1 \\
+    5 & Tracy Moore & G & 4 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Chris Bosh in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

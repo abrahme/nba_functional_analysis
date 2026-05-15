@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Donovan Mitchell\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Naz Reid & F & 1 & 1.00 & 1.99 & 34\% \\ 
-Jayson Tatum & F & 3 & 2.00 & 2.33 & 20\% \\ 
-Keion Brooks Jr. & F & 1 & 3.00 & 2.34 & 1\% \\ 
-Nae'Qwan Tomlin & F & 1 & 4.00 & 2.39 & 1\% \\ 
-Tracy Moore & G & 4 & 5.00 & 2.46 & 1\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Naz Reid & F & 1 \\
+    2 & Jayson Tatum & F & 3 \\
+    3 & Keion Brooks Jr. & F & 1 \\
+    4 & Nae'Qwan Tomlin & F & 1 \\
+    5 & Tracy Moore & G & 4 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Donovan Mitchell in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

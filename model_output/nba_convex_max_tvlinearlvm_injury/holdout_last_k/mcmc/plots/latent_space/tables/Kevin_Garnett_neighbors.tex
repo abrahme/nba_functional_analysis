@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Kevin Garnett\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Terrell Brandon & G & 2 & 1.00 & 2.93 & 24\% \\ 
-Tim Duncan & F & 4 & 2.00 & 3.10 & 49\% \\ 
-Al Jefferson & F & 2 & 3.00 & 3.20 & 21\% \\ 
-Chris Paul & G & 3 & 4.00 & 3.23 & 17\% \\ 
-Bam Adebayo & F & 3 & 5.00 & 3.23 & 26\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Terrell Brandon & G & 3 \\
+    2 & Tim Duncan & F & 5 \\
+    3 & Al Jefferson & F & 3 \\
+    4 & Chris Paul & G & 4 \\
+    5 & Bam Adebayo & F & 4 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Kevin Garnett in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

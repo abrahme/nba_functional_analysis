@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Shaquille O'Neal\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Joel Embiid & C & 2 & 1.00 & 2.47 & 50\% \\ 
-Karl-Anthony Towns & F & 2 & 2.00 & 2.47 & 46\% \\ 
-Anthony Davis & F & 2 & 3.00 & 2.64 & 47\% \\ 
-Tracy McGrady & G & 2 & 4.00 & 2.74 & 37\% \\ 
-Blake Griffin & F & 2 & 5.00 & 2.77 & 16\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Joel Embiid & C & 2 \\
+    2 & Karl-Anthony Towns & F & 2 \\
+    3 & Anthony Davis & F & 2 \\
+    4 & Tracy McGrady & G & 2 \\
+    5 & Blake Griffin & F & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Shaquille O'Neal in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

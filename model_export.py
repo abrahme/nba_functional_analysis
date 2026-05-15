@@ -41,6 +41,7 @@ if __name__ == "__main__":
     basis_dims      = cfg["basis_dims"]
     approx_x_dim    = cfg["approx_x_dim"]
     injury          = cfg["injury"]
+    censor_survival_at_injury = cfg.get("censor_survival_at_injury", False)
     position_group  = cfg["position_group"]
     players         = cfg["player_names"]
     de_trend_metrics = cfg["de_trend_metrics"]
@@ -110,6 +111,21 @@ if __name__ == "__main__":
     id_df = data[["id", "name", "position_group", "minutes"]].groupby("id").max().reset_index()
     id_df["id"] = id_df["id"].astype(str)
 
+    holdout_indices_path = os.path.join(model_dir, "holdout_indices.csv")
+    if os.path.exists(holdout_indices_path):
+        holdout_df = pd.read_csv(holdout_indices_path)
+        _age_cols_list = list(_age_cols)
+        _age_to_idx = {age: idx for idx, age in enumerate(_age_cols_list)}
+        _id_to_idx = {pid: idx for idx, pid in enumerate(id_df["id"].tolist())}
+        _mask = np.zeros((len(id_df), len(_age_cols_list)), dtype=bool)
+        for row in holdout_df.itertuples(index=False):
+            pid = str(row.player)
+            age = int(row.age)
+            if pid in _id_to_idx and age in _age_to_idx:
+                _mask[_id_to_idx[pid], _age_to_idx[age]] = True
+        validation_mask = _mask
+        print(f"Using holdout_indices.csv for validation_mask ({_mask.sum()} holdout cells).")
+
     for metric, metric_type, exposure in zip(metrics, metric_output, exposure_list):
         if metric_type in ["gaussian", "beta"]:
             league_avg_broadcasted = data.groupby(["year"]).apply(
@@ -151,15 +167,15 @@ if __name__ == "__main__":
 
     # Observed covariates: -log(draft_position_adj) and standardized height_inches
     # Player order matches create_fda_data groupby sort on id
-    _player_obs = data.groupby("id")[["draft_position_adj", "height_inches"]].first()
+    _player_obs = data.groupby("id")[["draft_position_adj", "height_inches", "position_group"]].first()
     _neg_log_draft = -np.log(_player_obs["draft_position_adj"].values.astype(float))
     _height_vals   = _player_obs["height_inches"].values.astype(float)
-    _obs_raw = np.stack([_neg_log_draft, _height_vals], axis=1)
-    _obs_mean = np.nanmean(_obs_raw, axis=0)
-    _obs_std  = np.nanstd(_obs_raw, axis=0) + 1e-8
-    obs_covariates = jnp.array(
-        np.nan_to_num((_obs_raw - _obs_mean) / _obs_std, nan=0.0)
-    )  # (n, 2), standardized; NaN (fake player, undrafted) → 0 = population mean
+    _obs_numeric = np.stack([_neg_log_draft, _height_vals], axis=1)
+    _obs_mean = np.nanmean(_obs_numeric, axis=0)
+    _obs_std  = np.nanstd(_obs_numeric, axis=0) + 1e-8
+    _obs_numeric_std = np.nan_to_num((_obs_numeric - _obs_mean) / _obs_std, nan=0.0)
+    _pos_dummies = pd.get_dummies(_player_obs["position_group"], drop_first=True).astype(float).values  # (n, 2): F, G vs C baseline
+    obs_covariates = jnp.array(np.concatenate([_obs_numeric_std, _pos_dummies], axis=1))  # (n, 4)
 
     surv_masks = None
     Y_surv = None
@@ -271,14 +287,129 @@ if __name__ == "__main__":
         _c_off_posterior = jnp.transpose(results_mcmc["c_offset"].squeeze(-1), (0, 1, 3, 2))  # (chains, draws, n, k)
         df = posterior_X_to_df(_c_off_posterior, id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], [])
         df.to_parquet(os.path.join(model_dir, "posterior_latent_X.parquet"), index=False)
-    else:
-        df = posterior_X_to_df(results_mcmc["X"], id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], [])
-        df.to_parquet(os.path.join(model_dir, "posterior_latent_X.parquet"), index=False)
+    # Non-naive X export is deferred until after the X_free assembly loop below.
+
+    def _safe_sd(arr, axis=-1):
+        sd = jnp.std(arr, axis=axis)
+        return jnp.nan_to_num(sd, nan=0.0, posinf=0.0, neginf=0.0)
+
+    def _scale_X_samples(X_samples, scale_vec):
+        return X_samples * scale_vec[..., None, :]
+
+    def _latent_weight_sd(weight_arr, latent_dim):
+        weight_latent = weight_arr[..., :latent_dim, :]
+        return _safe_sd(weight_latent, axis=-1)
+
+    def _latent_beta_sd(beta_arr, latent_dim):
+        beta_latent = beta_arr[..., :latent_dim, :, :]
+        return _safe_sd(beta_latent, axis=-1)
+
+    _supports_modal_exports = (not _is_naive) and ("linear" in model_name)
+    if _supports_modal_exports:
+        latent_dim = results_map["X"].shape[1]
+        if "t_max_raw" in results_mcmc and "c_max" in results_mcmc and "beta" in results_mcmc:
+            # Peak age modality (t_max_raw)
+            _t_sd = _latent_weight_sd(results_mcmc["t_max_raw"], latent_dim)
+            _X_peak_age = _scale_X_samples(results_mcmc["X"], _t_sd)
+            _df_peak_age = posterior_X_to_df(
+                _X_peak_age, id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], []
+            )
+            _df_peak_age.to_parquet(
+                os.path.join(model_dir, "posterior_latent_X_peak_age.parquet"), index=False
+            )
+            _t_map_sd = np.std(np.array(results_map["t_max_raw"][:latent_dim, :]), axis=-1)
+            _phi_peak_age = results_map["X"] * _t_map_sd[None, :]
+            _phi_peak_age_df = pd.DataFrame(
+                _phi_peak_age, columns=[f"Dim {i+1}" for i in range(_phi_peak_age.shape[1])]
+            )
+            _phi_peak_age_df = pd.concat([_phi_peak_age_df, id_df], axis=1)
+            _phi_peak_age_df.to_parquet(
+                os.path.join(model_dir, "phi_X_peak_age.parquet"), index=False
+            )
+
+            # Peak value modality (c_max)
+            _c_sd = _latent_weight_sd(results_mcmc["c_max"], latent_dim)
+            _X_peak_value = _scale_X_samples(results_mcmc["X"], _c_sd)
+            _df_peak_value = posterior_X_to_df(
+                _X_peak_value, id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], []
+            )
+            _df_peak_value.to_parquet(
+                os.path.join(model_dir, "posterior_latent_X_peak_value.parquet"), index=False
+            )
+            _c_map_sd = np.std(np.array(results_map["c_max"][:latent_dim, :]), axis=-1)
+            _phi_peak_value = results_map["X"] * _c_map_sd[None, :]
+            _phi_peak_value_df = pd.DataFrame(
+                _phi_peak_value, columns=[f"Dim {i+1}" for i in range(_phi_peak_value.shape[1])]
+            )
+            _phi_peak_value_df = pd.concat([_phi_peak_value_df, id_df], axis=1)
+            _phi_peak_value_df.to_parquet(
+                os.path.join(model_dir, "phi_X_peak_value.parquet"), index=False
+            )
+
+            # Curvature modalities (beta basis functions)
+            _beta_sd = _latent_beta_sd(results_mcmc["beta"], latent_dim)  # (chains, draws, latent_dim, M)
+            _beta_map_sd = np.std(np.array(results_map["beta"][:latent_dim, :, :]), axis=-1)  # (latent_dim, M)
+            _num_basis = _beta_sd.shape[-1]
+            for _m in range(_num_basis):
+                _m_tag = _m + 1
+                _m_sd = _beta_sd[..., _m]
+                _X_curv = _scale_X_samples(results_mcmc["X"], _m_sd)
+                _df_curv = posterior_X_to_df(
+                    _X_curv, id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], []
+                )
+                _df_curv.to_parquet(
+                    os.path.join(model_dir, f"posterior_latent_X_curvature_m{_m_tag}.parquet"),
+                    index=False,
+                )
+                _phi_curv = results_map["X"] * _beta_map_sd[:, _m][None, :]
+                _phi_curv_df = pd.DataFrame(
+                    _phi_curv, columns=[f"Dim {i+1}" for i in range(_phi_curv.shape[1])]
+                )
+                _phi_curv_df = pd.concat([_phi_curv_df, id_df], axis=1)
+                _phi_curv_df.to_parquet(
+                    os.path.join(model_dir, f"phi_X_curvature_m{_m_tag}.parquet"), index=False
+                )
     _summary_vars = ["sigma_beta", "sigma_beta_binomial", "sigma", "sigma_ar", "sigma_negative_binomial"]
     _summary_subset = {k: results_mcmc[k] for k in _summary_vars if k in results_mcmc}
     summary = az.summary(_summary_subset)
     print(summary)
     summary.to_parquet(os.path.join(model_dir, "posterior_variance_summary.parquet"), index=False)
+
+    # Export per-sample dispersion parameters labelled by metric so model_diagnostics.r
+    # can compute posterior log-loss intervals without needing to know index order.
+    _disp_rows = []
+    _g_i = _beta_i = _nb_i = _bb_i = 0
+    _disp_map = {
+        "gaussian":       ("sigma",                  lambda i: _g_i),
+        "beta":           ("sigma_beta",             lambda i: _beta_i),
+        "negative-binomial": ("sigma_negative_binomial", lambda i: _nb_i),
+        "beta-binomial":  ("sigma_beta_binomial",    lambda i: _bb_i),
+    }
+    for _mn, _fam in zip(metrics, metric_output):
+        if _fam not in _disp_map:
+            continue
+        _param_key, _ = _disp_map[_fam]
+        if _param_key not in results_mcmc:
+            continue
+        if _fam == "gaussian":
+            _s = np.array(results_mcmc[_param_key])[..., _g_i];  _g_i  += 1
+        elif _fam == "beta":
+            _s = np.array(results_mcmc[_param_key])[..., _beta_i]; _beta_i += 1
+        elif _fam == "negative-binomial":
+            _s = np.array(results_mcmc[_param_key])[..., _nb_i];  _nb_i += 1
+        elif _fam == "beta-binomial":
+            _s = np.array(results_mcmc[_param_key])[..., _bb_i];  _bb_i += 1
+        _nc, _nd = _s.shape[:2]
+        _ci, _di = np.meshgrid(np.arange(_nc), np.arange(_nd), indexing="ij")
+        _disp_rows.append(pd.DataFrame({
+            "chain": _ci.ravel(), "draw": _di.ravel(),
+            "metric": _mn, "family": _fam,
+            "value": _s.ravel(),
+        }))
+    if _disp_rows:
+        pd.concat(_disp_rows, ignore_index=True).to_parquet(
+            os.path.join(model_dir, "posterior_dispersion.parquet"), index=False
+        )
     survival_injury_keys = {
         "exit_global_offset",
         "exit",
@@ -293,6 +424,22 @@ if __name__ == "__main__":
     surv_masks = jnp.stack([data_entity["censored"] for data_entity in surv_data_set], -1)
     Y_surv = jnp.stack([data_entity["observations"] for data_entity in surv_data_set], -1)
 
+    if censor_survival_at_injury:
+        _onset = (
+            data[data["injury_period"] != "pre-injury"]
+            .groupby("id")["age"].min()
+        )
+        _player_ids = data.groupby("id").apply(lambda g: g["id"].iloc[0]).index.tolist()
+        _Y_surv_np = np.array(Y_surv)
+        _surv_masks_np = np.array(surv_masks)
+        for _i, _pid in enumerate(_player_ids):
+            if _pid in _onset.index:
+                _onset_age = float(_onset[_pid])
+                if _onset_age < _Y_surv_np[_i, 1]:
+                    _Y_surv_np[_i, 1] = _onset_age
+                    _surv_masks_np[_i, 1] = True
+        Y_surv = jnp.array(_Y_surv_np)
+        surv_masks = jnp.array(_surv_masks_np)
 
     # ── Log posterior via numpyro.infer.util.log_density ─────────────────────
     _lp_path = os.path.join(model_dir, "log_posterior.parquet")
@@ -305,11 +452,12 @@ if __name__ == "__main__":
             _lp_model = ConvexMaxInjuryTVLinearLVM(
                 latent_rank=basis_dims, output_shape=_output_shape, basis=basis,
                 injury_rank=5, num_injury_types=int(data["injury_code"].max()),
+                player_covariates=obs_covariates,
             )
         elif "AR" in model_name:
-            _lp_model = _ARLinearLVM(latent_rank=basis_dims, output_shape=_output_shape, basis=basis)
+            _lp_model = _ARLinearLVM(latent_rank=basis_dims, output_shape=_output_shape, basis=basis, player_covariates=obs_covariates)
         else:
-            _lp_model = ConvexMaxTVLinearLVM(latent_rank=basis_dims, output_shape=_output_shape, basis=basis)
+            _lp_model = ConvexMaxTVLinearLVM(latent_rank=basis_dims, output_shape=_output_shape, basis=basis, player_covariates=obs_covariates)
         _lp_model.initialize_priors(scale_values=scale_values)
 
         _first_obs_year = int(data.query("id != 99999999")["year"].min())
@@ -328,7 +476,6 @@ if __name__ == "__main__":
             "inference_method": "mcmc",
             "sample_free_indices": jnp.array(player_indices),
             "sample_fixed_indices": jnp.setdiff1d(_all_idx, jnp.array(player_indices), assume_unique=True),
-            "observed_covariates": obs_covariates,
             "hsgp_params": hsgp_params,
             "offsets": _lp_offsets,
             "ar_metric_indices": jnp.where(jnp.array(de_trend_indices))[0],
@@ -385,17 +532,48 @@ if __name__ == "__main__":
             if "hsgp" in model_name:
                 results_mcmc["X"] = jnp.tanh(results_mcmc["X"]) * 1.9
 
-    # Augment MAP and MCMC X with fixed observed covariates for trajectory/survival computations.
-    # posterior_X_to_df above uses the raw latent X (already saved); augmentation only affects
-    # the make_mu_* and survival utility calls below.
+    # For linear models: reconstruct total X = Z @ W_proj + sigma_X * X_raw (non-centered).
+    # X_loc (prior mean from covariates) is also exported for interpretability.
     # Naive model has no latent X; X_map_aug / X_mcmc_aug are left as None.
     if not _is_naive:
-        X_map_aug = jnp.concatenate([results_map["X"], obs_covariates], axis=-1)
-        _obs_bc = jnp.broadcast_to(
-            obs_covariates[None, None],
-            results_mcmc["X"].shape[:-1] + (obs_covariates.shape[-1],),
-        )
-        X_mcmc_aug = jnp.concatenate([results_mcmc["X"], _obs_bc], axis=-1)
+        if "linear" in model_name and "W_proj" in results_mcmc:
+            _Z = obs_covariates                                      # (n, 2)
+            # MAP total X
+            _W_map   = results_map["W_proj"]                         # (2, r)
+            _sX_map  = results_map["sigma_X"]                        # scalar
+            _X_loc_map = _Z @ _W_map                                 # (n, r)
+            _X_raw_map = jnp.zeros((_Z.shape[0], basis_dims))
+            _free_raw_map = results_map.get("X_free", results_map.get("X"))
+            if _free_raw_map is not None:
+                _X_raw_map = _X_raw_map.at[jnp.array(player_indices)].set(_free_raw_map)
+            X_map_aug = _X_loc_map + _sX_map * _X_raw_map            # (n, r)
+
+            # MCMC total X — results_mcmc["X"] now contains assembled X_raw (chains, draws, n, r)
+            _W_mc  = results_mcmc["W_proj"]                          # (chains, draws, 2, r) or (2, r)
+            _sX_mc = results_mcmc["sigma_X"]                         # (chains, draws) or scalar
+            _X_loc_mc = jnp.einsum("...pr,np->...nr", _W_mc, _Z)    # (chains, draws, n, r)
+            X_mcmc_aug = _X_loc_mc + _sX_mc[..., None, None] * results_mcmc["X"]  # (chains, draws, n, r)
+            results_mcmc["X"] = X_mcmc_aug                           # update in-place for downstream
+
+            # Export total X to parquet (non-naive, linear path)
+            df = posterior_X_to_df(X_mcmc_aug, id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], [])
+            df.to_parquet(os.path.join(model_dir, "posterior_latent_X.parquet"), index=False)
+
+            # Export X_loc (covariate prior mean) separately
+            df_loc = posterior_X_to_df(_X_loc_mc, id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], [])
+            df_loc.to_parquet(os.path.join(model_dir, "posterior_X_loc.parquet"), index=False)
+        else:
+            # Non-linear (rflvm/hsgp) or model without W_proj: keep old augmentation
+            X_map_aug = jnp.concatenate([results_map["X"], obs_covariates], axis=-1)
+            _obs_bc = jnp.broadcast_to(
+                obs_covariates[None, None],
+                results_mcmc["X"].shape[:-1] + (obs_covariates.shape[-1],),
+            )
+            X_mcmc_aug = jnp.concatenate([results_mcmc["X"], _obs_bc], axis=-1)
+
+            # Export raw latent X (non-naive, non-linear path)
+            df = posterior_X_to_df(results_mcmc["X"], id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], [])
+            df.to_parquet(os.path.join(model_dir, "posterior_latent_X.parquet"), index=False)
     else:
         X_map_aug = None
         X_mcmc_aug = None
@@ -1065,6 +1243,100 @@ if __name__ == "__main__":
             _de_trend_metric_names,
             os.path.join(model_dir, "plots", "calendar_year_trends", f"{model_name}_calendar_year_trends.png"),
         )
+
+    # ── Per-sample log-loss (posterior interval for predictive accuracy) ─────────
+    # For each (chain, draw), compute avg NLL per metric on holdout and in-sample
+    # splits using that sample's latent mean + dispersion parameters.
+    # Produces a compact (chain, draw, split, metric, avg_log_loss) parquet that
+    # model_diagnostics.r uses to build posterior log-loss intervals.
+    try:
+        from model.model_utils import summarize_metric_error_observed_substitutions as _sme
+        from model.model_utils import summarize_pointwise_log_likelihoods as _spll
+        _ll_rows = []
+        _n_chains_ll, _n_draws_ll = latent_val.shape[:2]
+        _val_mask_np  = np.asarray(validation_mask, dtype=bool)
+        _nval_mask_np = ~_val_mask_np
+        _Y_np  = np.asarray(Y)
+        _E_np  = np.asarray(exposures)
+        # ELPPD accumulators: log-sum-exp across samples, init at -inf
+        _n_players_ll, _n_ages_ll = _val_mask_np.shape
+        _elppd_acc = {
+            _sp: {_m: np.full((_n_players_ll, _n_ages_ll), -np.inf) for _m in metrics}
+            for _sp in ("holdout", "in_sample")
+        }
+        _n_samples_total = _n_chains_ll * _n_draws_ll
+        for _c in range(_n_chains_ll):
+            for _d in range(_n_draws_ll):
+                _mu_cd = np.asarray(latent_val[_c, _d])   # (k, n, t)
+                _sig_cd    = np.asarray(results_mcmc["sigma"][_c, _d])                    if "sigma"                    in results_mcmc else 1
+                _sig_b_cd  = np.asarray(results_mcmc["sigma_beta"][_c, _d])               if "sigma_beta"               in results_mcmc else 1
+                _sig_bb_cd = np.asarray(results_mcmc["sigma_beta_binomial"][_c, _d])      if "sigma_beta_binomial"      in results_mcmc else 1
+                _sig_nb_cd = np.asarray(results_mcmc["sigma_negative_binomial"][_c, _d])  if "sigma_negative_binomial"  in results_mcmc else 1
+                for _split, _mask in (("holdout", _val_mask_np), ("in_sample", _nval_mask_np)):
+                    _res = _sme(
+                        posterior_mean_map=_mu_cd,
+                        observations=_Y_np,
+                        exposures=_E_np,
+                        metric_outputs=metric_output,
+                        metrics=metrics,
+                        sigma_beta=_sig_b_cd,
+                        sigma=_sig_cd,
+                        sigma_beta_binomial=_sig_bb_cd,
+                        sigma_negative_binomial=_sig_nb_cd,
+                        evaluation_mask=_mask,
+                    )
+                    for _, row in _res.iterrows():
+                        _ll_rows.append({
+                            "chain": _c, "draw": _d, "split": _split,
+                            "metric": row["metric"], "avg_log_loss": row["avg_log_loss"],
+                        })
+                    # ELPPD: accumulate log p(y_i|theta_s) via log-sum-exp
+                    _pw = _spll(
+                        posterior_mean_map=_mu_cd,
+                        observations=_Y_np,
+                        exposures=_E_np,
+                        metric_outputs=metric_output,
+                        metrics=metrics,
+                        sigma_beta=_sig_b_cd,
+                        sigma=_sig_cd,
+                        sigma_beta_binomial=_sig_bb_cd,
+                        sigma_negative_binomial=_sig_nb_cd,
+                        evaluation_mask=_mask,
+                    )
+                    for _mn, _ll_arr in _pw.items():
+                        _elppd_acc[_split][_mn] = np.logaddexp(_elppd_acc[_split][_mn], _ll_arr)
+        if _ll_rows:
+            pd.DataFrame(_ll_rows).to_parquet(
+                os.path.join(model_dir, "posterior_metric_log_loss.parquet"), index=False
+            )
+        # Compute ELPPD = log(mean_s p(y_i|theta_s)) summed over holdout obs,
+        # plus SE via pointwise variance (Vehtari et al. 2017)
+        _elppd_rows = []
+        for _split in ("holdout", "in_sample"):
+            _mask_s = _val_mask_np if _split == "holdout" else _nval_mask_np
+            for _mn in metrics:
+                _elppd_i = _elppd_acc[_split][_mn] - np.log(_n_samples_total)
+                _valid_e = np.isfinite(_elppd_i) & _mask_s
+                _n_obs_e = int(np.sum(_valid_e))
+                if _n_obs_e > 0:
+                    _vals_e = _elppd_i[_valid_e]
+                    _elppd_sum = float(np.sum(_vals_e))
+                    _elppd_se = float(np.sqrt(_n_obs_e * np.var(_vals_e, ddof=1))) if _n_obs_e > 1 else float("nan")
+                else:
+                    _elppd_sum = _elppd_se = float("nan")
+                _elppd_rows.append({
+                    "split": _split, "metric": _mn,
+                    "elppd": _elppd_sum,
+                    "elppd_per_obs": _elppd_sum / _n_obs_e if _n_obs_e > 0 else float("nan"),
+                    "elppd_se": _elppd_se,
+                    "n_obs": _n_obs_e,
+                })
+        if _elppd_rows:
+            pd.DataFrame(_elppd_rows).to_parquet(
+                os.path.join(model_dir, "posterior_elppd.parquet"), index=False
+            )
+    except Exception as _e:
+        print(f"[warn] per-sample log-loss/ELPPD export skipped: {_e}")
 
     if third_deriv is not None:
         posterior_third_deriv = posterior_peaks_to_df(third_deriv, id_df["id"], metrics)

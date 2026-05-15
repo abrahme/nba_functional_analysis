@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Klay Thompson\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Jason Smith & F & 4 & 1.00 & 2.42 & 12\% \\ 
-Kelan Martin & F & 3 & 2.00 & 2.50 & 8\% \\ 
-Kendrick Nunn & G & 2 & 3.00 & 2.54 & 16\% \\ 
-Jack McVeigh & F & 3 & 4.00 & 2.58 & 1\% \\ 
-David Benoit & F & 4 & 5.00 & 2.59 & 8\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Jason Smith & F & 4 \\
+    2 & Kelan Martin & F & 3 \\
+    3 & Kendrick Nunn & G & 2 \\
+    4 & Jack McVeigh & F & 3 \\
+    5 & David Benoit & F & 4 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Klay Thompson in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

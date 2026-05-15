@@ -181,9 +181,18 @@ if [[ $START_PHASE -le 4 ]]; then
 echo "=== [$(date '+%H:%M:%S')] PHASE 4: R diagnostics ==="
 for m in "${SELECTED_MODELS[@]}"; do
     mdir=$(model_dir "$m" "$SCHEME")
+    # model_diagnostics.r runs for all models
     echo "  diagnostics: $mdir"
     $EXEC "$CTR_R" Rscript data_analysis/model_diagnostics.r \
         "$mdir" "$VALIDATION_YEAR" &
+    # team_window.r and latent_space.r require posterior_ar.parquet — not for naive
+    if [[ "$m" != "naive" ]]; then
+        echo "  team_window:   $mdir"
+        $EXEC "$CTR_R" Rscript data_analysis/team_window.r "$mdir" &
+        echo "  latent_space:  $mdir"
+        $EXEC "$CTR_R" Rscript data_analysis/latent_space.r "$mdir" &
+    fi
+    wait  # finish all scripts for this model before starting the next
 done
 
 # injury causal script runs alongside if injury is selected

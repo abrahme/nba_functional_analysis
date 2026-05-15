@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Devin Booker\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Jordan Poole & G & 4 & 1.00 & 1.91 & 31\% \\ 
-Cam Thomas & G & 4 & 2.00 & 2.41 & 16\% \\ 
-Trae Young & G & 4 & 3.00 & 2.50 & 9\% \\ 
-Jamal Murray & G & 3 & 4.00 & 2.57 & 32\% \\ 
-Keyonte George & G & 4 & 5.00 & 2.57 & 13\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Jordan Poole & G & 4 \\
+    2 & Cam Thomas & G & 4 \\
+    3 & Trae Young & G & 4 \\
+    4 & Jamal Murray & G & 3 \\
+    5 & Keyonte George & G & 4 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Devin Booker in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

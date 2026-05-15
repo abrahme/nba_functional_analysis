@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Scottie Pippen\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Jalen Williams & G & 2 & 1.00 & 1.15 & 20\% \\ 
-Mookie Blaylock & G & 2 & 2.00 & 1.17 & 15\% \\ 
-Eric Bledsoe & G & 2 & 3.00 & 1.32 & 35\% \\ 
-Scottie Barnes & G & 2 & 4.00 & 1.38 & 17\% \\ 
-Toni Kukoc & F & 2 & 5.00 & 1.39 & 29\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Jalen Williams & G & 2 \\
+    2 & Mookie Blaylock & G & 2 \\
+    3 & Eric Bledsoe & G & 2 \\
+    4 & Scottie Barnes & G & 2 \\
+    5 & Toni Kukoc & F & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Scottie Pippen in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

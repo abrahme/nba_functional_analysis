@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Manu Ginobili\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Paul George & G & 2 & 1.00 & 1.42 & 84\% \\ 
-Kawhi Leonard & F & 2 & 2.00 & 1.56 & 60\% \\ 
-Shai Gilgeous-Alexander & G & 2 & 3.00 & 1.63 & 34\% \\ 
-Jimmy Butler & G & 2 & 4.00 & 1.64 & 54\% \\ 
-John Stockton & G & 2 & 5.00 & 1.73 & 19\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Paul George & G & 2 \\
+    2 & Kawhi Leonard & F & 2 \\
+    3 & Shai Gilgeous-Alexander & G & 2 \\
+    4 & Jimmy Butler & G & 2 \\
+    5 & John Stockton & G & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Manu Ginobili in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

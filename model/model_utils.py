@@ -449,6 +449,177 @@ def summarize_metric_error_observed_substitutions(
     return pd.DataFrame(rows)
 
 
+def summarize_pointwise_log_likelihoods(
+    posterior_mean_map,
+    observations,
+    exposures,
+    metric_outputs,
+    metrics,
+    sigma_beta,
+    sigma,
+    sigma_beta_binomial,
+    evaluation_mask=None,
+    sigma_negative_binomial=1,
+    min_minutes=100,
+):
+    """Return {metric_name: (n_players, n_ages) array} of per-obs log p(y|theta).
+    NaN where invalid or masked. Used for ELPPD accumulation across MCMC samples."""
+    eps = 1e-8
+    sigma_index = 0
+    sigma_beta_index = 0
+    sigma_beta_binomial_index = 0
+    sigma_neg_bin_index = 0
+
+    obs_map, pred_map = create_metric_trajectory_map(
+        posterior_mean_map,
+        [],
+        observations,
+        exposures,
+        metric_outputs,
+        metrics,
+    )
+
+    obs_vals = np.asarray(obs_map["y"])
+    pred_vals = np.asarray(pred_map["y"])
+    observations_vals = np.asarray(observations)
+    exposure_vals = np.asarray(exposures)
+
+    _minutes_mask = np.ones(obs_vals.shape[:-1], dtype=bool)
+    if min_minutes > 0:
+        for _mi, _fam in enumerate(metric_outputs):
+            if _fam in ("poisson", "negative-binomial"):
+                _raw_exp = exposure_vals[_mi]
+                _minutes = np.exp(_raw_exp)
+                _minutes_mask = np.isfinite(_minutes) & (_minutes >= min_minutes)
+                break
+
+    eval_mask_array = None
+    if evaluation_mask is not None:
+        eval_mask_array = np.asarray(evaluation_mask)
+
+    result = {}
+
+    for metric_index, metric_name in enumerate(metrics):
+        family = metric_outputs[metric_index]
+        obs_metric = obs_vals[..., metric_index]
+        pred_metric = pred_vals[..., metric_index]
+        obs_raw_metric = observations_vals[metric_index]
+        raw_exposure = exposure_vals[metric_index]
+        diff = pred_metric - obs_metric
+
+        if family in ["poisson", "negative-binomial"]:
+            exposure_weight = np.exp(raw_exposure) / (obs_metric + eps)
+        elif family in ["beta", "gaussian"]:
+            exposure_weight = np.square(raw_exposure) - 1.0
+        elif family in ["beta-binomial", "binomial"]:
+            p_hat = np.clip(obs_metric, eps, 1.0 - eps)
+            exposure_weight = raw_exposure / (p_hat * (1.0 - p_hat))
+        else:
+            exposure_weight = np.ones_like(obs_metric)
+        exposure_weight = np.where(np.isfinite(exposure_weight) & (exposure_weight > 0), exposure_weight, 0.0)
+
+        valid = np.isfinite(exposure_weight) & evaluation_mask & np.isfinite(diff) & _minutes_mask
+        if eval_mask_array is not None:
+            if eval_mask_array.ndim == 2:
+                valid = valid & eval_mask_array
+            elif eval_mask_array.ndim == 3:
+                valid = valid & eval_mask_array[..., metric_index]
+
+        pred_prob = np.clip(pred_metric, eps, 1.0 - eps)
+        log_lik = np.full_like(pred_metric, np.nan, dtype=float)
+
+        if family in ["binomial", "beta-binomial"]:
+            n_trials = np.where(np.isfinite(raw_exposure) & (raw_exposure > 0), raw_exposure, np.nan)
+            y_count = obs_raw_metric
+            valid_count = (
+                valid
+                & np.isfinite(n_trials)
+                & np.isfinite(y_count)
+                & (n_trials >= 0)
+                & (y_count >= 0)
+                & (y_count <= n_trials)
+            )
+            log_comb = sps.gammaln(n_trials + 1.0) - sps.gammaln(y_count + 1.0) - sps.gammaln(n_trials - y_count + 1.0)
+            if family == "binomial":
+                ll = log_comb + y_count * np.log(pred_prob) + (n_trials - y_count) * np.log1p(-pred_prob)
+            else:  # beta-binomial
+                mu = pred_prob
+                phi = sigma_beta_binomial[sigma_beta_binomial_index]
+                alpha_bb = mu * phi
+                beta_bb = (1 - mu) * phi
+                log_beta_ratio = (
+                    sps.gammaln(y_count + alpha_bb)
+                    + sps.gammaln(n_trials - y_count + beta_bb)
+                    - sps.gammaln(n_trials + alpha_bb + beta_bb)
+                    - sps.gammaln(alpha_bb)
+                    - sps.gammaln(beta_bb)
+                    + sps.gammaln(alpha_bb + beta_bb)
+                )
+                ll = log_comb + log_beta_ratio
+                sigma_beta_binomial_index += 1
+            log_lik = np.where(valid_count, ll, np.nan)
+
+        elif family == "beta":
+            y_beta = np.clip(obs_raw_metric, eps, 1.0 - eps)
+            concentration = exposure_weight
+            alpha_b = np.maximum(pred_prob * sigma_beta[sigma_beta_index] * concentration, eps)
+            beta_b = np.maximum((1.0 - pred_prob) * sigma_beta[sigma_beta_index] * concentration, eps)
+            ll = (
+                sps.gammaln(alpha_b + beta_b)
+                - sps.gammaln(alpha_b)
+                - sps.gammaln(beta_b)
+                + (alpha_b - 1.0) * np.log(y_beta)
+                + (beta_b - 1.0) * np.log1p(-y_beta)
+            )
+            valid_beta = valid & np.isfinite(obs_raw_metric)
+            log_lik = np.where(valid_beta, ll, np.nan)
+            sigma_beta_index += 1
+
+        elif family == "poisson":
+            count_exposure = np.exp(raw_exposure)
+            y_count = np.where(np.isfinite(obs_raw_metric), np.maximum(obs_raw_metric, 0.0), np.nan)
+            mu_count = np.maximum(pred_metric * count_exposure / 36.0, eps)
+            ll = y_count * np.log(mu_count) - mu_count - sps.gammaln(y_count + 1.0)
+            valid_count = valid & np.isfinite(y_count) & np.isfinite(count_exposure) & (count_exposure > 0)
+            log_lik = np.where(valid_count, ll, np.nan)
+
+        elif family == "negative-binomial":
+            count_exposure = np.exp(raw_exposure)
+            y_count = np.where(np.isfinite(obs_raw_metric), np.maximum(obs_raw_metric, 0.0), np.nan)
+            mu_count = np.maximum(pred_metric * count_exposure / 36.0, eps)
+            r = np.maximum(
+                sigma_negative_binomial[sigma_neg_bin_index]
+                if hasattr(sigma_negative_binomial, "__len__")
+                else sigma_negative_binomial,
+                eps,
+            )
+            ll = (
+                sps.gammaln(y_count + r)
+                - sps.gammaln(r)
+                - sps.gammaln(y_count + 1.0)
+                + r * np.log(r / (r + mu_count))
+                + y_count * np.log(mu_count / (r + mu_count))
+            )
+            valid_count = valid & np.isfinite(y_count) & np.isfinite(count_exposure) & (count_exposure > 0)
+            log_lik = np.where(valid_count, ll, np.nan)
+            sigma_neg_bin_index += 1
+
+        elif family == "gaussian":
+            variance = jnp.square(sigma[sigma_index]) / np.maximum(exposure_weight, eps)
+            ll = -0.5 * (np.log(2.0 * np.pi * variance) + np.square(obs_metric - pred_metric) / variance)
+            log_lik = np.where(valid, ll, np.nan)
+            sigma_index += 1
+
+        else:
+            variance = 1.0 / np.maximum(exposure_weight, eps)
+            ll = -0.5 * (np.log(2.0 * np.pi * variance) + np.square(obs_metric - pred_metric) / variance)
+            log_lik = np.where(valid, ll, np.nan)
+
+        result[metric_name] = log_lik
+
+    return result
+
+
 def summarize_metric_error_injury_splits(
     posterior_mean_map,
     observations,

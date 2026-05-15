@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Kevin Durant\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Shai Gilgeous-Alexander & G & 4 & 1.00 & 3.42 & 14\% \\ 
-Luka Doncic & G & 4 & 2.00 & 3.49 & 23\% \\ 
-James Harden & G & 4 & 3.00 & 3.53 & 11\% \\ 
-Bol Bol & F & 4 & 4.00 & 3.63 & 17\% \\ 
-Dirk Nowitzki & F & 4 & 5.00 & 3.68 & 31\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Shai Gilgeous-Alexander & G & 4 \\
+    2 & Luka Doncic & G & 4 \\
+    3 & James Harden & G & 4 \\
+    4 & Bol Bol & F & 4 \\
+    5 & Dirk Nowitzki & F & 4 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Kevin Durant in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

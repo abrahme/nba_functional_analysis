@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Derrick Rose\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-A.J. Guyton & G & 4 & 1.00 & 1.72 & 4\% \\ 
-Miroslav Raduljica & C & 4 & 2.00 & 2.02 & 2\% \\ 
-Chris Hunter & C & 2 & 3.00 & 2.21 & 4\% \\ 
-Boniface N'Dong & C & 4 & 4.00 & 2.31 & 3\% \\ 
-Jerome Jordan & C & 4 & 5.00 & 2.32 & 4\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & A.J. Guyton & G & 4 \\
+    2 & Miroslav Raduljica & C & 4 \\
+    3 & Chris Hunter & C & 2 \\
+    4 & Boniface N'Dong & C & 4 \\
+    5 & Jerome Jordan & C & 4 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Derrick Rose in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

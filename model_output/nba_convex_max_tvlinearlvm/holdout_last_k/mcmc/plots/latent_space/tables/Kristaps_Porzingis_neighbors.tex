@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Kristaps Porzingis\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Chet Holmgren & C & 1 & 1.00 & 2.64 & 19\% \\ 
-Branden Carlson & C & 1 & 2.00 & 2.66 & 7\% \\ 
-Josh Minott & F & 1 & 3.00 & 2.78 & 4\% \\ 
-Trey Murphy III & F & 1 & 4.00 & 2.82 & 5\% \\ 
-Jordan McRae & G & 1 & 5.00 & 2.82 & 6\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Chet Holmgren & C & 1 \\
+    2 & Branden Carlson & C & 1 \\
+    3 & Josh Minott & F & 1 \\
+    4 & Trey Murphy III & F & 1 \\
+    5 & Jordan McRae & G & 1 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Kristaps Porzingis in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

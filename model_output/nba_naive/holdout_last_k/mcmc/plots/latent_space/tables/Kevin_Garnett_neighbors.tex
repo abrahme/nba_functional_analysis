@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Kevin Garnett\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Tim Duncan & F & 2 & 1.00 & 1.55 & 100\% \\ 
-Pau Gasol & F & 2 & 2.00 & 1.83 & 100\% \\ 
-Grant Hill & G & 2 & 3.00 & 2.37 & 60\% \\ 
-Marc Gasol & C & 2 & 4.00 & 2.54 & 41\% \\ 
-Anthony Davis & F & 2 & 5.00 & 2.56 & 33\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Tim Duncan & F & 2 \\
+    2 & Pau Gasol & F & 2 \\
+    3 & Grant Hill & G & 2 \\
+    4 & Marc Gasol & C & 2 \\
+    5 & Anthony Davis & F & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Kevin Garnett in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

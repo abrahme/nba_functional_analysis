@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Scottie Pippen\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Clyde Drexler & G & 4 & 1.00 & 1.82 & 19\% \\ 
-Bobby Phills & G & 4 & 2.00 & 2.00 & 11\% \\ 
-Craig Ehlo & G & 4 & 3.00 & 2.19 & 5\% \\ 
-Jonathan Mogbo & F & 3 & 4.00 & 2.20 & 2\% \\ 
-Toni Kukoc & F & 4 & 5.00 & 2.24 & 13\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Clyde Drexler & G & 4 \\
+    2 & Bobby Phills & G & 4 \\
+    3 & Craig Ehlo & G & 4 \\
+    4 & Jonathan Mogbo & F & 3 \\
+    5 & Toni Kukoc & F & 4 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Scottie Pippen in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

@@ -44,7 +44,7 @@ RUN (type -p wget >/dev/null || ( apt update &&  apt-get install wget -y)) \
 &&  apt install gh -y
 
 RUN Rscript -e '\
-  pkgs <- c("uwot","HDInterval","ggrepel","ggridges","ggnewscale","pheatmap","gt","ggdist","nnTensor","ggbeeswarm","umap","dbscan","arrow","patchwork"); \
+  pkgs <- c("uwot","HDInterval","ggrepel","ggridges","ggnewscale","pheatmap","gt","ggdist","nnTensor","ggbeeswarm","umap","dbscan","arrow","patchwork", "fdasrvf"); \
   install.packages(pkgs, repos="https://cloud.r-project.org"); \
   missing <- pkgs[!pkgs %in% installed.packages()[,"Package"]]; \
   if (length(missing)) stop(paste("Failed to install:", paste(missing, collapse=", ")))'

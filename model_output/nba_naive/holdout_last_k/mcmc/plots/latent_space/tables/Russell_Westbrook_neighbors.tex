@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Russell Westbrook\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Gary Payton & G & 2 & 1.00 & 1.51 & 59\% \\ 
-Paul Pierce & G & 2 & 2.00 & 1.52 & 85\% \\ 
-Vince Carter & G & 2 & 3.00 & 1.56 & 83\% \\ 
-James Harden & G & 2 & 4.00 & 1.64 & 37\% \\ 
-Karl Malone & F & 2 & 5.00 & 1.84 & 5\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Gary Payton & G & 2 \\
+    2 & Paul Pierce & G & 2 \\
+    3 & Vince Carter & G & 2 \\
+    4 & James Harden & G & 2 \\
+    5 & Karl Malone & F & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Russell Westbrook in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

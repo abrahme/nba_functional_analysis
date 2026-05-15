@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Russell Westbrook\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Willy Hernangomez & C & 4 & 1.00 & 2.19 & 34\% \\ 
-Johnathan Motley & F & 4 & 2.00 & 2.46 & 4\% \\ 
-Kenneth Lofton Jr. & F & 4 & 3.00 & 2.47 & 6\% \\ 
-Omer Yurtseven & C & 4 & 4.00 & 2.64 & 5\% \\ 
-DeJon Jarreau & G & 4 & 5.00 & 2.68 & 1\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Willy Hernangomez & C & 4 \\
+    2 & Johnathan Motley & F & 4 \\
+    3 & Kenneth Lofton Jr. & F & 4 \\
+    4 & Omer Yurtseven & C & 4 \\
+    5 & DeJon Jarreau & G & 4 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Russell Westbrook in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Kristaps Porzingis\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-John Collins & F & 2 & 1.00 & 1.47 & 45\% \\ 
-Karl-Anthony Towns & F & 2 & 2.00 & 1.60 & 34\% \\ 
-Jayson Tatum & F & 2 & 3.00 & 1.63 & 27\% \\ 
-Yao Ming & C & 2 & 4.00 & 1.66 & 11\% \\ 
-Clyde Drexler & G & 2 & 5.00 & 1.71 & 4\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & John Collins & F & 2 \\
+    2 & Karl-Anthony Towns & F & 2 \\
+    3 & Jayson Tatum & F & 2 \\
+    4 & Yao Ming & C & 2 \\
+    5 & Clyde Drexler & G & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Kristaps Porzingis in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

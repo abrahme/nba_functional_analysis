@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: LeBron James\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Luka Doncic & G & 3 & 1.00 & 3.33 & 28\% \\ 
-Giannis Antetokounmpo & G & 3 & 2.00 & 3.57 & 33\% \\ 
-Kevin Durant & G & 3 & 3.00 & 3.61 & 34\% \\ 
-Boban Marjanovic & C & 3 & 4.00 & 3.74 & 16\% \\ 
-Louis King & F & 4 & 5.00 & 3.88 & 5\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Luka Doncic & G & 4 \\
+    2 & Giannis Antetokounmpo & G & 4 \\
+    3 & Kevin Durant & G & 4 \\
+    4 & Boban Marjanovic & C & 4 \\
+    5 & Louis King & F & 5 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of LeBron James in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

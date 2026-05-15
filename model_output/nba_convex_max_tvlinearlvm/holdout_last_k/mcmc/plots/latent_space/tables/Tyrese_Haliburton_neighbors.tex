@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Tyrese Haliburton\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Jay Huff & C & 1 & 1.00 & 3.63 & 7\% \\ 
-Trey Murphy III & F & 1 & 2.00 & 3.72 & 11\% \\ 
-Kevin Johnson & G & 1 & 3.00 & 3.79 & 4\% \\ 
-Andrei Kirilenko & F & 2 & 4.00 & 3.80 & 36\% \\ 
-Rudy Fernandez & G & 3 & 5.00 & 3.88 & 2\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Jay Huff & C & 1 \\
+    2 & Trey Murphy III & F & 1 \\
+    3 & Kevin Johnson & G & 1 \\
+    4 & Andrei Kirilenko & F & 2 \\
+    5 & Rudy Fernandez & G & 3 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Tyrese Haliburton in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

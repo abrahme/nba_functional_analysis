@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Carmelo Anthony\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Cedric Ceballos & F & 1 & 1.00 & 1.75 & 21\% \\ 
-Nathan Knight & F & 3 & 2.00 & 1.80 & 2\% \\ 
-Nae'Qwan Tomlin & F & 3 & 3.00 & 1.92 & 1\% \\ 
-Dominique Wilkins & F & 1 & 4.00 & 1.96 & 2\% \\ 
-LaPhonso Ellis & F & 2 & 5.00 & 1.96 & 20\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Cedric Ceballos & F & 1 \\
+    2 & Nathan Knight & F & 3 \\
+    3 & Nae'Qwan Tomlin & F & 3 \\
+    4 & Dominique Wilkins & F & 1 \\
+    5 & LaPhonso Ellis & F & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Carmelo Anthony in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

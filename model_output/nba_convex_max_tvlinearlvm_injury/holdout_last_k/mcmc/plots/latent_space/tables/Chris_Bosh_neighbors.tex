@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Chris Bosh\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Gordon Hayward & F & 3 & 1.00 & 2.09 & 39\% \\ 
-Tosan Evbuomwan & F & 3 & 2.00 & 2.23 & 0\% \\ 
-Skal Labissiere & F & 3 & 3.00 & 2.35 & 3\% \\ 
-Manny Harris & G & 1 & 4.00 & 2.40 & 4\% \\ 
-Andrew Bynum & C & 3 & 5.00 & 2.42 & 7\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Gordon Hayward & F & 4 \\
+    2 & Tosan Evbuomwan & F & 4 \\
+    3 & Skal Labissiere & F & 4 \\
+    4 & Manny Harris & G & 2 \\
+    5 & Andrew Bynum & C & 4 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Chris Bosh in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

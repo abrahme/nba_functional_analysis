@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Shaquille O'Neal\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Sherman Douglas & G & 2 & 1.00 & 2.91 & 31\% \\ 
-Viacheslav Kravtsov & C & 2 & 2.00 & 3.19 & 5\% \\ 
-Nic Claxton & C & 2 & 3.00 & 3.45 & 3\% \\ 
-Archie Goodwin & G & 4 & 4.00 & 3.47 & 11\% \\ 
-Dwyane Wade & G & 1 & 5.00 & 3.54 & 56\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Sherman Douglas & G & 2 \\
+    2 & Viacheslav Kravtsov & C & 2 \\
+    3 & Nic Claxton & C & 2 \\
+    4 & Archie Goodwin & G & 4 \\
+    5 & Dwyane Wade & G & 1 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Shaquille O'Neal in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

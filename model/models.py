@@ -1700,12 +1700,13 @@ class HSGPLVMBase(LinearPredictorCompositionMixin, ABC):
 
 
 class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
-    def __init__(self, latent_rank: int, output_shape: tuple, basis) -> None:
-        self.r = latent_rank 
+    def __init__(self, latent_rank: int, output_shape: tuple, basis, player_covariates=None) -> None:
+        self.r = latent_rank
         self.n, self.j, self.k = output_shape
         self.basis = basis ### basis for time dimension
         self.t = len(basis)
         self.prior = {}
+        self.player_covariates = player_covariates  # (n, 2): standardized [neg_log_draft, height]
 
     def _project_X(self, X: jnp.ndarray, *, W: jnp.ndarray = None, lengthscale: jnp.ndarray = None):
         return X
@@ -1792,6 +1793,27 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         self.prior["sigma_year_ar"] = HalfNormal(.05)  # loosened: z~N(0,1) needs to give ~0.05/yr to track era trends (e.g. fg3a +1.6 log units over 43 yrs)
         self.prior["beta_year_ar"]  = Normal()
         self.prior["ar_0_year"]     = Normal()
+        # Structured prior for X: X = Z @ W_proj + sigma_X * X_raw (non-centered)
+        self.prior["sigma_W_proj"] = HalfNormal(1.0)  # hierarchical scale; shrinks to 0 if covariates uninformative
+        self.prior["W_proj"]       = Normal()          # sampled as (2, r) with scale sigma_W_proj
+        self.prior["sigma_X"]      = HalfNormal(0.5)  # residual scale, concentrated below 1
+
+    def _resolve_latent_X_structured(self, x_loc, x_scale, sample_free_indices, sample_fixed_indices):
+        """Non-centered parameterization: sample unit-normal residuals, then shift and scale."""
+        has_free  = np.asarray(sample_free_indices).size > 0
+        has_fixed = np.asarray(sample_fixed_indices).size > 0
+        if has_free:
+            n_free = len(sample_free_indices)
+            X_free_raw = numpyro.sample("X_free", Normal(jnp.zeros((n_free, self.r)), 1.0))
+            X_free = x_loc[sample_free_indices] + x_scale * X_free_raw
+            X = x_loc.at[sample_free_indices].set(X_free)
+            if has_fixed:
+                X = X.at[sample_fixed_indices].set(
+                    self.prior["X"].at[sample_fixed_indices].get()
+                )
+            return X
+        X_raw = numpyro.sample("X", Normal(jnp.zeros((self.n, self.r)), 1.0))
+        return x_loc + x_scale * X_raw
 
     def compute_survival_likelihood(self, X, offsets = {}) -> None:
         required_keys = ("entrance_times", "exit_times", "right_censor")
@@ -1856,7 +1878,7 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         trend_ar = context.get("trend_ar", jnp.zeros_like(mu))
         return self._build_linear_predictor(mu, k_indices, trend_ar[k_indices])
 
-    def model_fn(self, data_set, hsgp_params, offsets = {}, inference_method:str = "prior", sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, observed_covariates = None, ref_year_idx: int = 0) -> None:
+    def model_fn(self, data_set, hsgp_params, offsets = {}, inference_method:str = "prior", sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0) -> None:
         prior = (inference_method == "prior")
         num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
         num_neg_bins = data_set["negative-binomial"]["Y"].shape[0] if "negative-binomial" in data_set else 0
@@ -1877,7 +1899,6 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         if num_gaussians > 0:
             expanded_sigmas = self._sample_gaussian_sigmas(num_gaussians)
 
-
         if num_beta > 0:
             sigma_beta = self._resolve_prior("sigma_beta", sample_shape=(num_beta,))
             expanded_sigma_beta = jnp.tile(sigma_beta[:, None, None], (1, self.n, self.j))
@@ -1888,10 +1909,16 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
             sigma_beta_binomial = self._resolve_prior("sigma_beta_binomial", sample_shape=(num_beta_bins,))
             expanded_sigma_beta_bin = jnp.tile(sigma_beta_binomial[:, None, None], (1, self.n, self.j))
 
-        X = self._resolve_latent_X(sample_free_indices, sample_fixed_indices)
-        if observed_covariates is not None:
-            X = jnp.concatenate([X, jnp.asarray(observed_covariates)], axis=-1)
-        effective_r = X.shape[1]
+        sigma_W_proj = self._resolve_prior("sigma_W_proj")
+        _n_cov = self.player_covariates.shape[1] if self.player_covariates is not None else 2
+        W_proj = self._resolve_prior("W_proj", sample_shape=(_n_cov, self.r),
+                                     dist_override=Normal(0, sigma_W_proj))
+        sigma_X = self._resolve_prior("sigma_X")
+        Z = jnp.asarray(self.player_covariates) if self.player_covariates is not None \
+            else jnp.zeros((self.n, 2))
+        x_loc = Z @ W_proj
+        X = self._resolve_latent_X_structured(x_loc, sigma_X, sample_free_indices, sample_fixed_indices)
+        effective_r = self.r
 
         t_max_raw, c_max_raw = self._sample_max_raw_parameters(effective_r)
 
@@ -3133,8 +3160,8 @@ class ConvexMaxLinearTrendTVLinearLVM(ConvexMaxTVLinearLVM):
 
 
 class ConvexMaxARTVLinearLVM(ConvexMaxTVLinearLVM):
-    def __init__(self, latent_rank: int, output_shape: tuple, basis) -> None:
-        super().__init__(latent_rank, output_shape, basis)
+    def __init__(self, latent_rank: int, output_shape: tuple, basis, player_covariates=None) -> None:
+        super().__init__(latent_rank, output_shape, basis, player_covariates)
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
         self.prior["rho_ar"] = Uniform(-.5, .5)
@@ -3157,7 +3184,7 @@ class ConvexMaxARTVLinearLVM(ConvexMaxTVLinearLVM):
         return self._compute_ar_process_from_parameters(sigma_ar, rho_ar, z, ar_0)
 
 
-    def model_fn(self, data_set, hsgp_params, offsets = {}, inference_method:str = "prior", sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, observed_covariates = None, ref_year_idx: int = 0) -> None:
+    def model_fn(self, data_set, hsgp_params, offsets = {}, inference_method:str = "prior", sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0) -> None:
         prior = (inference_method == "prior")
         num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
         num_neg_bins = data_set["negative-binomial"]["Y"].shape[0] if "negative-binomial" in data_set else 0
@@ -3188,10 +3215,16 @@ class ConvexMaxARTVLinearLVM(ConvexMaxTVLinearLVM):
             sigma_beta_binomial = self._resolve_prior("sigma_beta_binomial", sample_shape=(num_beta_bins,))
             expanded_sigma_beta_bin = jnp.tile(sigma_beta_binomial[:, None, None], (1, self.n, self.j))
 
-        X = self._resolve_latent_X(sample_free_indices, sample_fixed_indices)
-        if observed_covariates is not None:
-            X = jnp.concatenate([X, jnp.asarray(observed_covariates)], axis=-1)
-        effective_r = X.shape[1]
+        sigma_W_proj = self._resolve_prior("sigma_W_proj")
+        _n_cov = self.player_covariates.shape[1] if self.player_covariates is not None else 2
+        W_proj = self._resolve_prior("W_proj", sample_shape=(_n_cov, self.r),
+                                     dist_override=Normal(0, sigma_W_proj))
+        sigma_X = self._resolve_prior("sigma_X")
+        Z = jnp.asarray(self.player_covariates) if self.player_covariates is not None \
+            else jnp.zeros((self.n, 2))
+        x_loc = Z @ W_proj
+        X = self._resolve_latent_X_structured(x_loc, sigma_X, sample_free_indices, sample_fixed_indices)
+        effective_r = self.r
 
         t_max_raw, c_max_raw = self._sample_max_raw_parameters(effective_r)
 
@@ -3359,8 +3392,8 @@ class ConvexMaxARTVLinearLVM(ConvexMaxTVLinearLVM):
 
 
 class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
-    def __init__(self, latent_rank: int, output_shape: tuple, basis, injury_rank: int, num_injury_types: int) -> None:
-        super().__init__(latent_rank, output_shape, basis)
+    def __init__(self, latent_rank: int, output_shape: tuple, basis, injury_rank: int, num_injury_types: int, player_covariates=None) -> None:
+        super().__init__(latent_rank, output_shape, basis, player_covariates)
         self.i = num_injury_types
         self.p = injury_rank
 
@@ -3486,7 +3519,7 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
         
 
 
-    def model_fn(self, data_set, hsgp_params, offsets = {}, inference_method:str = "prior", sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, observed_covariates=None, ref_year_idx: int = 0) -> None:
+    def model_fn(self, data_set, hsgp_params, offsets = {}, inference_method:str = "prior", sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0) -> None:
         prior = (inference_method == "prior")
         num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
         num_neg_bins = data_set["negative-binomial"]["Y"].shape[0] if "negative-binomial" in data_set else 0
@@ -3517,10 +3550,16 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
             sigma_beta_binomial = self._resolve_prior("sigma_beta_binomial", sample_shape=(num_beta_bins,))
             expanded_sigma_beta_bin = jnp.tile(sigma_beta_binomial[:, None, None], (1, self.n, self.j))
 
-        X = self._resolve_latent_X(sample_free_indices, sample_fixed_indices)
-        if observed_covariates is not None:
-            X = jnp.concatenate([X, jnp.asarray(observed_covariates)], axis=-1)
-        effective_r = X.shape[1]
+        sigma_W_proj = self._resolve_prior("sigma_W_proj")
+        _n_cov = self.player_covariates.shape[1] if self.player_covariates is not None else 2
+        W_proj = self._resolve_prior("W_proj", sample_shape=(_n_cov, self.r),
+                                     dist_override=Normal(0, sigma_W_proj))
+        sigma_X = self._resolve_prior("sigma_X")
+        Z = jnp.asarray(self.player_covariates) if self.player_covariates is not None \
+            else jnp.zeros((self.n, 2))
+        x_loc = Z @ W_proj
+        X = self._resolve_latent_X_structured(x_loc, sigma_X, sample_free_indices, sample_fixed_indices)
+        effective_r = self.r
 
         t_max_raw, c_max_raw = self._sample_max_raw_parameters(effective_r)
 
@@ -3814,7 +3853,6 @@ class ConvexMaxDecayInjuryTVLinearLVM(ConvexMaxInjuryTVLinearLVM):
         year_indices: jnp.ndarray = jnp.array([]),
         num_years: int = 1,
         num_de_trend: int = 0,
-        observed_covariates=None,
         ref_year_idx: int = 0,
     ) -> None:
         prior = inference_method == "prior"
@@ -3852,10 +3890,16 @@ class ConvexMaxDecayInjuryTVLinearLVM(ConvexMaxInjuryTVLinearLVM):
             sigma_beta_binomial = self._resolve_prior("sigma_beta_binomial", sample_shape=(num_beta_bins,))
             expanded_sigma_beta_bin = jnp.tile(sigma_beta_binomial[:, None, None], (1, self.n, self.j))
 
-        X = self._resolve_latent_X(sample_free_indices, sample_fixed_indices)
-        if observed_covariates is not None:
-            X = jnp.concatenate([X, jnp.asarray(observed_covariates)], axis=-1)
-        effective_r = X.shape[1]
+        sigma_W_proj = self._resolve_prior("sigma_W_proj")
+        _n_cov = self.player_covariates.shape[1] if self.player_covariates is not None else 2
+        W_proj = self._resolve_prior("W_proj", sample_shape=(_n_cov, self.r),
+                                     dist_override=Normal(0, sigma_W_proj))
+        sigma_X = self._resolve_prior("sigma_X")
+        Z = jnp.asarray(self.player_covariates) if self.player_covariates is not None \
+            else jnp.zeros((self.n, 2))
+        x_loc = Z @ W_proj
+        X = self._resolve_latent_X_structured(x_loc, sigma_X, sample_free_indices, sample_fixed_indices)
+        effective_r = self.r
 
         t_max_raw, c_max_raw = self._sample_max_raw_parameters(effective_r)
 

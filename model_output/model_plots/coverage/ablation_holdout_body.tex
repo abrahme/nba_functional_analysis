@@ -1,0 +1,264 @@
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrr}
+\toprule
+Metric & $q=5$ & $q=10$ & $q=15$ & $q=20$ \\
+  & \small RMSE (bias) & \small RMSE (bias) & \small RMSE (bias) & \small RMSE (bias) \\
+\midrule
+GP\% & 0.348 (-0.327) & 0.365 (-0.346) & \textbf{0.324 (-0.284)} & 0.329 (-0.261) \\
+USG\% & 0.055 (-0.004) & 0.052 (+0.008) & \textbf{0.049 (+0.001)} & 0.055 (-0.011) \\
+MPG & 0.172 (+0.053) & \textbf{0.138 (+0.038)} & 0.138 (+0.040) & 0.140 (+0.003) \\
+OBPM & 2.722 (+1.073) & \textbf{1.950 (+0.437)} & 2.299 (+0.931) & 2.300 (+0.728) \\
+DBPM & 1.206 (+0.121) & 1.054 (+0.060) & \textbf{0.992 (+0.152)} & 1.050 (+0.192) \\
+BLK & 0.282 (+0.241) & 0.280 (+0.232) & 0.320 (+0.221) & \textbf{0.224 (+0.173)} \\
+STL & 0.871 (+0.859) & \textbf{0.768 (+0.763)} & 0.882 (+0.852) & 0.855 (+0.797) \\
+AST & 1.058 (+1.052) & \textbf{0.999 (+0.919)} & 1.017 (+0.944) & 1.603 (+1.414) \\
+DREB & 1.017 (+0.087) & \textbf{1.002 (+0.361)} & 1.315 (+0.376) & 1.346 (+0.322) \\
+OREB & 0.632 (+0.554) & 0.616 (+0.558) & \textbf{0.500 (+0.482)} & 0.769 (+0.718) \\
+TOV & 0.675 (+0.096) & \textbf{0.547 (+0.217)} & 0.626 (+0.188) & 0.601 (+0.149) \\
+FTA & 2.041 (+1.823) & 1.996 (+1.904) & 2.147 (+1.927) & \textbf{1.829 (+1.661)} \\
+FG2A & 3.696 (+1.350) & 2.637 (+1.008) & \textbf{2.329 (+0.775)} & 2.443 (+0.654) \\
+FG3A & 1.034 (+0.636) & \textbf{0.803 (+0.446)} & 0.861 (+0.227) & 1.563 (+0.596) \\
+FT\% & 0.367 (-0.117) & 0.375 (-0.104) & \textbf{0.354 (-0.092)} & 0.420 (-0.116) \\
+FG2\% & 0.365 (+0.364) & \textbf{0.202 (+0.202)} & 0.406 (+0.406) & 0.497 (+0.496) \\
+FG3\% & 0.326 (+0.243) & 0.323 (+0.236) & 0.328 (+0.235) & \textbf{0.304 (+0.202)} \\
+\bottomrule
+\end{tabular}
+}
+\caption{Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Hold-out Last $k$ scheme. Best $q$ per metric in bold.}
+\label{tab:ablation_rmse_holdout_last_k}
+\end{table}
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrr}
+\toprule
+Metric & $q=5$ & $q=10$ & $q=15$ & $q=20$ \\
+  & \small Avg log-loss & \small Avg log-loss & \small Avg log-loss & \small Avg log-loss \\
+\midrule
+GP\% & 4.7460 & 4.4390 & \textbf{4.4323} & 4.6051 \\
+USG\% & -0.2808 & \textbf{-0.4735} & -0.2658 & 1.2623 \\
+MPG & -0.1830 & \textbf{-0.5299} & -0.4641 & -0.1465 \\
+OBPM & 2.6250 & \textbf{2.2972} & 2.5496 & 2.6406 \\
+DBPM & 1.7890 & 1.6639 & \textbf{1.6058} & 1.7110 \\
+BLK & 3.8142 & \textbf{3.6989} & 3.6995 & 4.1666 \\
+STL & 3.6501 & \textbf{3.5059} & 3.9289 & 4.1620 \\
+AST & 10.7633 & \textbf{6.7361} & 8.6713 & 9.0173 \\
+DREB & 5.9298 & \textbf{5.3413} & 6.7108 & 6.7570 \\
+OREB & 4.8648 & \textbf{4.7874} & 5.1115 & 6.9526 \\
+TOV & 7.4947 & \textbf{4.2825} & 4.6757 & 4.9137 \\
+FTA & 6.5294 & 4.8903 & \textbf{4.7959} & 5.1189 \\
+FG2A & 24.5122 & \textbf{5.3137} & 5.4264 & 6.1312 \\
+FG3A & 7.3186 & \textbf{4.7488} & 11.9823 & 6.4182 \\
+FT\% & 3.8041 & \textbf{3.0165} & 3.1821 & 4.5423 \\
+FG2\% & 5.5812 & 5.3538 & 4.1867 & \textbf{4.0452} \\
+FG3\% & 3.3400 & \textbf{2.7373} & 3.0712 & 3.2389 \\
+\bottomrule
+\end{tabular}
+}
+\caption{Holdout average log-loss by metric and latent dimension $q$ --- Hold-out Last $k$ scheme. Best $q$ per metric in bold.}
+\label{tab:ablation_logloss_holdout_last_k}
+\end{table}
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrr}
+\toprule
+Metric & $q=5$ & $q=10$ & $q=15$ & $q=20$ \\
+  & \small RMSE (bias) & \small RMSE (bias) & \small RMSE (bias) & \small RMSE (bias) \\
+\midrule
+GP\% & 0.351 (-0.332) & \textbf{0.323 (-0.271)} & 0.346 (-0.309) & 0.339 (-0.254) \\
+USG\% & 0.059 (-0.011) & \textbf{0.044 (+0.002)} & 0.057 (-0.002) & 0.054 (-0.005) \\
+MPG & 0.169 (-0.021) & \textbf{0.150 (+0.010)} & 0.154 (-0.013) & 0.169 (-0.020) \\
+OBPM & 2.207 (-0.061) & 2.015 (+0.042) & \textbf{1.956 (+0.089)} & 2.385 (+0.301) \\
+DBPM & 1.123 (-0.096) & \textbf{1.065 (-0.132)} & 1.068 (-0.042) & 1.115 (-0.098) \\
+BLK & \textbf{0.333 (+0.311)} & 0.385 (+0.313) & 0.745 (+0.385) & 0.471 (+0.378) \\
+STL & 1.013 (+1.004) & \textbf{0.839 (+0.836)} & 0.980 (+0.948) & 0.958 (+0.916) \\
+AST & 1.642 (+1.510) & \textbf{1.111 (+1.054)} & 1.594 (+1.147) & 2.227 (+1.718) \\
+DREB & 0.921 (+0.141) & \textbf{0.914 (+0.135)} & 1.279 (+0.215) & 1.077 (-0.099) \\
+OREB & 0.797 (+0.776) & \textbf{0.755 (+0.751)} & 0.793 (+0.791) & 1.027 (+0.943) \\
+TOV & 0.612 (+0.123) & \textbf{0.541 (+0.103)} & 0.696 (+0.129) & 0.676 (+0.206) \\
+FTA & \textbf{0.013 (+0.011)} & 1.188 (+1.188) & 3.888 (+3.888) & 5.251 (+5.251) \\
+FG2A & 2.955 (+1.053) & \textbf{2.452 (+0.866)} & 2.550 (+1.048) & 3.100 (+1.361) \\
+FG3A & 0.522 (+0.175) & \textbf{0.478 (+0.183)} & 0.850 (+0.143) & 0.881 (+0.237) \\
+FT\% & 0.321 (-0.212) & 0.269 (-0.179) & \textbf{0.261 (-0.161)} & 0.392 (-0.258) \\
+FG2\% & 0.476 (+0.475) & \textbf{0.231 (+0.230)} & 0.483 (+0.482) & 0.511 (+0.510) \\
+FG3\% & 0.297 (+0.267) & 0.264 (+0.240) & \textbf{0.247 (+0.201)} & 0.253 (+0.206) \\
+\bottomrule
+\end{tabular}
+}
+\caption{Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Hold-out First $k$ scheme. Best $q$ per metric in bold.}
+\label{tab:ablation_rmse_holdout_first_k}
+\end{table}
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrr}
+\toprule
+Metric & $q=5$ & $q=10$ & $q=15$ & $q=20$ \\
+  & \small Avg log-loss & \small Avg log-loss & \small Avg log-loss & \small Avg log-loss \\
+\midrule
+GP\% & 4.3306 & 4.2572 & \textbf{4.2469} & 4.5039 \\
+USG\% & 1.3367 & \textbf{-0.5575} & 0.8804 & 1.9868 \\
+MPG & -0.0764 & \textbf{-0.3306} & -0.0892 & 0.7004 \\
+OBPM & 2.3926 & 2.4647 & \textbf{2.3595} & 3.2155 \\
+DBPM & \textbf{1.7294} & 1.7497 & 1.8415 & 1.9788 \\
+BLK & 4.2331 & \textbf{4.2329} & 4.3229 & 5.5831 \\
+STL & 4.3126 & \textbf{4.2113} & 5.4118 & 4.8549 \\
+AST & \textbf{8.3284} & 10.1609 & 12.7373 & 13.5377 \\
+DREB & \textbf{6.6307} & 6.6449 & 9.5155 & 9.0298 \\
+OREB & 5.4540 & \textbf{5.2510} & 6.0947 & 9.2681 \\
+TOV & 5.8656 & \textbf{4.9162} & 6.6692 & 6.4209 \\
+FTA & 11.6497 & 5.8076 & \textbf{5.3035} & 5.7111 \\
+FG2A & 5.6990 & \textbf{5.4705} & 5.8750 & 7.5501 \\
+FG3A & \textbf{4.9599} & 5.0069 & 6.7304 & 7.3302 \\
+FT\% & 4.5339 & \textbf{3.8820} & 3.9860 & 4.4530 \\
+FG2\% & \textbf{4.3329} & 5.4724 & 5.2858 & 6.3067 \\
+FG3\% & 2.7480 & \textbf{2.7430} & 3.2327 & 3.0395 \\
+\bottomrule
+\end{tabular}
+}
+\caption{Holdout average log-loss by metric and latent dimension $q$ --- Hold-out First $k$ scheme. Best $q$ per metric in bold.}
+\label{tab:ablation_logloss_holdout_first_k}
+\end{table}
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrr}
+\toprule
+Metric & $q=5$ & $q=10$ & $q=15$ & $q=20$ \\
+  & \small RMSE (bias) & \small RMSE (bias) & \small RMSE (bias) & \small RMSE (bias) \\
+\midrule
+GP\% & 0.322 (-0.308) & 0.283 (-0.262) & 0.283 (-0.263) & \textbf{0.251 (-0.213)} \\
+USG\% & 0.026 (-0.001) & 0.025 (-0.001) & 0.024 (-0.000) & \textbf{0.024 (+0.001)} \\
+MPG & 0.146 (-0.007) & 0.124 (-0.008) & 0.115 (-0.011) & \textbf{0.109 (-0.012)} \\
+OBPM & 1.855 (+0.037) & 1.515 (-0.082) & 1.516 (-0.094) & \textbf{1.408 (-0.058)} \\
+DBPM & 0.968 (-0.117) & 0.758 (-0.063) & 0.757 (-0.049) & \textbf{0.735 (-0.054)} \\
+BLK & 0.241 (+0.210) & \textbf{0.211 (+0.187)} & 0.234 (+0.186) & 0.218 (+0.175) \\
+STL & 0.325 (+0.101) & 0.253 (+0.062) & \textbf{0.252 (+0.061)} & 0.258 (+0.055) \\
+AST & 0.632 (+0.073) & 0.589 (+0.083) & \textbf{0.561 (+0.075)} & 0.570 (+0.085) \\
+DREB & 0.713 (+0.085) & 0.687 (+0.079) & \textbf{0.642 (+0.074)} & 0.648 (+0.085) \\
+OREB & 0.344 (+0.101) & 0.312 (+0.069) & \textbf{0.305 (+0.062)} & 0.315 (+0.065) \\
+TOV & 0.439 (+0.150) & 0.390 (+0.100) & 0.389 (+0.092) & \textbf{0.384 (+0.082)} \\
+FTA & 1.226 (+0.418) & 0.924 (+0.211) & 0.898 (+0.185) & \textbf{0.850 (+0.200)} \\
+FG2A & 2.448 (+0.618) & 1.803 (+0.276) & 1.655 (+0.124) & \textbf{1.472 (+0.115)} \\
+FG3A & 0.251 (+0.137) & 0.163 (+0.093) & 0.115 (+0.051) & \textbf{0.078 (+0.039)} \\
+FT\% & 0.371 (-0.105) & 0.368 (-0.106) & 0.350 (-0.124) & \textbf{0.343 (-0.074)} \\
+FG2\% & 0.048 (+0.004) & 0.040 (+0.001) & 0.038 (-0.001) & \textbf{0.038 (-0.000)} \\
+FG3\% & 0.296 (+0.217) & 0.283 (+0.206) & 0.258 (+0.151) & \textbf{0.255 (+0.146)} \\
+\bottomrule
+\end{tabular}
+}
+\caption{Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Random Interior scheme. Best $q$ per metric in bold.}
+\label{tab:ablation_rmse_random_interior}
+\end{table}
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrr}
+\toprule
+Metric & $q=5$ & $q=10$ & $q=15$ & $q=20$ \\
+  & \small Avg log-loss & \small Avg log-loss & \small Avg log-loss & \small Avg log-loss \\
+\midrule
+GP\% & 4.0385 & \textbf{3.9988} & 4.0017 & 4.0100 \\
+USG\% & \textbf{-2.1330} & -2.0837 & -2.1088 & -2.0257 \\
+MPG & -0.5068 & -0.6404 & \textbf{-0.7070} & -0.6629 \\
+OBPM & 2.1527 & 1.9838 & 1.9757 & \textbf{1.9738} \\
+DBPM & 1.5131 & 1.2616 & 1.2830 & \textbf{1.2533} \\
+BLK & 4.3491 & 3.8873 & \textbf{3.8843} & 3.9396 \\
+STL & 4.3740 & 3.8159 & \textbf{3.8061} & 3.8539 \\
+AST & 6.4266 & 5.8677 & \textbf{5.6353} & 5.7524 \\
+DREB & 5.7282 & 5.5225 & \textbf{5.2773} & 5.2895 \\
+OREB & 4.7890 & 4.4651 & \textbf{4.4202} & 4.5097 \\
+TOV & 4.7485 & 4.4747 & 4.4644 & \textbf{4.4597} \\
+FTA & 5.0268 & 4.8048 & 4.8207 & \textbf{4.7810} \\
+FG2A & 5.6688 & 5.4618 & 5.3915 & \textbf{5.2949} \\
+FG3A & 4.8525 & 4.7995 & \textbf{4.7449} & 4.7628 \\
+FT\% & 3.8857 & 3.3910 & 3.4435 & \textbf{3.3277} \\
+FG2\% & 4.4640 & 4.0069 & 3.9330 & \textbf{3.9156} \\
+FG3\% & 2.7528 & \textbf{2.7363} & 2.8038 & 2.7416 \\
+\bottomrule
+\end{tabular}
+}
+\caption{Holdout average log-loss by metric and latent dimension $q$ --- Random Interior scheme. Best $q$ per metric in bold.}
+\label{tab:ablation_logloss_random_interior}
+\end{table}
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrr}
+\toprule
+Metric & $q=5$ & $q=10$ & $q=15$ & $q=20$ \\
+  & \small RMSE (bias) & \small RMSE (bias) & \small RMSE (bias) & \small RMSE (bias) \\
+\midrule
+GP\% & 0.339 (-0.329) & 0.299 (-0.275) & 0.299 (-0.279) & \textbf{0.266 (-0.233)} \\
+USG\% & 0.049 (+0.003) & 0.036 (+0.003) & \textbf{0.035 (+0.002)} & 0.050 (+0.002) \\
+MPG & 0.138 (-0.024) & 0.119 (-0.036) & 0.121 (-0.045) & \textbf{0.119 (-0.039)} \\
+OBPM & 2.110 (-0.199) & \textbf{1.650 (-0.478)} & 1.673 (-0.367) & 2.202 (-0.328) \\
+DBPM & 2.584 (-0.385) & 1.000 (-0.148) & \textbf{0.900 (-0.107)} & 0.938 (-0.096) \\
+BLK & \textbf{0.228 (+0.194)} & 0.408 (+0.276) & 0.506 (+0.313) & 0.493 (+0.353) \\
+STL & 0.953 (+0.953) & \textbf{0.953 (+0.953)} & 1.256 (+1.256) & 1.417 (+1.417) \\
+AST & 0.999 (+0.957) & \textbf{0.876 (+0.717)} & 0.959 (+0.834) & 1.576 (+1.167) \\
+DREB & 0.819 (+0.079) & \textbf{0.805 (+0.133)} & 0.883 (+0.096) & 0.924 (+0.075) \\
+OREB & \textbf{0.979 (+0.903)} & 2.062 (+1.852) & 2.752 (+2.355) & 2.201 (+1.653) \\
+TOV & 0.506 (+0.124) & \textbf{0.477 (+0.166)} & 0.546 (+0.189) & 0.506 (+0.152) \\
+FTA & \textbf{1.351 (+1.351)} & 2.250 (+2.250) & 3.749 (+3.749) & 3.760 (+3.760) \\
+FG2A & 3.013 (+1.048) & 2.113 (+0.593) & \textbf{2.031 (+0.656)} & 2.049 (+0.543) \\
+FG3A & 0.589 (+0.219) & \textbf{0.493 (+0.176)} & 1.542 (+0.148) & 0.960 (+0.214) \\
+FT\% & 0.346 (-0.196) & 0.252 (-0.207) & 0.258 (-0.121) & \textbf{0.252 (-0.132)} \\
+FG2\% & \textbf{0.052 (-0.009)} & 0.065 (-0.017) & 0.059 (-0.013) & 0.054 (-0.010) \\
+FG3\% & 0.299 (+0.184) & 0.274 (+0.129) & \textbf{0.261 (+0.113)} & 0.291 (+0.155) \\
+\bottomrule
+\end{tabular}
+}
+\caption{Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Hold-out Peak scheme. Best $q$ per metric in bold.}
+\label{tab:ablation_rmse_holdout_peak}
+\end{table}
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lrrrr}
+\toprule
+Metric & $q=5$ & $q=10$ & $q=15$ & $q=20$ \\
+  & \small Avg log-loss & \small Avg log-loss & \small Avg log-loss & \small Avg log-loss \\
+\midrule
+GP\% & 4.4692 & 4.0941 & \textbf{4.0707} & 4.1820 \\
+USG\% & -0.3700 & \textbf{-1.1589} & -0.9567 & 1.1046 \\
+MPG & -0.4636 & \textbf{-0.6501} & -0.5492 & -0.3797 \\
+OBPM & 2.3493 & 2.1670 & \textbf{2.1597} & 3.2392 \\
+DBPM & 5.2709 & 1.7214 & \textbf{1.5893} & 1.7070 \\
+BLK & 4.7682 & 4.6833 & \textbf{4.5373} & 5.6021 \\
+STL & 4.7270 & \textbf{4.2674} & 5.4316 & 5.6558 \\
+AST & 8.5676 & \textbf{7.7630} & 10.7137 & 11.5969 \\
+DREB & 6.5081 & \textbf{6.1633} & 7.0377 & 7.2978 \\
+OREB & 5.2604 & \textbf{5.1468} & 5.1961 & 7.1945 \\
+TOV & 6.0550 & \textbf{5.2888} & 6.6543 & 5.6034 \\
+FTA & \textbf{5.1173} & 6.0404 & 10.5512 & 7.0027 \\
+FG2A & 23.9776 & \textbf{6.5704} & 8.4741 & 7.4636 \\
+FG3A & 9.0069 & \textbf{6.2823} & 9.4837 & 10.9436 \\
+FT\% & 6.3253 & 5.2413 & \textbf{4.1890} & 4.3490 \\
+FG2\% & \textbf{4.5012} & 6.7889 & 6.4928 & 4.8634 \\
+FG3\% & \textbf{3.1104} & 3.5267 & 3.7631 & 4.7872 \\
+\bottomrule
+\end{tabular}
+}
+\caption{Holdout average log-loss by metric and latent dimension $q$ --- Hold-out Peak scheme. Best $q$ per metric in bold.}
+\label{tab:ablation_logloss_holdout_peak}
+\end{table}

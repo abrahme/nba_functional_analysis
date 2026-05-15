@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Shaquille O'Neal\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Dwyane Wade & G & 3 & 1.00 & 3.39 & 59\% \\ 
-Deron Williams & G & 3 & 2.00 & 3.73 & 39\% \\ 
-Mike Conley & G & 4 & 3.00 & 3.85 & 19\% \\ 
-Sean Lampley & F & 2 & 4.00 & 3.86 & 5\% \\ 
-Tim Duncan & F & 4 & 5.00 & 3.87 & 12\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Dwyane Wade & G & 4 \\
+    2 & Deron Williams & G & 4 \\
+    3 & Mike Conley & G & 5 \\
+    4 & Sean Lampley & F & 3 \\
+    5 & Tim Duncan & F & 5 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Shaquille O'Neal in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

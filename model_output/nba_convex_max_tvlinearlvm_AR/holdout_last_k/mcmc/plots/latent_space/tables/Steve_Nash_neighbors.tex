@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\fontsize{20}{25}\selectfont  5 Nearest Neighbors: Steve Nash\fontsize{12}{15}\selectfont } \\ 
-{\fontsize{14}{17}\selectfont  Procrustes-aligned MCMC samples\fontsize{12}{15}\selectfont }
-} 
-\fontsize{12.0pt}{14.0pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Mark Price & G & 2 & 1.00 & 3.36 & 22\% \\ 
-Beno Udrih & G & 2 & 2.00 & 3.42 & 15\% \\ 
-Jose Calderon & G & 4 & 3.00 & 3.43 & 46\% \\ 
-Sarunas Jasikevicius & G & 4 & 4.00 & 3.47 & 11\% \\ 
-Eldridge Recasner & G & 4 & 5.00 & 3.52 & 22\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Mark Price & G & 2 \\
+    2 & Beno Udrih & G & 2 \\
+    3 & Jose Calderon & G & 4 \\
+    4 & Sarunas Jasikevicius & G & 4 \\
+    5 & Eldridge Recasner & G & 4 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Steve Nash in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

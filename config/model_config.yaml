@@ -15,7 +15,7 @@
 
 defaults:
   inference_method: map
-  basis_dims: 21
+  basis_dims: 10
   metrics:
     - {name: games,       distribution: beta-binomial,    exposure: games_exposure}
     - {name: usg,         distribution: beta,             exposure: minutes}
@@ -59,6 +59,7 @@ defaults:
   model_dir: ~           # null → model_output/<model_name>/<inference_method>
   vectorized: false
   injury: false
+  censor_survival_at_injury: false
   debug_nan: false
   thinning: 250               # null → num_samples / 250
 
@@ -74,7 +75,7 @@ models:
         model_dir:        model_output/nba_convex_max_tvlinearlvm/mcmc
         init_path:        model_output/nba_convex_max_tvlinearlvm/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm/map/samples.pkl
-        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset]
+        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
         thinning: ~
 
   nba_convex_max_tvlinearlvm_holdout_last_k:
@@ -93,6 +94,127 @@ models:
     model_dir: model_output/nba_convex_max_tvlinearlvm/holdout_peak/map
     validation_scheme: holdout_peak
 
+  # ── ConvexMaxTVLinearLVM latent-dim ablations (q ∈ {5,10,15,20}) ────────────
+  nba_convex_max_tvlinearlvm_q5:
+    basis_dims: 5
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm_q5/map
+      mcmc:
+        model_dir:        model_output/nba_convex_max_tvlinearlvm_q5/mcmc
+        init_path:        model_output/nba_convex_max_tvlinearlvm_q5/holdout_last_k/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvlinearlvm_q5/holdout_last_k/map/samples.pkl
+        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_tvlinearlvm_q5_holdout_last_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q5/holdout_last_k/map
+    validation_scheme: holdout_last_k
+
+  nba_convex_max_tvlinearlvm_q5_holdout_first_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q5/holdout_first_k/map
+    validation_scheme: holdout_first_k
+
+  nba_convex_max_tvlinearlvm_q5_holdout_peak:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q5/holdout_peak/map
+    validation_scheme: holdout_peak
+
+  nba_convex_max_tvlinearlvm_q5_random_interior:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q5/random_interior/map
+    validation_scheme: random_interior
+
+  nba_convex_max_tvlinearlvm_q10:
+    basis_dims: 10
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm_q10/map
+      mcmc:
+        model_dir:        model_output/nba_convex_max_tvlinearlvm_q10/mcmc
+        init_path:        model_output/nba_convex_max_tvlinearlvm_q10/holdout_last_k/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvlinearlvm_q10/holdout_last_k/map/samples.pkl
+        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_tvlinearlvm_q10_holdout_last_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q10/holdout_last_k/map
+    validation_scheme: holdout_last_k
+
+  nba_convex_max_tvlinearlvm_q10_holdout_first_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q10/holdout_first_k/map
+    validation_scheme: holdout_first_k
+
+  nba_convex_max_tvlinearlvm_q10_holdout_peak:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q10/holdout_peak/map
+    validation_scheme: holdout_peak
+
+  nba_convex_max_tvlinearlvm_q10_random_interior:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q10/random_interior/map
+    validation_scheme: random_interior
+
+  nba_convex_max_tvlinearlvm_q15:
+    basis_dims: 15
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm_q15/map
+      mcmc:
+        model_dir:        model_output/nba_convex_max_tvlinearlvm_q15/mcmc
+        init_path:        model_output/nba_convex_max_tvlinearlvm_q15/holdout_last_k/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvlinearlvm_q15/holdout_last_k/map/samples.pkl
+        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_tvlinearlvm_q15_holdout_last_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q15/holdout_last_k/map
+    validation_scheme: holdout_last_k
+
+  nba_convex_max_tvlinearlvm_q15_holdout_first_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q15/holdout_first_k/map
+    validation_scheme: holdout_first_k
+
+  nba_convex_max_tvlinearlvm_q15_holdout_peak:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q15/holdout_peak/map
+    validation_scheme: holdout_peak
+
+  nba_convex_max_tvlinearlvm_q15_random_interior:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q15/random_interior/map
+    validation_scheme: random_interior
+
+  nba_convex_max_tvlinearlvm_q20:
+    basis_dims: 20
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm_q20/map
+      mcmc:
+        model_dir:        model_output/nba_convex_max_tvlinearlvm_q20/mcmc
+        init_path:        model_output/nba_convex_max_tvlinearlvm_q20/holdout_last_k/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvlinearlvm_q20/holdout_last_k/map/samples.pkl
+        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_tvlinearlvm_q20_holdout_last_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q20/holdout_last_k/map
+    validation_scheme: holdout_last_k
+
+  nba_convex_max_tvlinearlvm_q20_holdout_first_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q20/holdout_first_k/map
+    validation_scheme: holdout_first_k
+
+  nba_convex_max_tvlinearlvm_q20_holdout_peak:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q20/holdout_peak/map
+    validation_scheme: holdout_peak
+
+  nba_convex_max_tvlinearlvm_q20_random_interior:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q20/random_interior/map
+    validation_scheme: random_interior
+
   # ── ConvexMaxARTVLinearLVM ─────────────────────────────────────────────────
   nba_convex_max_tvlinearlvm_AR:
     fixed_param_path: ~
@@ -104,7 +226,7 @@ models:
         model_dir:        model_output/nba_convex_max_tvlinearlvm_AR/mcmc
         init_path:        model_output/nba_convex_max_tvlinearlvm/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm/map/samples.pkl
-        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset]
+        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
         thinning: ~
 
   nba_convex_max_tvlinearlvm_AR_holdout_last_k:
@@ -135,7 +257,7 @@ models:
         model_dir:        model_output/nba_convex_max_tvlinearlvm_injury/mcmc
         init_path:        model_output/nba_convex_max_tvlinearlvm_injury/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm_injury/map/samples.pkl
-        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset]
+        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
         thinning: 50
 
   nba_convex_max_tvlinearlvm_injury_holdout_last_k:
@@ -157,6 +279,78 @@ models:
     model_dir: model_output/nba_convex_max_tvlinearlvm_injury/holdout_peak/map
     validation_scheme: holdout_peak
     injury: true
+
+  # ── Two-Stage Causal Injury Pipeline ─────────────────────────────────────────
+  # Stage 1: fit aging curve on healthy observations only; survival censored at
+  # injury onset. Produces clean counterfactual plug-ins (X, beta, AR, survival).
+  # Stage 2: fix Stage 1 params; sample only injury-specific parameters.
+
+  nba_convex_max_tvlinearlvm_causal_prefit:
+    age_max: 45
+    m_time: 10
+    end_year: 2023
+    injury: true
+    censor_survival_at_injury: true
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm_causal/prefit/map
+
+  nba_convex_max_tvlinearlvm_AR_causal_prefit:
+    age_max: 45
+    m_time: 10
+    end_year: 2023
+    injury: true
+    censor_survival_at_injury: true
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm_AR_causal/prefit/map
+
+  nba_convex_max_tvlinearlvm_injury_causal:
+    age_max: 45
+    m_time: 10
+    end_year: 2023
+    injury: true
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm_injury_causal/map
+      mcmc:
+        model_dir:        model_output/nba_convex_max_tvlinearlvm_injury_causal/mcmc
+        init_path:        model_output/nba_convex_max_tvlinearlvm_causal/prefit/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvlinearlvm_causal/prefit/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
+                       sigma_W_proj, W_proj, sigma_X, X,
+                       exit, sigma_exit_scale, exit_rate, exit_global_offset, scale_global_log]
+        thinning: 250
+
+  nba_convex_max_tvlinearlvm_AR_injury_causal:
+    age_max: 45
+    m_time: 10
+    end_year: 2023
+    injury: true
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm_AR_injury_causal/map
+      mcmc:
+        model_dir:        model_output/nba_convex_max_tvlinearlvm_AR_injury_causal/mcmc
+        init_path:        model_output/nba_convex_max_tvlinearlvm_AR_causal/prefit/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvlinearlvm_AR_causal/prefit/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
+                       sigma_W_proj, W_proj, sigma_X, X,
+                       exit, sigma_exit_scale, exit_rate, exit_global_offset, scale_global_log,
+                       rho_ar, sigma_ar, beta_ar, AR_0]
+        thinning: 250
 
   # ── NaiveLinearLVM (AR(1) per player per metric, no latent factors) ──────────
   nba_naive:

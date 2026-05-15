@@ -58,7 +58,7 @@ RUN pip install \
         beautifulsoup4 \
         lxml \
         html5lib \
-        pyarrow
+        pyarrow 
 
 # RUN pip install --upgrade "jax[cuda12]"
 ENV XLA_FLAGS="--xla_cpu_multi_thread_eigen=true"

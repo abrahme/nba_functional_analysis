@@ -91,6 +91,7 @@ if __name__ == "__main__":
     basis_dims = args["basis_dims"]
     approx_x_dim = args["approx_x_dim"]
     injury = args["injury"]
+    censor_survival_at_injury = args.get("censor_survival_at_injury", False)
     age_min = args["age_min"]
     age_max = args["age_max"]
     start_year = args.get("start_year")
@@ -213,7 +214,28 @@ if __name__ == "__main__":
     _, surv_data_set, basis = create_surv_data(data, basis_dims, ["left", "right"], ["retirement"] * 2, [], validation_year=validation_year, age_min=age_min, age_max=age_max)
     surv_masks = jnp.stack([data_entity["censored"] for data_entity in surv_data_set], -1)
     censor = jnp.stack([data_entity["censor_type"] for data_entity in surv_data_set], -1)
-    Y_surv = jnp.stack([data_entity["observations"] for data_entity in surv_data_set], -1) 
+    Y_surv = jnp.stack([data_entity["observations"] for data_entity in surv_data_set], -1)
+
+    if censor_survival_at_injury:
+        # Censor the survival time at the first injury onset for each player.
+        # Players without injury are unaffected; the fake player (id=99999999) has no
+        # injury_period != "pre-injury" rows, so it is also unaffected.
+        _onset = (
+            data_all[data_all["injury_period"] != "pre-injury"]
+            .groupby("id")["age"].min()
+        )
+        _player_ids = data.groupby("id").apply(lambda g: g["id"].iloc[0]).index.tolist()
+        _Y_surv_np = np.array(Y_surv)
+        _surv_masks_np = np.array(surv_masks)
+        for _i, _pid in enumerate(_player_ids):
+            if _pid in _onset.index:
+                _onset_age = float(_onset[_pid])
+                if _onset_age < _Y_surv_np[_i, 1]:
+                    _Y_surv_np[_i, 1] = _onset_age
+                    _surv_masks_np[_i, 1] = True   # right-censor at injury onset
+        Y_surv = jnp.array(_Y_surv_np)
+        surv_masks = jnp.array(_surv_masks_np)
+
     surv_data_dict = {}
     surv_data_dict["observations"] = Y_surv - age_min
     surv_data_dict["censored"] = surv_masks
@@ -497,19 +519,21 @@ if __name__ == "__main__":
                 if "hsgp" in model_name:
                     hsgp_params["eigenvalues_X"] = sqrt_eigenvalues(2 *  jnp.ones(basis_dims)[..., None] , approx_x_dim, basis_dims)
 
-        # Observed covariates: -log(draft_position_adj) and height_inches
+        # Observed covariates: -log(draft_position_adj), height_inches, position one-hot
         # Player order matches create_basis groupby sort on id
-        player_obs = data.groupby("id")[["draft_position_adj", "height_inches"]].first()
+        player_obs = data.groupby("id")[["draft_position_adj", "height_inches", "position_group"]].first()
         neg_log_draft = -np.log(player_obs["draft_position_adj"].values.astype(float))
         height_vals   = player_obs["height_inches"].values.astype(float)
-        obs_raw = np.stack([neg_log_draft, height_vals], axis=1)  # (n, 2)
-        obs_mean = np.nanmean(obs_raw, axis=0)
-        obs_std  = np.nanstd(obs_raw, axis=0) + 1e-8
-        obs_covariates = jnp.array((obs_raw - obs_mean) / obs_std)  # (n, 2), standardized
+        obs_numeric = np.stack([neg_log_draft, height_vals], axis=1)  # (n, 2)
+        obs_mean = np.nanmean(obs_numeric, axis=0)
+        obs_std  = np.nanstd(obs_numeric, axis=0) + 1e-8
+        obs_numeric_std = (obs_numeric - obs_mean) / obs_std          # (n, 2), standardized
+        pos_dummies = pd.get_dummies(player_obs["position_group"], drop_first=True).astype(float).values  # (n, 2): F, G vs C baseline
+        obs_covariates = jnp.array(np.concatenate([obs_numeric_std, pos_dummies], axis=1))  # (n, 4)
+        model.player_covariates = obs_covariates
 
         model_args = {"data_set": data_dict,  "inference_method": inference_method, "sample_free_indices": jnp.array(player_indices),
-                      "sample_fixed_indices": jnp.setdiff1d(jnp.arange(covariate_X.shape[0]), jnp.array(player_indices), assume_unique=True),
-                      "observed_covariates": obs_covariates}
+                      "sample_fixed_indices": jnp.setdiff1d(jnp.arange(covariate_X.shape[0]), jnp.array(player_indices), assume_unique=True)}
         # Calendar-year trend params: all LinearLVM models accept these
         last_observed_year = int(data_all["year"].max())
         year_max_idx = last_observed_year - min_year
@@ -540,18 +564,27 @@ if __name__ == "__main__":
             if "max" in model_name:
                 model_args["offsets"].update({"t_max": offset_peak_absolute, "c_max": offset_max, "boundary_r": offset_boundary_r, "boundary_l": offset_boundary_l, "t_max_var": offset_peak_absolute_var, "c_max_var": offset_max_var})
                 if "AR" in model_name and (len(initial_params) > 0) & (inference_method == "mcmc"):
+                    # Reconstruct total X from non-centered parameterization when available
+                    def _reconstruct_X(params, Z):
+                        X_raw = params.get("X_free", params.get("X", jnp.zeros((Z.shape[0], basis_dims))))
+                        W_proj = params.get("W_proj", jnp.zeros((2, basis_dims)))
+                        sigma_X = params.get("sigma_X", 1.0)
+                        x_loc = Z @ W_proj
+                        n_free = X_raw.shape[0]
+                        return x_loc[:n_free] + sigma_X * X_raw
                     if "rflvm" in model_name:
-                        mu, *_ = make_mu_rflvm(jnp.concatenate([initial_params["X"], jnp.asarray(model_args["observed_covariates"])], axis=-1), initial_params["lengthscale_deriv"], initial_params["alpha"], initial_params["beta"],
+                        mu, *_ = make_mu_rflvm(initial_params["X"], initial_params["lengthscale_deriv"], initial_params["alpha"], initial_params["beta"],
                                             initial_params["W"], initial_params["W_t_max"], initial_params["W_c_max"],  initial_params["lengthscale"], initial_params["lengthscale_t_max"], initial_params["lengthscale_c_max"], initial_params["c_max"], initial_params["t_max_raw"], initial_params["sigma_t"],
                                             initial_params["sigma_c"], L_time, M_time, phi_time, x_time + L_time, model_args["offsets"])
                     elif "linear" in model_name:
-                        mu, *_ = make_mu_linear(jnp.concatenate([initial_params["X"], jnp.asarray(model_args["observed_covariates"])], axis=-1), initial_params["lengthscale_deriv"], initial_params["alpha"], initial_params["beta"], initial_params["c_max"], initial_params["t_max_raw"], 
+                        _X_init = _reconstruct_X(initial_params, obs_covariates)
+                        mu, *_ = make_mu_linear(_X_init, initial_params["lengthscale_deriv"], initial_params["alpha"], initial_params["beta"], initial_params["c_max"], initial_params["t_max_raw"],
                             initial_params["sigma_t"],
                             initial_params["sigma_c"], L_time, M_time, phi_time, x_time + L_time, basis_dims, model_args["offsets"])
                     elif "hsgp" in model_name:
-                        mu, *_ = make_mu_hsgp(jnp.concatenate([initial_params["X"], jnp.asarray(model_args["observed_covariates"])], axis=-1), initial_params["lengthscale_deriv"], initial_params["alpha"], initial_params["alpha_X"], initial_params["beta"], initial_params["lengthscale"],
-                            initial_params["lengthscale_c_max"], initial_params["lengthscale_t_max"],  
-                            initial_params["c_max"], initial_params["t_max_raw"], 
+                        mu, *_ = make_mu_hsgp(initial_params["X"], initial_params["lengthscale_deriv"], initial_params["alpha"], initial_params["alpha_X"], initial_params["beta"], initial_params["lengthscale"],
+                            initial_params["lengthscale_c_max"], initial_params["lengthscale_t_max"],
+                            initial_params["c_max"], initial_params["t_max_raw"],
                             initial_params["sigma_t"],
                             initial_params["sigma_c"],
                             L_time, M_time, phi_time, x_time + L_time, model_args["offsets"], basis_dims, 2 * jnp.ones(basis_dims)[..., None] ,approx_x_dim
@@ -618,14 +651,17 @@ if __name__ == "__main__":
             weights = samples["beta__loc"]
             # print(samples["sigma_beta__loc"], samples["sigma_beta_binomial__loc"])
             if "back_constrained" not in model_name:
-                X = samples["X__loc"]
                 if "hsgp" in model_name:
-                    X = jnp.tanh(X) * 1.9
-                # Append observed covariates so X matches the shape used during training.
-                # Only applies to linear LVM models; rflvm/hsgp models project X differently
-                # and their W matrices are sized to the sampled r, not r+p.
-                if "linear" in model_name and "observed_covariates" in model_args:
-                    X = jnp.concatenate([X, jnp.asarray(model_args["observed_covariates"])], axis=-1)
+                    X = jnp.tanh(samples["X__loc"]) * 1.9
+                elif "linear" in model_name:
+                    # Reconstruct total X = x_loc + sigma_X * X_raw (non-centered parameterization)
+                    _X_raw = samples.get("X_free__loc", samples.get("X__loc", jnp.zeros((len(player_indices), basis_dims))))
+                    _W_proj = samples.get("W_proj__loc", jnp.zeros((2, basis_dims)))
+                    _sigma_X = samples.get("sigma_X__loc", 1.0)
+                    _x_loc = obs_covariates[:_X_raw.shape[0]] @ _W_proj
+                    X = _x_loc + _sigma_X * _X_raw
+                else:
+                    X = samples["X__loc"]
 
             # X -= jnp.mean(X, keepdims = True, axis = 0)
             # X /= jnp.std(X, keepdims = True, axis = 0)
