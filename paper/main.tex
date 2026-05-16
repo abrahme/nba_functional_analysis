@@ -84,7 +84,7 @@ Our primary methodological contributions are:
 \begin{enumerate}
     \item \textbf{Concave Process prior.}  We derive a novel nonparametric prior over concave functions by applying a continuous push-forward map to an HSGP-approximated Gaussian process.  The resulting prior assigns positive mass to every uniform neighborhood of any continuous concave function, and admits an analytic closed form that makes it tractable for large-scale Bayesian inference.
 
-    \item \textbf{Joint multi-metric GPLVM with concavity constraints.}  We embed each player in a shared low-dimensional latent space and use this embedding to parameterize a family of metric-specific concave aging curves simultaneously.  By respecting the native sampling distributions of count and proportion data (Binomial, Negative-Binomial, Gaussian), the model avoids the Gaussianity assumptions that distort inference for low-minute players.
+    \item \textbf{Joint multi-metric GPLVM with concavity constraints.}  We embed each player in a shared low-dimensional latent space and use this embedding to parameterize a family of metric-specific concave aging curves simultaneously.  By respecting the native sampling distributions of count and proportion data (Binomial, Poisson, Negative-Binomial, Beta, Gaussian), the model avoids the Gaussianity assumptions that distort inference for low-minute players.
 
     \item \textbf{Survival-adjusted inference.}  An explicit Weibull career-duration model accounts for right-censored and left-truncated careers, correcting the survivor bias that arises when conditioning only on observed seasons.
 
@@ -120,7 +120,7 @@ First, there exists an inherent low-rank structure to player similarity, from a 
 % \subsection{Metric Correlation}
 In addition to a low rank structure among the players, there also exists some low rank structure in the metric space. For example, free throw rate is correlated with two-point field goal rate; those who attack the rim are more likely to get fouled.  Shooting metrics tend to be correlated with one another as well, and players who are good at offensive rebounding will also likely be good at rebounding on the defensive end (Figure~\ref{fig:metric_corr} in the Appendix).
 
-Finally, there is also some substructure to how metrics evolve with time. According to the literature of skill acquisition and aging, certain skills tend to rise in proficiency over time, and stabilize, resulting in a later peak. Other traits, like athleticism, are much more affected by aging tend to peak earlier, and drop off more rapidly. Although metrics might not be neatly categorized into these boxes, Figure~\ref{fig:metric_corr} shows that, at least empirically, there is some substructure to the metric information. We see the top left corner with a block of athleticism related skills ranging from block rate to defensive rebounding rate, followed by a block of shooting related skills (three point field goal rate to free throw percentage). 
+Finally, there is also some substructure to how metrics evolve with time. According to the literature of skill acquisition and aging, certain skills tend to rise in proficiency over time, and stabilize, resulting in a later peak. Other traits, like athleticism, are much more affected by aging tend to peak earlier, and drop off more rapidly. Although metrics might not be neatly categorized into these boxes, Figure~\ref{fig:metric_corr} (Appendix) shows that, at least empirically, there is some substructure to the metric information. We see the top left corner with a block of athleticism related skills ranging from block rate to defensive rebounding rate, followed by a block of shooting related skills (three point field goal rate to free throw percentage). 
 
 
 
@@ -167,28 +167,36 @@ The differences in profiles between different athletes motivate a modeling appro
 
 
 \subsection{Likelihood}
-Let $y_{ptk}$ be the measured outcome for player $p$ at age $t$, in metric $k$.  We model data at a yearly resolution between the ages of 18 and 40 ($t \in \{18, ..., 40\})$ over the 17 metrics shown in Figure \ref{fig:empirical_production_players} ($k \in \{1, ..., 17\})$. We primarily consider three classes of observation models: Gaussian, Binomial, and Negative-Binomial metrics. Metrics which are inherently fractions (e.g. field goal percentage) are assumed to be conditionally binomially distributed,
+Let $y_{ptk}$ be the measured outcome for player $p$ at age $t$, in metric $k$.  We model data at a yearly resolution between the ages of 18 and 40 ($t \in \{18, ..., 40\})$ over the 17 metrics shown in Figure \ref{fig:empirical_production_players} ($k \in \{1, ..., 17\})$. We consider five classes of observation models: Gaussian, Binomial, Poisson, Negative-Binomial, and Beta. Metrics which are inherently fractions (e.g.\ field goal percentage) are assumed to be conditionally Binomially distributed,
 
 \begin{equation}
 y_{ptk} \sim \text{Binomial}(n^k_{ptk}, \operatorname{logit}^{-1}(\mu_{ptk}))  \text{ if } \text{k} \in \mathcal{B}
 \end{equation}
 %
-where $n_{ptk}$ is the is the number of trials, $\mu_{ptk}$ is the logit success probability and $\mathcal{B}$ are the set of all indices corresponding to fractional-metrics.  Metrics which are naturally count data (e.g. assists) are modeled as conditionally Negative-Binomial offset by the total minutes played:
+where $n_{ptk}$ is the number of trials, $\mu_{ptk}$ is the logit success probability, and $\mathcal{B}$ is the set of indices corresponding to made-shot metrics.  Raw volume counts (BLK, STL, AST, DREB, OREB, TOV) are modeled as conditionally Poisson offset by minutes played:
 \begin{equation}
-y_{ptk} \sim \text{Negative-Binomial}(m_{pt} \cdot \exp(\mu_{ptk}), \tau^2_k)  \text{ if } \text{k} \in \mathcal{R} 
+y_{ptk} \sim \text{Poisson}(m_{pt} \cdot \exp(\mu_{ptk}))  \text{ if } \text{k} \in \mathcal{C}
 \end{equation}
-where $m_{pt}$ is the minutes played, $\mu_{ptk}$ is the log rate, $\tau^2_k$ is the overdispersion parameter and $\mathcal{R}$ are the set indices of all indices corresponding to count-based metrics. Lastly, for continuous valued metrics (often composite metrics like BPM), we assume a conditionally Gaussian model:
+where $\mathcal{C}$ is the set of Poisson count metrics. Attempt totals (FTA, FG2A, FG3A), which exhibit overdispersion beyond Poisson, are modeled as Negative-Binomial:
+\begin{equation}
+y_{ptk} \sim \text{Negative-Binomial}(m_{pt} \cdot \exp(\mu_{ptk}), \tau^2_k)  \text{ if } \text{k} \in \mathcal{R}
+\end{equation}
+where $\tau^2_k$ is the overdispersion parameter and $\mathcal{R}$ is the set of Negative-Binomial attempt metrics. For continuous valued metrics (composite metrics such as OBPM and DBPM), we assume a conditionally Gaussian model:
 \begin{equation}
 y_{ptk} \sim \text{Normal}(\mu_{ptk}, \sigma^2 / m_{pt})  \text{ if } \text{k} \in \mathcal{G}
 \end{equation}
-where $\mathcal{G}$ correspond to the indices of real-valued metrics.
+where $\mathcal{G}$ corresponds to the indices of real-valued metrics. Proportion metrics bounded in $(0,1)$ — specifically usage rate (USG) and percentage of available minutes played (PCT Minutes) — are modeled as conditionally Beta distributed:
+\begin{equation}
+y_{ptk} \sim \text{Beta}(\operatorname{logit}^{-1}(\mu_{ptk}),\, \tau^2_k)  \text{ if } \text{k} \in \mathcal{P}
+\end{equation}
+where $\mathcal{P}$ is the set of indices corresponding to proportion metrics and we use the mean-variance parameterization.
 
-Finally, we consider two special cases.  Let $g_{pt}$ denote the total number of games played and $m_{pt}$ denote the minutes per game played by player $p$ at time $t$.  We assume that
+Finally, we consider two special cases for playing-time.  Let $g_{pt}$ denote the total number of games played and $m_{pt}$ denote the minutes per game played by player $p$ at time $t$.  We assume that
 \begin{align}
 g_{pt} &\sim \text{Beta-Bin}(82, \operatorname{logit}^{-1}(\mu^g_{pt}), \tau_1^2)\\
 m_{pt} &\sim 48\cdot \text{Beta}(\operatorname{logit}^{-1}(\mu^m_{pt}), \tau_2^2 /g_{pt})
 \end{align}
-that is, games played follows a Beta-Binomial distribution with 82 trials (maximum number of games in a season) and minutes-per-game follows a scaled Beta distribution (scaled by 48 minutes maximum in a game).  In both of the above, we use the mean-variance parameterization.  
+that is, games played follows a Beta-Binomial distribution with 82 trials (the maximum games in a season) and minutes-per-game follows a scaled Beta distribution (scaled by 48, the maximum minutes in a game).  In both of the above, we use the mean-variance parameterization.  
 
 % % $\mathcal{B} =$ \{GP, FG2M, FG3M, FTM\}
 %  $\mathcal{R} =$ \{FGA, FG3A, FTA, BLK, OREB, DREB, TOV, AST, STL\},
@@ -532,7 +540,7 @@ where $\Theta$ denotes parameters for the underlying Gaussian process $g(x,z)$, 
 % \newtheorem{prop}{Proposition}
 \begingroup\sloppy
 \begin{proposition}\label{prop:concave_multi_gp}
-Assume \eqref{eq:concave_multi_rep} holds and let $g(x,t) = \sum_{i=1}^M \phi_i(x) \bigl( \sum_{l=1}^K S(\sqrt{\lambda_l})^{1/2} \alpha_l^i \psi_l(t)\bigr)$, where $\phi_i(x)$, $\psi_l(t)$ are RFF and HSGP basis functions for $x$ and $t$ respectively. Then,
+Assume \eqref{eq:concave_multi_rep} holds and let $g(x,t) = \sum_{i=1}^M \phi_i(x) \bigl( \sum_{l=1}^K S(\sqrt{\lambda_l})^{1/2} \alpha_l^i \psi_l(t)\bigr)$, where $\phi_i(x)$ is a projection of $x$ and $\psi_l(t)$ are HSGP basis functions for $t$. Then,
 \begin{align}
 \label{eq:final_gp}
     f^{(k,m)}(x,t| \Theta) &= f^{*}(x) \nonumber\\
@@ -546,7 +554,7 @@ as $K, M \xrightarrow{} \infty$.
 \end{proposition}
 \endgroup
 
-Much like the univariate case, $\Theta$ consists of the relevant HSGP parameters, as well as additionally, the RFF parameters controlling the lengthscale of $X$ and its basis projection. 
+Much like the univariate case, $\Theta$ consists of the relevant HSGP parameters, as well as additionally, the parameters controlling the projection of $X$.
 
 
 Much like the univariate case \ref{theorem:concave_max_approx},  parameters $f^{*}(x)$ and $t^{*}(x)$ can be specified as variationally independent processes, with the additional benefit that these parameters can now pool information across additional dimensions. As a result, we have now a process which can produce concavity across functions, while ensuring that these functions will behave similarly (peak value, peak location, etc.)  with respect to other input dimensions. 
@@ -673,7 +681,7 @@ The complete generative structure is summarised in Figure~\ref{fig:graphical_mod
 \label{fig:graphical_model}
 \end{figure}
 
-\noindent Priors are placed on all free parameters; Table~\ref{tab:prior_spec} summarizes the prior distributions for the key parameters.  Full details are given in Appendix~\ref{appendix:priors}.
+\noindent Priors are placed on all free parameters; Table~\ref{tab:prior_spec} summarizes the prior distributions for the key parameters.
 
 \begin{table}[h]
     \centering
@@ -706,11 +714,11 @@ The complete generative structure is summarised in Figure~\ref{fig:graphical_mod
 \section{Inference}
 \label{sec:inference}
 
-Inference for this model presents some unique challenges specific to the formulation. Bayesian factor models typically have rotational identifiability issues with either the loadings or the factors themselves, yielding a multi-modal posterior. This makes traditional Hamiltonian Monte Carlo (HMC) challenging. We therefore initialize the MCMC chains from the MAP estimate of the model in Section~\ref{sec:proposed_model} (fit without the AR(1) components), which concentrates the sampler near a well-identified mode before full sampling begins.
+Inference for this model presents some unique challenges specific to the formulation. Bayesian factor models typically have rotational identifiability issues with either the loadings or the factors themselves, yielding a multi-modal posterior. This makes traditional Hamiltonian Monte Carlo (HMC) challenging. We therefore initialize the MCMC chains from the MAP estimate of the full model in Section~\ref{sec:proposed_model}, which concentrates the sampler near a well-identified mode before full sampling begins.
 
-The MAP estimate is used to fix a small set of kernel hyperparameters whose posterior is well-determined by the full data: specifically, the concave GP lengthscale and amplitude ($\alpha$, \texttt{lengthscale}, $\sigma_t$, $\sigma_c$), the structured prior scales ($\sigma_W$, $\sigma_X$), and the Weibull scale offset parameters. All remaining parameters are sampled freely by MCMC: the latent embeddings $X_p$ for all players, the HSGP curve weights $\beta$, the per-metric peak parameters ($c_{\max}$, $t_{\max}^{\text{raw}}$), and the full AR(1) components ($\rho^k$, $\sigma^k_{\mathrm{AR}}$, $\mathbf{r}^k_p$). Fixing only hyperparameters while sampling all structural parameters follows the factor pre-training approach of \cite{mauri2025factorpretrainingbayesianmultivariate} and substantially reduces the multi-modality arising from rotational non-identifiability of the latent space. 
+The MAP estimate is used to fix a small set of kernel hyperparameters whose posterior is well-determined by the full data: specifically, the concave GP lengthscale and amplitude ($\alpha$, $l_k$, $\sigma_t$, $\sigma_c$), the structured prior scales ($\sigma_W$, $\sigma_X$), and the Weibull scale offset parameters. All remaining parameters are sampled freely by MCMC: the latent embeddings $X_p$ for all players, the HSGP curve weights $\beta$, the per-metric peak parameters ($c_{\max}$, $t_{\max}^{\text{raw}}$), and the full AR(1) components ($\rho^k$, $\sigma^k_{\mathrm{AR}}$, $\mathbf{r}^k_p$). Fixing only hyperparameters while sampling all structural parameters follows the factor pre-training approach of \cite{mauri2025factorpretrainingbayesianmultivariate} and substantially reduces the multi-modality arising from rotational non-identifiability of the latent space. 
 
-The MAP estimation and MCMC sampling were conducted in NumPyro with a GPU, with the MAP estimate obtained by Stochastic Gradient Descent (SGD) and MCMC samples acquired using No U-Turn Sampling (NUTS). Posterior samples were obtained from 4 chains, each running 2{,}000 post-warmup iterations (1{,}000 warmup) and thinned by a factor of 8, yielding 250 retained draws per chain (1{,}000 total); the injury variant uses 50 draws per chain (200 total) due to its higher computational cost. Full $\hat{R}$ diagnostics are in Appendix~\ref{sec:convergence}; for the predictive mean $\mu_{ptk}$, the fraction of (player $\times$ age) cells with $\hat{R} > 1.05$ ranges from 7.5\% (STL, USG) to 40.8\% (AST), with 16 of 17 metrics below 26\%. The elevated AST fraction reflects genuine mixing difficulty: assist production is highly player-specific and more sensitive to latent factor uncertainty than other count metrics, making between-chain agreement harder to achieve within the current chain budget. A latent dimension of $q = 10$ was used for the player embedding space, along with 250 Random Fourier Features, and 20 HSGP features, to approximate the CPLVM. The choice of $q$ was informed by a holdout ablation study (Appendix~\ref{sec:ablation_q}) comparing $q \in \{5, 10, 15, 20\}$ on the hold-out last-$k$ scheme; $q = 10$ achieved the lowest mean holdout RMSE (0.924 vs.\ 0.993, 1.016, 0.968 for $q = 5, 15, 20$) and the lowest mean log-loss (3.99), winning on 11 of 17 metrics by log-loss, while $q = 15$ and $q = 20$ showed signs of over-parameterization with degraded distributional calibration.
+The MAP estimation and MCMC sampling were conducted in NumPyro with a GPU, with the MAP estimate obtained by Stochastic Gradient Descent (SGD) and MCMC samples acquired using No U-Turn Sampling (NUTS). Posterior samples were obtained from 4 chains, each running 2{,}000 post-warmup iterations (1{,}000 warmup) and thinned by a factor of 8, yielding 250 retained draws per chain (1{,}000 total); the injury variant uses 50 draws per chain (200 total) due to its higher computational cost. Full $\hat{R}$ diagnostics are in Appendix~\ref{sec:convergence}; for the predictive mean $\mu_{ptk}$, the fraction of (player $\times$ age) cells with $\hat{R} > 1.05$ ranges from 7.5\% (STL, USG) to 40.8\% (AST), with 16 of 17 metrics below 26\%. The elevated AST fraction reflects genuine mixing difficulty: assist production is highly player-specific and more sensitive to latent factor uncertainty than other count metrics, making between-chain agreement harder to achieve within the current chain budget. A latent dimension of $q = 10$ was used for the player embedding space, along with 20 HSGP features, to approximate the CPLVM. The choice of $q$ was informed by a holdout ablation study (Appendix~\ref{sec:ablation_q}) comparing $q \in \{5, 10, 15, 20\}$ on the hold-out last-$k$ scheme; $q = 10$ achieved the lowest mean holdout RMSE (0.924 vs.\ 0.993, 1.016, 0.968 for $q = 5, 15, 20$) and the lowest mean log-loss (3.99), winning on 11 of 17 metrics by log-loss, while $q = 15$ and $q = 20$ showed signs of over-parameterization with degraded distributional calibration.
 
 \paragraph{Procrustes alignment for posterior analysis.}
 Because the latent embedding $X_p \in \mathbb{R}^q$ is only identified up to orthogonal rotation of its learned coordinates, raw MCMC draws from different chains occupy different rotation frames and cannot be directly compared or averaged.  To enable coherent posterior summaries, we apply Procrustes alignment to each (chain, draw) pair: given the MAP estimate $\hat{X}$ as a fixed reference, we find the orthogonal matrix $R^{(s)}$ minimising $\|\hat{X} - X^{(s)} R^{(s)}\|_F$ via singular value decomposition, and replace each sampled $X^{(s)}$ with the aligned version $X^{(s)} R^{(s)}$ before any downstream computation.  All posterior quantities reported in Section~\ref{sec:results} --- nearest-neighbor tables, archetype clustering, and embedding uncertainty --- are derived from these Procrustes-aligned samples.  Convergence diagnostics for the aligned draws are shown in Appendix~\ref{sec:convergence}.
@@ -734,10 +742,12 @@ Because the latent embedding $X_p \in \mathbb{R}^q$ is only identified up to ort
 
 
 
+\paragraph{Posterior predictive generation.}
+Many metrics are conditional on each other through the exposure structure: counting statistics depend on minutes played, which in turn depends on games played.  Posterior predictive curves are therefore generated in three stages.  \textbf{Stage 1}: games played (GP\%) is sampled from its posterior predictive distribution.  \textbf{Stage 2}: minutes per game (MPG) is sampled conditionally, with the stage-1 games draw used to form the total-minutes exposure.  \textbf{Stage 3}: all counting and rate metrics (FTA, AST, DREB, etc.) are sampled using the composite minutes from stages 1--2 as their exposure offset; shooting percentages are then derived from the sampled counts.  This cascade propagates exposure uncertainty forward: if the stage-1 draw yields zero games, all downstream metrics are zero, encoding the possibility that the player has exited the league.  The model thereby integrates production uncertainty with career-length uncertainty within a single posterior draw, which is the primary operational value for front-office forecasting.
+
 \section{Results And Discussion}
 \label{sec:results}
 \subsection{Example Posterior Curves}
-Many metrics are conditional on each other through the exposure structure: counting statistics depend on minutes played, which in turn depends on games played.  Posterior predictive curves are therefore generated in three stages.  \textbf{Stage 1}: games played (GP\%) is sampled from its posterior predictive distribution.  \textbf{Stage 2}: minutes per game (MPG) is sampled conditionally, with the stage-1 games draw used to form the total-minutes exposure.  \textbf{Stage 3}: all counting and rate metrics (FTA, AST, DREB, etc.) are sampled using the composite minutes from stages 1--2 as their exposure offset; shooting percentages are then derived from the sampled counts.  This cascade propagates exposure uncertainty forward: if the stage-1 draw yields zero games, all downstream metrics are zero, encoding the possibility that the player has exited the league.  The model thereby integrates production uncertainty with career-length uncertainty within a single posterior draw, which is the primary operational value for front-office forecasting. In \ref{fig:posterior_curves}, we highlight the ability of our model to accurately reflect domain knowledge. 
 
 Stephen Curry is known for his shooting and passing ability, relying on superior shot-making ability to create for himself and his teammates. He has a later peak across a variety of metrics. Figure~\ref{fig:posterior_curves} shows the joint model posterior for Curry; a direct comparison with the Naive AR baseline for both Curry and Joki\'{c} is provided in Appendix~\ref{sec:ar_comparison}.
 
@@ -764,7 +774,7 @@ Figure~\ref{fig:jokic_comparison} shows the joint model posterior for Nikola Jok
 \end{figure}
 
 The latent embedding further enables principled similarity retrieval.
-Table~\ref{tab:jokic_neighbors} shows Joki\'{c}'s five nearest neighbors in the Procrustes-aligned posterior latent space.
+Table~\ref{tab:Nikola_Jokic_neighbors} shows Joki\'{c}'s five nearest neighbors in the Procrustes-aligned posterior latent space.
 Giannis Antetokounmpo appears as the closest neighbor in 74\% of the 100 posterior draws, and Arvydas Sabonis (41\%) and Domantas Sabonis (21\%) both appear consistently --- reflecting the shared archetype of high-usage, pass-first big men whose production spans multiple metric dimensions.
 This kind of multi-dimensional similarity retrieval is only possible because the model jointly infers all metrics: a single-metric model cannot recover this cross-dimensional player archetype.
 
@@ -777,10 +787,9 @@ This kind of multi-dimensional similarity retrieval is only possible because the
   \label{fig:jokic_neighbor_curves}
 \end{figure}
 
-Table~\ref{tab:jokic_frechet_neighbors} shows Joki\'{c}'s five nearest neighbors under the Fr\'{e}chet curve distance, which measures dissimilarity in aggregate trajectory shape directly in curve space without the latent embedding.
+Table~\ref{tab:Nikola_Jokic_frechet_curve_neighbors} shows Joki\'{c}'s five nearest neighbors under the Fr\'{e}chet curve distance, which measures dissimilarity in aggregate trajectory shape directly in curve space without the latent embedding.
 
 \input{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/frechet/tables/Nikola_Jokic_frechet_curve_neighbors.tex}
-\label{tab:jokic_frechet_neighbors}
 
 The two neighbor lists share only Giannis Antetokounmpo; otherwise they are disjoint.
 The disagreement is mechanical and interpretable.
@@ -900,29 +909,9 @@ To see how various metrics peak, we compute the 95 \% CI of samples, averaged ov
 
 
 
-\subsection{Understanding Peak Asymmetry}
-One important question to investigate is the relative asymmetry of curves present about the peak, by metric. In context, this means analyzing how behavior of a player's ascent to their peak compares to their descent, across metrics. The behavior of the third derivative at the peak gives insight into this behavior. Recall that since our latent functions are concave by construction, such that the second derivative is always negative, and the first derivative at the peak is exactly 0. Thus, the third derivative indicates how the function will  behave on either side of the peak. For example, if the third derivative is positive, this indicates the second derivative is growing closer to 0, resulting in a flatter function post-peak. On the other hand, if the third derivative is negative, the function will become steeper post-peak. The magnitude of these values indicates the rate at which these changes are occurring.  In order to analyze this behavior, we plot the third derivative evaluated at the peak age of the estimated latent functions for each metric, for each player. We can see this in \ref{fig:third_deriv_curves}, where the latent curves are grouped by value of their third derivative. 
 
-Intuitively, we would expect skill-based metrics to rise at a faster rate than they would decay (have right-skew symmetry), since these metrics are less impacted by aging, and skill acquisition is usually rapid. Similarly, we would expect athleticism-based metrics to decay faster post-peak than pre-peak (have left-skew symmetry). 
-
-Blocks are based on athleticism measures, and exhibit an overwhelmingly positive third derivative, which does not seem to vary by position. On the other hand, free-throw percentage shows a skill-acquisition based profile, with most players exhibiting negative or close to 0 third derivatives. Games played also seems predominantly athleticism based, as older players tend to accumulate minor injuries, and are subject to load management. 
-
-
-\subsection{Cluster Analysis of Learned Latent Embedding}
-In this section, we investigate how well the model is able to characterize similarities in players by examining the learned latent embedding. 
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/map/latent_space_functional_pca.png}
-    \caption{We see that there is a separation of clusters by position type. We also notice that low minutes players are grouped together }
-    \label{fig:latent_space}
-\end{figure}
-
-In \ref{fig:latent_space}, we can see that a PCA projection of the resultant concatenated latent functional space yields neighborhoods which reflect similarity in position. A closer examination of sub-neighborhoods shows that within these sub-groups, similar players are placed next to each other. For example, a cluster of Chris Paul, Manu Ginobili, and Steve Nash. These are / were all highly effective point guards and play-makers. Notably, Russell Westbrook appears adjacent to Giannis Antetokounmpo, as both are known for their tendency to accumulate triple-doubles and their physical dominance despite positional differences. It is worth noting that Giannis and Dwayne Wade also share closeness; a comparison between their resultant projections can be seen in \ref{fig:posterior_curves}. 
-
-We can also look at the clustering of the covariance matrix, to assess similarity between players as well. In \ref{fig:cov_matrix}, we see that there is also grouping by position.
-
-\subsubsection{Archetype Discovery via Hierarchical Clustering}
+\subsection{Archetype Discovery via Hierarchical Clustering}
+\label{sec:latent_space}
 
 While the position-colored view confirms that the embedding respects broad categorical roles, the latent space contains richer structure than the three traditional positions can capture.  We apply Ward hierarchical clustering to the posterior mean latent coordinates (Procrustes-aligned across MCMC samples) and select $k=4$ archetypes based on the silhouette criterion.  Figure~\ref{fig:latent_archetypes} overlays these four clusters on a PCA of the posterior mean latent coordinates.
 
@@ -942,18 +931,22 @@ To understand what distinguishes these archetypes, we compute Frechet mean curve
     \label{fig:archetype_frechet_curves}
 \end{figure}
 
-Table~\ref{tab:archetype_summary} provides a quantitative characterisation of each archetype: posterior mean peak age and peak value per metric, with the three highest-minutes representative players listed at the foot of each column.
+Table~\ref{tab:archetype_summary} provides a quantitative characterisation of each archetype: posterior mean peak age and peak value per metric.
 
 \input{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/mcmc/archetype_summary_table.tex}
 
 Several patterns emerge.  \emph{All four archetypes} peak late in FG3A (three-point attempt rate) and DBPM (defensive box plus/minus), consistent with the finding in Section~\ref{sec:uncovering_metrics} that these are skill-acquisition metrics that develop with experience regardless of player type.  The archetypes diverge most sharply on athleticism metrics (BLK, OREB, STL, USG) and on overall production ceiling.  Reading the cluster assignments directly from Figure~\ref{fig:latent_archetypes}:
 
-\input{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/mcmc/archetype_bullets.tex}
-
 The most telling cross-positional grouping is the archetype that unites elite playmaker-scorers across all five traditional positions.  A positional-dummy approach would never cluster a pass-first center alongside a perimeter ball-handler; the jointly learned latent embedding does so because both share the same multi-metric aging structure --- creative playmaking, high offensive efficiency (OBPM), and durable late-peaking production --- rather than physical role.
 
-\subsubsection{Modality-Specific Archetype Clustering}
-To test how stable archetype structure is across different feature modalities, we repeat hierarchical clustering using peak-age and peak-value summaries of each player's metric curves. Figures~\ref{fig:modality_pca}, \ref{fig:modality_k_diagnostics}, and \ref{fig:modality_dendrograms} show the PCA of the modality-specific latent space, cluster-selection diagnostics, and Ward dendrograms for both modalities. The peak-age clustering emphasizes early- vs late-peaking player profiles, while peak-value clustering emphasizes differences in ceiling and overall production magnitude.
+\subsection{Modality-Specific Archetype Clustering}
+Each modality-specific embedding is derived from the bilinear structure of the model.  For a given modality $m$ (peak timing, peak value, or curvature basis $m$), the player-metric effect is $X_p^\top \boldsymbol{\gamma}^{k,(m)}$, where $\boldsymbol{\gamma}^{k,(m)} \in \mathbb{R}^q$ is the per-metric weight vector drawn from the posterior.  We rescale each latent dimension $j$ of $X_p$ by the posterior standard deviation of $\gamma^{k,(m)}_j$ across all $K$ metrics, forming the modality-specific coordinate
+\[
+  \tilde{X}_{pj}^{(m)} \;=\; X_{pj} \cdot \mathrm{std}_{k}\!\bigl(\gamma^{k,(m)}_j\bigr).
+\]
+This operation siphons the learned feature importance from the weight matrix into the latent coordinates: a dimension $j$ whose weight varies substantially across metrics is strongly modality-discriminating and is amplified; a dimension whose weight is nearly constant across metrics contributes uniformly to all metrics and is suppressed.  The raw archetype clustering of Section~\ref{sec:latent_space} uses $X_p$ directly, treating all latent dimensions symmetrically and remaining agnostic to any particular facet of the career arc.
+
+The rescaled coordinates $\tilde{X}^{(m)}$ are Procrustes-aligned across posterior draws and subjected to the same Ward hierarchical clustering.  Figures~\ref{fig:modality_pca}, \ref{fig:modality_k_diagnostics}, and \ref{fig:modality_dendrograms} show the PCA, cluster-selection diagnostics, and Ward dendrograms for the peak-timing ($\boldsymbol{\gamma}^k_{\text{age}}$) and peak-value ($\boldsymbol{\gamma}^k_{\text{val}}$) modalities.  Curvature-based modalities (HSGP basis weights $\beta^k_m$, $m=1,\ldots,M$) are shown in Appendix~\ref{sec:latent_appendix}.  The peak-timing modality groups players by \emph{when} their metrics peak; the peak-value modality groups by \emph{how high} they peak.
 
 \begin{figure}[htbp]
     \centering
@@ -1002,14 +995,58 @@ To test how stable archetype structure is across different feature modalities, w
         \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/peak_value/archetype_dendrogram.png}
         \caption{Peak-value modality.}
     \end{subfigure}
-    \caption{Ward dendrograms for modality-specific archetype clustering using peak-age and peak-value summaries.}
+    \caption{Ward dendrograms for modality-specific archetype clustering using peak-age and peak-value summaries. Ward clustering uses the unscaled modality-specific coordinates so that the modality weights are preserved.}
     \label{fig:modality_dendrograms}
 \end{figure}
 
-\subsubsection{Latent Space Permanence}
-A practical question for front offices is how quickly a player's latent position stabilises as career data accumulates.  Because $X_p$ is inferred from the full longitudinal metric profile, the posterior over $X_p$ will contract as more seasons are observed.  For a rookie with one season of data, the posterior credible ellipse is wide, reflecting genuine uncertainty about where the player will ultimately reside in the embedding.  As additional seasons are observed, the posterior concentrates, and the player's archetype assignment becomes increasingly stable.
+To characterise each modality's archetypes concretely, Tables~\ref{tab:arch_reps_peak_age} and~\ref{tab:arch_reps_peak_value} list the top players by career minutes within each archetype for the peak-age and peak-value modalities respectively.  The caption of each table reports the three latent dimensions with the highest variance in the unscaled modality-specific coordinates --- these are the dimensions that simultaneously vary most across players \emph{and} carry the largest modality weight $\mathrm{std}_k(\gamma^{k,(m)}_j)$, so they drive archetype separation most strongly in that modality.  Figures~\ref{fig:dim_var_peak_age} and~\ref{fig:dim_var_peak_value} show the full per-dimension variance profiles.
 
-The structured prior on $X_p$ (Equation~\ref{eq:structured_prior}) imposes a mild regularisation that pulls low-data players toward the centre of the embedding; this is by design --- we should be uncertain about a player with limited evidence.  Posterior uncertainty therefore has a direct interpretation for decision-makers: a wide credible region indicates that a player's true archetype has not yet been determined by the data, while a narrow region indicates confident placement.  Players who experience anomalous production jumps (e.g.\ a breakout third season) will shift their posterior mean substantially, whereas players whose production is consistent from debut will converge quickly to a stable position.  In our model, convergence to a stable archetype assignment typically requires 2--3 seasons of above-replacement minutes, consistent with conventional scouting timelines for evaluating prospect development.
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[t]{0.48\linewidth}
+        \centering
+        \IfFileExists{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/peak_age/dim_variance.png}{%
+          \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/peak_age/dim_variance.png}%
+        }{\textit{[Run latent\_space.r to generate]}}
+        \caption{Peak-age modality.}
+        \label{fig:dim_var_peak_age}
+    \end{subfigure}%
+    \hfill
+    \begin{subfigure}[t]{0.48\linewidth}
+        \centering
+        \IfFileExists{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/peak_value/dim_variance.png}{%
+          \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/peak_value/dim_variance.png}%
+        }{\textit{[Run latent\_space.r to generate]}}
+        \caption{Peak-value modality.}
+        \label{fig:dim_var_peak_value}
+    \end{subfigure}
+    \caption{Per-dimension variance in unscaled modality-specific posterior mean coordinates. Dimensions with high variance are both variable across players and strongly weighted by the modality's $\gamma$ coefficients, making them the primary drivers of archetype separation.}
+    \label{fig:modality_dim_variance}
+\end{figure}
+
+\IfFileExists{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/peak_age/archetype_representatives.tex}{%
+  \input{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/peak_age/archetype_representatives.tex}%
+}{}
+
+\IfFileExists{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/peak_value/archetype_representatives.tex}{%
+  \input{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/peak_value/archetype_representatives.tex}%
+}{}
+
+\subsection{Early Identification of Peak Performers and Draft Evaluation}
+A central question for front offices is how quickly the model can resolve a player's peak age and peak value from limited early-career data.  Because $X_p$ is inferred from the full longitudinal metric profile and peak timing is encoded directly in the concave trajectory $f^k(X_p, t)$, the posterior over both peak age $t^*_{pk}$ and peak value $f^*_{pk}$ contracts as more seasons are observed.  For a rookie with one or two seasons of data, the posteriors are wide: the model registers genuine uncertainty about where the career arc will crest.  By the third or fourth season --- once above-replacement minutes accumulate and the trajectory's curvature becomes discernible --- the posteriors concentrate substantially, and archetype assignment stabilises.
+
+The structured prior on $X_p$ (Equation~\ref{eq:structured_prior}) anchors this process: draft standing, height, and positional role provide an informative starting point, so that the model does not require five seasons of evidence before forming a view.  Posterior uncertainty has a direct front-office interpretation --- a wide credible region for $f^*_{pk}$ indicates that a player's ceiling is not yet determined by the data, while a narrow region indicates confident placement.  A breakout season shifts the posterior mean of $X_p$ substantially toward the elite archetype, whereas consistent-but-unremarkable production converges slowly.  Convergence to a stable archetype assignment typically requires 2--3 seasons of above-replacement minutes, consistent with conventional scouting timelines for evaluating prospect development.
+
+We operationalise this as a draft-cohort evaluation tool using four posterior summaries per player: posterior mean peak OBPM; $P(\text{OBPM}{>}2)$, $P(\text{OBPM}{>}3)$, and $P(\text{OBPM}{>}4)$ — the fraction of posterior peak-value draws exceeding each threshold; and expected years to peak, the posterior mean OBPM peak age minus the player's last observed age.  Empirically, a career-peak OBPM of 2 corresponds to roughly the 81st percentile of NBA players, 3 to the 88th, and 4 to the 93rd, so these thresholds span the range from reliable above-average starter to All-Star calibre production.  Table~\ref{tab:breakout_cohort} reports the top five players per entry cohort ranked by posterior mean peak OBPM.  Posterior confidence grows sharply with seasons observed: the 2021--2022 cohorts show high mean peak OBPM for their top players (Zion Williamson, Tyrese Haliburton, LaMelo Ball) with near-certain $P(\text{OBPM}{>}2)$, while the 2026 cohort, with only one season of data, yields more diffuse probabilities.  Victor Wembanyama appears prominently in the 2025 cohort with a mean peak OBPM of 3.8 and $P(\text{OBPM}{>}2) = 99\%$, reflecting the model's rapid posterior contraction after an exceptional rookie season; his years-to-peak estimate is near zero, consistent with the model identifying his first season as already close to his projected prime.  Figure~\ref{fig:breakout_cohort_dist} shows the full within-cohort distributions; the narrowing spread from 2021 to 2026 directly reflects posterior contraction as career data accumulates.
+
+\input{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/map/breakout_by_cohort.tex}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/map/breakout_cohort_distributions.png}
+    \caption{Distribution of posterior mean peak OBPM by player entry cohort. Each violin summarises the full player-level posterior mean peak OBPM distribution. Narrowing spread from earlier to later cohorts reflects posterior contraction as more seasons of data are observed.}
+    \label{fig:breakout_cohort_dist}
+\end{figure}
 
 
 
@@ -1145,7 +1182,9 @@ To summarise the average treatment effect on the treated (ATT) across all injure
     \label{fig:att_by_metric}
 \end{figure}
 
+These estimates should be interpreted with care: the counterfactual is identified only under the assumption of no unmeasured confounding conditional on the latent player embedding and career history (see Limitations in Section~\ref{sec:conclusion}), and the sample is restricted to players who returned to play after injury, which may understate effects for the most severe cases.
 
+\clearpage
 \section{Conclusion and Future Work}
 \label{sec:conclusion}
 
@@ -1368,6 +1407,57 @@ We also examine archetype structure derived from curvature-based modalities. Fig
     \label{fig:curvature_modality_dendrograms}
 \end{figure}
 
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[t]{0.31\linewidth}
+        \centering
+        \IfFileExists{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m1/dim_variance.png}{%
+          \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m1/dim_variance.png}}{\textit{[pending]}}
+        \caption{Curvature modality $m=1$.}
+    \end{subfigure}%
+    \hfill
+    \begin{subfigure}[t]{0.31\linewidth}
+        \centering
+        \IfFileExists{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m2/dim_variance.png}{%
+          \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m2/dim_variance.png}}{\textit{[pending]}}
+        \caption{Curvature modality $m=2$.}
+    \end{subfigure}%
+    \hfill
+    \begin{subfigure}[t]{0.31\linewidth}
+        \centering
+        \IfFileExists{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m3/dim_variance.png}{%
+          \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m3/dim_variance.png}}{\textit{[pending]}}
+        \caption{Curvature modality $m=3$.}
+    \end{subfigure}
+
+    \begin{subfigure}[t]{0.31\linewidth}
+        \centering
+        \IfFileExists{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m4/dim_variance.png}{%
+          \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m4/dim_variance.png}}{\textit{[pending]}}
+        \caption{Curvature modality $m=4$.}
+    \end{subfigure}%
+    \hfill
+    \begin{subfigure}[t]{0.31\linewidth}
+        \centering
+        \IfFileExists{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m5/dim_variance.png}{%
+          \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m5/dim_variance.png}}{\textit{[pending]}}
+        \caption{Curvature modality $m=5$.}
+    \end{subfigure}
+    \caption{Per-dimension variance in unscaled modality-specific coordinates for curvature modalities $m=1\ldots5$.}
+    \label{fig:curvature_modality_dim_variance}
+\end{figure}
+
+\IfFileExists{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m1/archetype_representatives.tex}{%
+  \input{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m1/archetype_representatives.tex}}{}
+\IfFileExists{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m2/archetype_representatives.tex}{%
+  \input{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m2/archetype_representatives.tex}}{}
+\IfFileExists{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m3/archetype_representatives.tex}{%
+  \input{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m3/archetype_representatives.tex}}{}
+\IfFileExists{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m4/archetype_representatives.tex}{%
+  \input{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m4/archetype_representatives.tex}}{}
+\IfFileExists{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m5/archetype_representatives.tex}{%
+  \input{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m5/archetype_representatives.tex}}{}
+
 \subsection{MCMC Convergence Diagnostics}
 \label{sec:convergence}
 
@@ -1441,56 +1531,10 @@ The directed acyclic graph summarising the complete generative structure is show
         
     \end{tabular}
 }% end resizebox
-    \caption{Observational model description. We group metrics into different observation models: Gaussian, Binomial, Beta, and Poisson. $\mathcal{R} =$ \{FGA, FG3A, FTA, BLK, OREB, DREB, TOV, AST, STL\},
-$\mathcal{B} =$ \{GP, FG2M, FG3M, FTM\}, $\mathcal{N} =$ \{GA, FG2A, FG3A, FTA\}, and $\mathcal{G} = $ \{DBPM, OBPM\}. }
+    \caption{Observational model description. We group metrics into different observation models: Gaussian ($\mathcal{G}$), Binomial ($\mathcal{B}$), Poisson ($\mathcal{C}$), Negative-Binomial ($\mathcal{R}$), Beta ($\mathcal{P}$), and Beta-Binomial. $\mathcal{G} =$ \{OBPM, DBPM\}, $\mathcal{B} =$ \{FG2M, FG3M, FTM\}, $\mathcal{C} =$ \{BLK, STL, AST, DREB, OREB, TOV\}, $\mathcal{R} =$ \{FTA, FG2A, FG3A\}, $\mathcal{P} =$ \{USG, PCT\_MIN\}; games played is Beta-Binomial and minutes-per-game is scaled Beta.}
     \label{tab:metric_description}
 \end{table}
 
-
-\subsection{Prior and Transformed Variables Specification}
-\label{appendix:priors}
-The parameters $\Theta$ alluded to in \ref{sec:proposed_model} control the behavior of the G.P. approximations. More explicitly, the following prior specifications and transformations are made
-\begin{align}
-    c^k_{max}(x) & = \mu_{f_{max}}^k + \epsilon^k\phi(x)^T\eta, \quad \eta \sim \mathcal{N}(0, I) \quad \epsilon^k \sim \mathcal{IG}(2, .3) \nonumber \\ 
-    t^k_{max}(x) &= 2 \cdot tanh(\gamma^k\phi(x)^T\nu^k) + \mu_{t_{max}}^k, \quad \nu^k \sim \mathcal{N}(0, I) \quad  \gamma^k \sim \mathcal{IG}(2, .3) \nonumber \\ 
-    \delta^k_a(x) & = softplus(\xi^k\phi(x)^T\pi^k) \quad \pi^k \sim \mathcal{N}(0, I) \quad  \xi^k \sim \mathcal{IG}(2, 3) \nonumber \\
-    \delta^k_b(x) & = softplus(\rho^k\phi(x)^T\theta^k) \quad \theta^k \sim \mathcal{N}(0, I) \quad  \rho^k \sim \mathcal{IG}(2, 3) \nonumber \\
-    w_d & \sim \mathcal{N}(0, I) \nonumber \\
-    \alpha^k_{dl} &\sim \mathcal{N}(0, 1) \nonumber \\
-    l^k, \tau^2_1, \tau^2_2 \omega & \sim \mathcal{IG}(2, 1) \nonumber \\
-    \lambda^k & \sim \mathcal{IG}(100, .0003) \nonumber \\
-    \sigma_i & \sim \mathcal{IG}(299, 6000) \nonumber
-\end{align}.
-
-\begin{table}[h]
-    \centering
-\resizebox{\linewidth}{!}{
-    \begin{tabular}{|l|p{8cm}|}
-        \hline
-        \textbf{Parameter} & \textbf{Description} \\
-        \hline
-        $\eta, \nu, \pi, \theta$ & basis weights for RFF G.P. approximation \\
-        \hline
-        $\epsilon, \gamma, \xi, \rho$       & Variance parameters for RFF G.P. approximation \\ 
-        \hline
-        $\alpha$      & basis weights for concave G.P. approximation \\ 
-        \hline
-        $w$     & weights for RFF feature map construction \\ 
-        \hline
-         l  & lengthscale parameter for concave G.P. \\ 
-        \hline
-        $\tau, \sigma$     & variance parameters for observational Beta / Normal observations \\ 
-        \hline 
-        $\omega$ & variance parameter for RFF feature map construction \\
-        \hline
-         $\lambda$ &  variance parameter for concave G.P.\\
-         \hline
-        
-    \end{tabular}
-}% end resizebox
-    \caption{Parameter description. If indices are not specified, assume i.i.d.\ across unspecified dimensions. The index $k$ indicates the metric index.}
-    \label{tab:parameter_description}
-\end{table}
 
 
 \subsection{Hilbert Space Gaussian Processes}
@@ -1501,11 +1545,6 @@ In the one dimensional Dirichlet boundary condition case, the eigenvalues and ei
 
 For a full treatment of this approach, please refer to \cite{Solin_2019}.  
 
-\subsection{Random Fourier Features and GPLVMs}
-\label{appendix:RFFs}
-Much like the approach mentioned in \ref{appendix:HSGPs}, Random Fourier Features (RFFs) \cite{rffs} also serve to approximate the kernel of a Gaussian Process. The approximation also relies on the specific form of the spectral density of the kernel. Consider the standard squared exponential kernel as mentioned in \ref{appendix:HSGPs}. This spectral density $S(\cdot)$ has density proportional to a Gaussian with mean 0 and variance $\frac{1}{\omega^2}$. The authors in \cite{rffs} show that a feature map $\phi(x) = \frac{1}{\sqrt{2D}}[cos(w^tx), sin(w^tx)]$, where $w_i \overset{\text{i.i.d.}}{\sim} S(w), w \in \mathbb{R}^D$, is able to approximate $K(x,x^{'}) \approx \phi(x)\phi(x^{'})$. Here, $D$ is the dimension of the number of Random Fourier Features to use for the approximation. This map allows us to approximate $f(x) \approx \phi(x)^T \beta$ in linear fashion, much like \ref{appendix:HSGPs}. 
-
-Recently, \cite{zhang2023bayesiannonlinearlatentvariable} combined this approach with GPLVMs, calling the method Random Feature Latent Variable Model (RFLVMs). This approach allows the input to the GP, $X$, to be a learned parameter. Instead of sampling from the full GP, as $X$ can be quite large, they use the RFF approximation described above instead. This allows for a more flexible way to incorporate GPLVM like methods into modeling architecture. 
 
 \subsection{Approximating a Separable Kernel}
 \label{appendix:separability_properties}
@@ -1522,7 +1561,7 @@ S(\sqrt{\lambda_l})& \text{if} \quad l = z, k = i \\
 0 & \text{o.w}
 \end{cases}
 \end{align}
-These assumptions align with the formulation outlined in \cite{Solin_2019} and \cite{rffs}. 
+These assumptions align with the formulation outlined in \cite{Solin_2019}.
 
 First, we will evaluate $Cov(\beta_i(t), \beta_i(t^{'}))$,
 where $\beta_i(t) = \sum_{l=1}^K \alpha_l^i \psi_l(t)$.
@@ -1555,7 +1594,7 @@ Thus,
     &= \sum_{i=1}^M \phi(x)\phi(x^{'}) Cov\!\left(\beta_i(t), \beta_i(t^{'})\right) \nonumber\\
     &= \tilde{K}(t,t') \sum_{i=1}^M \phi(x)\phi(x^{'})
 \end{align}
-{\sloppy From \cite{rffs}, we have that $\sum_{i=1}^M \phi(x)\phi(x^{'}) = \tilde{K}(x,x^{'})$ converges uniformly to $K(x,x^{'})$ for sufficiently large $M$. Assuming both $K(x,x^{'})$ and $K(t,t^{'})$ are bounded covariance functions, the product $\tilde{K}(t,t^{'})\tilde{K}(x,x^{'})$ converges uniformly to $K(t,t^{'})K(x,x^{'})$. Thus our approximation converges uniformly to the appropriate separable covariance structure.\par}
+{\sloppy In our implementation, $\phi_i(x)$ is a linear (identity) projection, so $\sum_{i=1}^M \phi(x)\phi(x^{'}) = K_{\mathrm{lin}}(x,x^{'})$ exactly. The product $\tilde{K}(t,t^{'}) K_{\mathrm{lin}}(x,x^{'})$ therefore gives an exact separable covariance structure in the $x$ dimension, while the HSGP approximation $\tilde{K}(t,t^{'})$ converges uniformly to $K(t,t^{'})$ from \cite{Solin_2019}.\par}
 
 \subsection{Enforcing Concavity}
 \label{appendix:convexity}
@@ -1625,8 +1664,7 @@ where $a(x), b(x)$ are some constants of integration with respect to $t$. We sho
 
 Following the line of reasoning from \cite{convexityconstraints}, we assume that $\frac{\partial ^2 f(x,t)}{\partial t^2}$ can be modeled by $[g(x,t)]^2$, where $g(x,t) \sim \mathcal{GP}(0, K_x \otimes K_t)$. Note that this assumes that the time variable $t$ is separate from our $x$ variable . 
 
-Using a Random Fourier Feature approximation of the squared exponential kernel \cite{rffs}, 
-we can rewrite $g(x,t) \approx \sum_{i=1}^M \beta_i(t) \phi_i(x)$. Here, $\beta_i(t)$ are $t$ - dependent coefficients of the basis expansion of $x$. In order to enforce convexity across the $t$ dimension, we use the Hilbert Space Gaussian Process (HSGP) approximation mentioned in \cite{convexityconstraints} to approximate $\beta_i(t) \approx \sum_{l=1}^K S(\sqrt{\lambda_l})^{1/2} \alpha_l^i \psi_l(t)$. Note that this approximate representation preserves the separability of the covariance structure of our desired $g(x,t)$
+Using a linear projection $\phi_i(x)$ for the $x$ dimension (the identity map in our implementation), we can write $g(x,t) \approx \sum_{i=1}^M \beta_i(t) \phi_i(x)$. Here, $\beta_i(t)$ are $t$-dependent coefficients of the basis expansion. In order to enforce convexity across the $t$ dimension, we use the Hilbert Space Gaussian Process (HSGP) approximation mentioned in \cite{convexityconstraints} to approximate $\beta_i(t) \approx \sum_{l=1}^K S(\sqrt{\lambda_l})^{1/2} \alpha_l^i \psi_l(t)$. Note that this approximate representation preserves the separability of the covariance structure of our desired $g(x,t)$
 \ref{appendix:separability_properties}.
 
 If we let $\tilde{\alpha_l^i} = \alpha_l^i S(\sqrt{\lambda_l})^{1/2}$  , then $g(x,t) \approx \sum_{i=1}^M \phi_i(x) ( \sum_{l=1}^K \tilde{\alpha_l^i} \psi_l(t))$. 
@@ -1691,35 +1729,6 @@ If we combine \eqref{eq:first_deriv_constraint} and \eqref{eq:peak_value_constra
 Note that when $t = t_{max}$, we recover $f_{max}$ as desired.
 
 Subsequently, letting $f_{max}(x) , t_{max}(x) \sim GP(0, K_x)$ allows us to pool information across the $x$ dimension, allowing similar players to have similar peaks / peak-values.
-
-\subsubsection{Controlling Boundary Conditions}
-We would also like to somehow control the behavior of the range of these curves. Assuming that the peak location, $t_{max}$ falls between $t_0$ and $t_L$, the range of $f(x,t) = f_{max} - min[f(x,t_0), f(x,t_L)]$, since $f$ is concave by construction. Thus, specifying requirements on boundary conditions is sufficient to specifying a prior on the range of $f$. 
-
-Let's assume we desire $f(x,t_0) = a, f(x,t_L) = b$, where $a , b \leq f_{max}$. If we plug these requirements in to \eqref{eq:max_constraint_gp} and subtract the two equations,
-we are given the following constraint
-
-\begin{align}
-\label{eq:boundary_cond}
-    b - a = \mathbf{\phi}(x)^T\mathbf{\tilde{A}}^T [\Psi(t_L)  - \Psi(t_0) + \Psi^{'}(t_{max})(t_L - t_0) ] \mathbf{\tilde{A}} \mathbf{\phi}(x) 
-\end{align}.
-
-Thus, we must solve the following optimization problem
-
-\begin{align}
-\min_{A \in \mathbb{R}^{K \times D \times M}} & ||A||_F \nonumber \\
-\text{subject to} \quad & \phi(x)^T \mathbf{\tilde{A}_k}^T G \mathbf{\tilde{A}_k}^T \phi(x) = b_k - a_k \quad \forall k = 1 \dots K \nonumber \\
-\end{align}
-where $G = \Psi(t_L)  - \Psi(t_0) + \Psi^{'}(t_{max})(t_L - t_0)$.
-We can reformulate this optimization by looking at the Lagrangian instead.
-
-\begin{align}
-\label{eq:lagrangian_boundary}
-    \min_{A \in \mathbb{R}^{K \times D \times M}} & ||A||_F + \lambda \sum_k ||\phi(x)^T\mathbf{\tilde{A}_k}^T G \mathbf{\tilde{A}_k} \phi(x) - (b_k - a_k) ||_2 
-\end{align}
-
-Optimizing \eqref{eq:lagrangian_boundary} over $A$ is sufficient to enforcing this constraint. 
-Thus, if we let $a(x) = f_{max}(x) - \delta_a(x), b(x) = f_{max}(x) - \delta_b(x)$, 
-where $\delta_a, \delta_b$ are functions which map GP based function values to the positive reals, we can pool boundary conditions over similarities in the latent space, much like the priors on the max and max location. In practice, the optimization in \eqref{eq:boundary_cond} can be encoded by adding a penalty proportional to the specified loss function to the log-likelihood of the model in \ref{sec:proposed_model}. Note that $||A||_F$ is already encoded in the log-likelihood, as $A \sim \mathcal{N}(0, I)$ \ref{appendix:priors}, so including the Lagrangian penalty only is sufficient. Note that by using the formulation given in \eqref{eq:max_constraint_gp}, we are guaranteed the functions have a specific peak, and peak-value. 
 
 
 \subsection{Convexity Formulation Properties}
@@ -2046,19 +2055,6 @@ Kyle Korver & F & 26.7 \\
 
 \begin{figure}[!h]
     \centering
-    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/peaks/mcmc/peaks_third_deriv.png}
-    \caption{We see that certain athleticism based metrics (Group 3) tend to have left-skew, and skill-based metrics (Group 1) tend to have right-skew. This aligns with previously held notions about skill-acquisition and aging. }
-    \label{fig:third_deriv}
-\end{figure}
-
-\begin{figure}[!h]
-    \centering
-    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/peaks/mcmc/peaks_third_deriv_curves.png}
-    \caption{Variation of the latent curve third derivative by three intervals representing Left Skew, Symmetric, and Right Skew curves respectively. The intervals are as follows (-$\infty$, -.01], (-.01,.01], (.01, $\infty$]. } 
-    \label{fig:third_deriv_curves}
-\end{figure}
-\begin{figure}[!h]
-    \centering
     \includegraphics[width=0.85\linewidth]{../model_output/model_plots/empirical_production.png}
     \caption{This plot illustrates the average value of production by age, across a variety of different metrics, smoothed by a LOESS estimator. Note that some of these estimates do not respect aging beliefs (i.e some metrics indicate infinite improvement with respect to age, as well as a decrease then improvement). This observation can be explained by selection bias; players who are more successful are likely to play later in their careers, and tend to have higher values of production, biasing curves upwards. }
     \label{fig:empirical_production}
@@ -2067,7 +2063,7 @@ Kyle Korver & F & 26.7 \\
 
 \clearpage
 {\sloppy
-\bibliographystyle{chicago}
+\bibliographystyle{plainnat}
 \bibliography{references}
 }
 

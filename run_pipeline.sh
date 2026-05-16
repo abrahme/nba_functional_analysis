@@ -33,12 +33,14 @@ model_dir() {
 
 # ── Usage ─────────────────────────────────────────────────────────────────────
 # Interactive:    ./run_pipeline.sh
-# Non-interactive: ./run_pipeline.sh <scheme> "<model numbers>" [start_phase]
+# Non-interactive: ./run_pipeline.sh <scheme> "<model numbers>" [start_phase] [script_filter]
 #   scheme         : holdout_last_k | holdout_first_k | random_interior | holdout_peak
 #   model numbers  : space-separated subset of 1=tvlvm 2=ar 3=injury 4=naive
 #   start_phase    : 1=MAP 2=MCMC 3=Export 4=Diagnostics 5=Combine (default: 1)
+#   script_filter  : all | latent  (default: all; latent runs only latent_space.r in phase 4)
 #   e.g.           : ./run_pipeline.sh holdout_last_k "1 2 4"
-#                  : ./run_pipeline.sh holdout_last_k "1 2" 3     # export+diag only
+#                  : ./run_pipeline.sh holdout_last_k "1 2" 3        # export+diag only
+#                  : ./run_pipeline.sh holdout_last_k "1 2 3" 4 latent  # latent_space.r only
 
 VALID_SCHEMES=(holdout_last_k holdout_first_k random_interior holdout_peak)
 
@@ -92,11 +94,13 @@ if [[ ${#SELECTED_MODELS[@]} -eq 0 ]]; then
 fi
 
 START_PHASE=${3:-1}
+SCRIPT_FILTER=${4:-all}  # all | latent
 
 echo ""
 echo "Scheme      : $SCHEME"
 echo "Models      : ${SELECTED_MODELS[*]}"
 echo "Start phase : $START_PHASE"
+[[ "$SCRIPT_FILTER" != "all" ]] && echo "Script filter: $SCRIPT_FILTER"
 echo ""
 
 # ── Container health check ────────────────────────────────────────────────────
@@ -181,14 +185,18 @@ if [[ $START_PHASE -le 4 ]]; then
 echo "=== [$(date '+%H:%M:%S')] PHASE 4: R diagnostics ==="
 for m in "${SELECTED_MODELS[@]}"; do
     mdir=$(model_dir "$m" "$SCHEME")
-    # model_diagnostics.r runs for all models
-    echo "  diagnostics: $mdir"
-    $EXEC "$CTR_R" Rscript data_analysis/model_diagnostics.r \
-        "$mdir" "$VALIDATION_YEAR" &
+    if [[ "$SCRIPT_FILTER" != "latent" ]]; then
+        # model_diagnostics.r runs for all models
+        echo "  diagnostics: $mdir"
+        $EXEC "$CTR_R" Rscript data_analysis/model_diagnostics.r \
+            "$mdir" "$VALIDATION_YEAR" &
+    fi
     # team_window.r and latent_space.r require posterior_ar.parquet — not for naive
     if [[ "$m" != "naive" ]]; then
-        echo "  team_window:   $mdir"
-        $EXEC "$CTR_R" Rscript data_analysis/team_window.r "$mdir" &
+        if [[ "$SCRIPT_FILTER" != "latent" ]]; then
+            echo "  team_window:   $mdir"
+            $EXEC "$CTR_R" Rscript data_analysis/team_window.r "$mdir" &
+        fi
         echo "  latent_space:  $mdir"
         $EXEC "$CTR_R" Rscript data_analysis/latent_space.r "$mdir" &
     fi

@@ -447,10 +447,7 @@ label_notable_leaves <- function(hc, keep_labels) {
   as.dendrogram(hc)
 }
 
-notable_names <- union(
-  latent_space |> slice_max(minutes, n = 40, with_ties = FALSE) |> pull(name),
-  posterior_plot_names
-)
+notable_names <- posterior_plot_names
 
 png(file.path(plots_dir, "latent_space", "map", "archetype_dendrogram.png"),
     width = 1200, height = 2000, res = 120)
@@ -475,6 +472,15 @@ find_k_dendrogram <- function(hc, default_k = 4L, max_k = 50L) {
 
 k_archetypes <- find_k_dendrogram(hc_latent)
 message(glue("Optimal k by dendrogram gap: {k_archetypes}"))
+
+# Palettes that scale with k_archetypes — Set1 capped at 9, hue_pal beyond
+arch_colour_pal <- if (k_archetypes <= 9L) {
+  RColorBrewer::brewer.pal(max(3L, k_archetypes), "Set1")[seq_len(k_archetypes)]
+} else {
+  scales::hue_pal()(k_archetypes)
+}
+arch_shape_pool <- c(15L, 17L, 18L, 19L, 16L, 8L, 3L, 4L, 7L, 10L, 11L, 13L, 14L, 25L)
+arch_shape_pal  <- arch_shape_pool[seq_len(k_archetypes)]
 
 archetype_labels <- cutree(hc_latent, k = k_archetypes)
 
@@ -509,8 +515,6 @@ print(archetype_reps)
 
 if (!is.null(posterior_peak_vals) && !is.null(posterior_latent_X)) {
 
-  obpm_breakout_threshold <- 2.0
-
   # Entry cohort: draft_year + 1 gives the first playing season (the draft
   # occurs in June/July, so a 2023 draftee's first season is 2023-24, recorded
   # as year = 2024 in the data).  Undrafted players fall back to min(year).
@@ -536,51 +540,42 @@ if (!is.null(posterior_peak_vals) && !is.null(posterior_latent_X)) {
     filter(metric == "obpm") |>
     group_by(player) |>
     summarise(
-      p_breakout_obpm = mean(value > obpm_breakout_threshold),
-      mean_peak_obpm  = mean(value),
-      sd_peak_obpm    = sd(value),
-      .groups         = "drop"
+      p_breakout_obpm  = mean(value > 2.0),
+      p_breakout_obpm3 = mean(value > 3.0),
+      p_breakout_obpm4 = mean(value > 4.0),
+      mean_peak_obpm   = mean(value),
+      sd_peak_obpm     = sd(value),
+      .groups          = "drop"
     )
 
-  # ── (B) P(elite archetype) via nearest-centroid on MCMC draws ──────────────
-  elite_archetype <- posterior_peak_vals |>
+  # ── (B) Expected years to peak (OBPM peak age minus last observed age) ───────
+  obpm_peak_age <- posterior_peaks |>
     filter(metric == "obpm") |>
-    left_join(posterior_mean_latent |> select(id, archetype), by = c("player" = "id")) |>
-    filter(!is.na(archetype)) |>
-    group_by(archetype) |>
-    summarise(mean_peak_obpm = mean(value, na.rm = TRUE), .groups = "drop") |>
-    slice_max(mean_peak_obpm, n = 1) |>
-    pull(archetype) |>
-    as.character()
+    group_by(player) |>
+    summarise(mean_peak_age = mean(value), .groups = "drop")
 
-  message(glue("Elite archetype (highest mean peak OBPM): {elite_archetype}"))
+  player_last_age <- data |>
+    group_by(id) |>
+    summarise(last_obs_age = max(age, na.rm = TRUE), .groups = "drop")
 
-  phi_center        <- attr(phi_mat, "scaled:center")
-  phi_scale         <- attr(phi_mat, "scaled:scale")
-  arch_labels_order <- as.character(sort(unique(archetype_labels)))
+  yrs_to_peak_df <- obpm_peak_age |>
+    left_join(player_last_age, by = c("player" = "id")) |>
+    mutate(yrs_to_peak = pmax(mean_peak_age - last_obs_age, 0))
 
-  arch_centroid_mat <- t(sapply(arch_labels_order, function(arch) {
-    colMeans(phi_mat[archetype_labels == as.integer(arch), , drop = FALSE])
-  }))  # (k x D) in scaled latent space
-
-  draw_mat        <- as.matrix(rotated_posterior_df[, dim_cols])
-  draw_mat_scaled <- sweep(sweep(draw_mat, 2, phi_center, "-"), 2, phi_scale, "/")
-
-  # Squared distance from every draw to every centroid, then argmin
-  dists       <- apply(arch_centroid_mat, 1, function(cen)
-    rowSums(sweep(draw_mat_scaled, 2, cen, "-")^2))
-  nearest_arch <- arch_labels_order[apply(dists, 1, which.min)]
+  # ── (C) Empirical OBPM percentiles (career peak per player in observed data) ─
+  empirical_peak_obpm <- data |>
+    group_by(id) |>
+    summarise(peak_obpm = max(obpm, na.rm = TRUE), .groups = "drop") |>
+    pull(peak_obpm)
+  obpm_pctile <- function(thresh) round(mean(empirical_peak_obpm <= thresh) * 100, 0)
+  pctile_2 <- obpm_pctile(2); pctile_3 <- obpm_pctile(3); pctile_4 <- obpm_pctile(4)
 
   arch_memb_probs <- rotated_posterior_df |>
     select(id, name) |>
-    mutate(assigned_arch = nearest_arch) |>
-    group_by(id, name) |>
-    summarise(
-      p_elite_arch = mean(assigned_arch == elite_archetype),
-      .groups      = "drop"
-    ) |>
-    left_join(entry_cohort,  by = c("id", "name")) |>
-    left_join(obpm_breakout, by = c("id" = "player"))
+    distinct() |>
+    left_join(entry_cohort,   by = c("id", "name")) |>
+    left_join(obpm_breakout,  by = c("id" = "player")) |>
+    left_join(yrs_to_peak_df, by = c("id" = "player"))
 
   # ── LaTeX table: top 5 per cohort ───────────────────────────────────────────
   recent_cohorts <- sort(unique(arch_memb_probs$cohort[!is.na(arch_memb_probs$cohort)]),
@@ -591,29 +586,44 @@ if (!is.null(posterior_peak_vals) && !is.null(posterior_latent_X)) {
     mutate(cohort = as.integer(cohort))
 
   top5_per_cohort <- cohort_data |>
+    filter(!is.na(mean_peak_obpm)) |>
     group_by(cohort) |>
-    slice_max(p_elite_arch, n = 5, with_ties = FALSE) |>
-    arrange(cohort, desc(p_elite_arch)) |>
+    slice_max(mean_peak_obpm, n = 5, with_ties = FALSE) |>
+    arrange(cohort, desc(mean_peak_obpm)) |>
     mutate(rank = row_number()) |>
     ungroup()
+
+  cohort_max_year <- cohort_data |>
+    group_by(cohort) |>
+    summarise(max_obs_year = max(first_obs_year, na.rm = TRUE), .groups = "drop")
 
   # Build table body: cohort groups separated by \midrule + header row
   cohort_blocks <- map_chr(sort(unique(top5_per_cohort$cohort), decreasing = TRUE),
     function(yr) {
-      block <- top5_per_cohort |> filter(cohort == yr)
-      ns    <- first(block$n_seasons)
+      block        <- top5_per_cohort |> filter(cohort == yr)
+      max_obs_year <- cohort_max_year$max_obs_year[cohort_max_year$cohort == yr]
+      ns           <- max(max_obs_year - yr + 1L, 1L)
       season_label <- if (ns == 1) "1 season" else glue("{ns} seasons")
       header_row <- glue(
-        "    \\multicolumn{{5}}{{l}}{{\\textit{{Entry {yr} ({season_label})}}}}"
+        "    \\multicolumn{{8}}{{l}}{{\\textit{{Entry {yr} ({season_label})}}}}"
       )
       data_rows <- pmap_chr(block, function(rank, name, position_group,
-                                            p_elite_arch, p_breakout_obpm, ...) {
-        p_e  <- sprintf("%.0f\\%%", p_elite_arch  * 100)
-        p_o  <- if (is.na(p_breakout_obpm)) "---"
-                else sprintf("%.0f\\%%", p_breakout_obpm * 100)
-        glue("    {rank} & {name} & {position_group} & {p_e} & {p_o} \\\\")
+                                            mean_peak_obpm, p_breakout_obpm,
+                                            p_breakout_obpm3, p_breakout_obpm4,
+                                            yrs_to_peak, ...) {
+        fmt_p <- function(x) if (is.na(x)) "---" else sprintf("%.0f\\%%", x * 100)
+        ytp   <- if (is.na(yrs_to_peak) || yrs_to_peak < 0.5) "$<$1"
+                 else sprintf("%.1f", yrs_to_peak)
+        glue(
+          "    {rank} & {name} & {position_group}",
+          " & {sprintf('%.1f', mean_peak_obpm)}",
+          " & {fmt_p(p_breakout_obpm)}",
+          " & {fmt_p(p_breakout_obpm3)}",
+          " & {fmt_p(p_breakout_obpm4)}",
+          " & {ytp} \\\\"
+        )
       })
-      paste(c(header_row, "    \\midrule", data_rows), collapse = "\n")
+      paste(c(paste0(header_row, " \\\\"), "    \\midrule", data_rows), collapse = "\n")
     }
   )
 
@@ -622,19 +632,21 @@ if (!is.null(posterior_peak_vals) && !is.null(posterior_latent_X)) {
   breakout_tex <- paste0(
     "\\begin{table}[htbp]\n",
     "  \\centering\\small\n",
-    "  \\begin{tabular}{rllrr}\n",
+    "  \\begin{tabular}{rllrrrrr}\n",
     "    \\toprule\n",
-    "    Rank & Player & Pos. & P(elite arch.) & P(OBPM$>{",
-      obpm_breakout_threshold, "}$) \\\\\n",
+    "    Rank & Player & Pos. & Mean Peak OBPM",
+    " & P($>$2) & P($>$3) & P($>$4) & Yrs to Peak \\\\\n",
     "    \\midrule\n",
     tex_body, "\n",
     "    \\bottomrule\n",
     "  \\end{tabular}\n",
-    "  \\caption{Top 5 players by breakout probability per entry cohort.",
-    " P(elite arch.) is the fraction of posterior $X_p$ draws classifying",
-    " to archetype ", elite_archetype,
-    " (highest mean peak OBPM). P(OBPM${>}", obpm_breakout_threshold,
-    "$) is the fraction of posterior peak-value draws exceeding the threshold.}\n",
+    "  \\caption{Top 5 players by posterior mean peak OBPM per entry cohort.",
+    " P($>$2), P($>$3), P($>$4) are posterior probabilities that peak OBPM exceeds",
+    " the threshold; empirically, OBPM\\,$=$\\,2 is the ", pctile_2, "th percentile,",
+    " OBPM\\,$=$\\,3 the ", pctile_3, "th, and OBPM\\,$=$\\,4 the ", pctile_4,
+    "th (career peak per player).",
+    " Yrs to Peak is the posterior mean OBPM peak age minus last observed age",
+    " ($<$1 = already at or within one year of peak).}\n",
     "  \\label{tab:breakout_cohort}\n",
     "\\end{table}\n"
   )
@@ -644,20 +656,18 @@ if (!is.null(posterior_peak_vals) && !is.null(posterior_latent_X)) {
     file.path(plots_dir, "latent_space", "map", "breakout_by_cohort.tex")
   )
 
-  # Plot 2: P(elite archetype) distribution within each cohort (violin)
-  # shows how posterior uncertainty differs by cohort age
-  cohort_violin_plt <- ggplot(cohort_data,
-      aes(x = factor(cohort), y = p_elite_arch, fill = factor(cohort))) +
+  # Plot 2: mean peak OBPM distribution within each cohort (violin)
+  cohort_violin_plt <- ggplot(cohort_data |> filter(!is.na(mean_peak_obpm)),
+      aes(x = factor(cohort), y = mean_peak_obpm, fill = factor(cohort))) +
     geom_violin(draw_quantiles = c(0.25, 0.5, 0.75), alpha = 0.7) +
     geom_jitter(aes(colour = position_group), width = 0.1, alpha = 0.4, size = 1) +
-    scale_y_continuous(labels = scales::percent) +
     scale_fill_brewer(palette = "Blues") +
     scale_colour_brewer(palette = "Set1") +
     labs(
-      title    = "Distribution of P(elite archetype) by entry cohort",
+      title    = "Distribution of posterior mean peak OBPM by entry cohort",
       subtitle = "Narrowing spread reflects posterior contraction with more seasons observed",
       x        = "Entry cohort (first season)",
-      y        = "P(elite archetype)",
+      y        = "Posterior mean peak OBPM",
       fill     = "Cohort",
       colour   = "Position"
     ) +
@@ -667,14 +677,14 @@ if (!is.null(posterior_peak_vals) && !is.null(posterior_latent_X)) {
     cohort_violin_plt, width = 12, height = 6
   )
 
-  # Print summary table: median P(elite arch) and spread per cohort
+  # Print summary table: median mean peak OBPM and spread per cohort
   cohort_summary <- arch_memb_probs |>
     filter(!is.na(cohort)) |>
     group_by(cohort) |>
     summarise(
       n_players        = n(),
-      median_p_elite   = median(p_elite_arch),
-      iqr_p_elite      = IQR(p_elite_arch),
+      median_mean_obpm = median(mean_peak_obpm, na.rm = TRUE),
+      iqr_mean_obpm    = IQR(mean_peak_obpm, na.rm = TRUE),
       median_p_obpm    = median(p_breakout_obpm, na.rm = TRUE),
       .groups          = "drop"
     ) |>
@@ -752,13 +762,139 @@ peaks_plt_arch <- peaks_plt +
     aes(x = mean_peak_age, y = metric, shape = archetype),
     color = "black", size = 2.5, inherit.aes = FALSE
   ) +
-  scale_shape_manual(values = c(15, 17, 18, 19)) +
+  scale_shape_manual(values = arch_shape_pal) +
   labs(shape = "Archetype mean")
 
 ggsave(file.path(plots_dir, "peaks", "mcmc", "peaks_with_archetypes.png"),
        peaks_plt_arch, width = 10, height = 7)
 
 } # end if (!is.null(peaks_plt_df))
+
+# ── 5. Archetype characterization table and bullet descriptions ──────────────
+# Placed before the Frechet clustering section so it runs even if hclust fails
+# on empty curve_players_common for models with fewer player-metric combinations.
+if (!is.null(peaks_plt_df) && !is.null(peak_vals_plt_df)) {
+
+archetype_peak_ages <- peaks_plt_df |>
+  left_join(posterior_mean_latent |> select(id, archetype), by = c("player" = "id")) |>
+  filter(!is.na(archetype)) |>
+  group_by(archetype, metric) |>
+  summarise(mean_peak_age = mean(value, na.rm = TRUE), .groups = "drop")
+
+archetype_peak_vals <- peak_vals_plt_df |>
+  left_join(posterior_mean_latent |> select(id, archetype), by = c("player" = "id")) |>
+  filter(!is.na(archetype)) |>
+  group_by(archetype, metric) |>
+  summarise(mean_peak_val = mean(value, na.rm = TRUE), .groups = "drop")
+
+# ── 5b. Archetype quantitative summary table (LaTeX) ─────────────────────────
+# Inverse link map: display metric name → link used in model
+metric_inv_link <- c(
+  "GP%"  = "plogis", "USG"  = "plogis", "MPG"  = "plogis",
+  "FT%"  = "plogis", "FG2%" = "plogis", "FG3%" = "plogis",
+  "OBPM" = "identity", "DBPM" = "identity",
+  "BLK"  = "exp", "STL" = "exp", "AST" = "exp",
+  "DREB" = "exp", "OREB" = "exp", "TOV" = "exp",
+  "FTA"  = "exp", "FG2A" = "exp", "FG3A" = "exp"
+)
+apply_inv_link <- function(x, m) {
+  link <- metric_inv_link[as.character(m)]
+  link <- ifelse(is.na(link), "identity", link)
+  dplyr::case_when(link == "plogis" ~ plogis(x), link == "exp" ~ exp(x), TRUE ~ x)
+}
+
+archetype_summary_wide <- archetype_peak_ages |>
+  inner_join(archetype_peak_vals, by = c("archetype", "metric")) |>
+  mutate(
+    peak_val_out = apply_inv_link(mean_peak_val, metric),
+    cell = sprintf("%.1f (%.2f)", mean_peak_age, peak_val_out)
+  ) |>
+  select(metric, archetype, cell) |>
+  pivot_wider(names_from = archetype, values_from = cell) |>
+  arrange(metric) |>
+  mutate(metric = gsub("%", "\\\\%", as.character(metric)))
+
+archetype_reps_min <- posterior_mean_latent |>
+  left_join(latent_space |> select(id, minutes), by = "id") |>
+  filter(!is.na(archetype)) |>
+  group_by(archetype) |>
+  slice_max(order_by = minutes, n = 3, with_ties = FALSE) |>
+  summarise(reps = paste(name, collapse = ", "), .groups = "drop") |>
+  pivot_wider(names_from = archetype, values_from = reps) |>
+  mutate(metric = "\\textit{Representatives}")
+
+arch_cols <- sort(unique(archetype_peak_ages$archetype))
+col_headers <- c("Metric", paste0("Archetype ", arch_cols))
+
+archetype_table_tex <- knitr::kable(
+  archetype_summary_wide |> mutate(across(everything(), as.character)),
+  format    = "latex",
+  booktabs  = TRUE,
+  escape    = FALSE,
+  col.names = col_headers,
+  caption   = "Posterior mean peak age and peak value (in parentheses) by archetype and metric.",
+  label     = "archetype_summary"
+)
+
+# Wrap tabular in \resizebox so the table fits within the text block width
+archetype_table_str <- as.character(archetype_table_tex) |>
+  stringr::str_replace(
+    stringr::fixed("\\begin{tabular"),
+    "\\resizebox{\\linewidth}{!}{\\begin{tabular"
+  ) |>
+  stringr::str_replace(
+    stringr::fixed("\\end{tabular}"),
+    "\\end{tabular}}"
+  )
+
+writeLines(
+  archetype_table_str,
+  file.path(plots_dir, "latent_space", "mcmc", "archetype_summary_table.tex")
+)
+
+# ── 5c. Dynamic archetype bullet descriptions (LaTeX) ────────────────────────
+arch_metric_zscored <- archetype_peak_vals |>
+  group_by(metric) |>
+  mutate(
+    gm  = mean(mean_peak_val, na.rm = TRUE),
+    gsd = sd(mean_peak_val, na.rm = TRUE)
+  ) |>
+  ungroup() |>
+  mutate(z = ifelse(is.na(gsd) | gsd == 0, 0, (mean_peak_val - gm) / gsd)) |>
+  select(-gm, -gsd)
+
+arch_distinctive <- arch_metric_zscored |>
+  group_by(archetype) |>
+  slice_max(z, n = 4, with_ties = FALSE) |>
+  summarise(
+    top_metrics = paste0("\\textit{", gsub("%", "\\\\%", as.character(metric)), "}", collapse = ", "),
+    .groups = "drop"
+  )
+
+archetype_reps_long <- posterior_mean_latent |>
+  left_join(latent_space |> select(id, minutes), by = "id") |>
+  filter(!is.na(archetype)) |>
+  group_by(archetype) |>
+  slice_max(order_by = minutes, n = 3, with_ties = FALSE) |>
+  summarise(reps = paste(name, collapse = ", "), .groups = "drop")
+
+arch_bullets_df <- archetype_reps_long |>
+  left_join(arch_distinctive, by = "archetype") |>
+  arrange(archetype) |>
+  mutate(item = glue(
+    "\\item \\textbf{{Archetype {archetype}}} --- ",
+    "\\emph{{Representatives (by career minutes):}} {reps}. ",
+    "Relative to the other archetypes, this group shows the most distinctive peak ",
+    "production in {top_metrics}; see Table~\\ref{{tab:archetype_summary}} for ",
+    "complete peak-age and peak-value comparisons across all 17 metrics."
+  ))
+
+writeLines(
+  c("\\begin{itemize}", arch_bullets_df$item, "\\end{itemize}"),
+  file.path(plots_dir, "latent_space", "mcmc", "archetype_bullets.tex")
+)
+
+} # end if (!is.null(peaks_plt_df) && !is.null(peak_vals_plt_df))
 
 # Archetype average curves via Frechet mean (fdasrvf)
 frechet_mean_curve_basic <- function(time, mat) {
@@ -957,6 +1093,10 @@ dimnames(curve_dist_names) <- lapply(
   dimnames(curve_dist_avg),
   function(ids) ifelse(ids %in% names(id_to_name), id_to_name[ids], ids)
 )
+if (length(curve_players_common) < 2) {
+  message("Frechet curve clustering skipped: fewer than 2 players common across all metrics.")
+  curve_archetype_lookup <- tibble(id = character(0), curve_archetype = factor(character(0)))
+} else {
 curve_hc <- hclust(as.dist(curve_dist_names), method = "ward.D2")
 curve_archetype_labels <- cutree(curve_hc, k = find_k_dendrogram(curve_hc))
 curve_archetype_lookup <- tibble(
@@ -979,6 +1119,7 @@ player_lookup_curve <- data |>
 # Define write_neighbor_tex function before use in group_walk()
 write_neighbor_tex <- function(df, focal_name, caption, out_path,
                                archetype_col = "archetype") {
+  label <- paste0("tab:", tools::file_path_sans_ext(basename(out_path)))
   rows <- df |> arrange(rank_mean)
   body <- pmap_chr(rows, function(neighbor_name, neighbor_pos, rank_mean, ...) {
     arch <- list(...)[[archetype_col]]
@@ -995,6 +1136,7 @@ write_neighbor_tex <- function(df, focal_name, caption, out_path,
     "    \\bottomrule\n",
     "  \\end{tabular}\n",
     "  \\caption{", caption, "}\n",
+    "  \\label{", label, "}\n",
     "\\end{table}\n"
   )
   writeLines(latex, out_path)
@@ -1134,109 +1276,7 @@ curve_neighbors |>
     )
   })
 
-# ── 5. Archetype characterization heatmaps ───────────────────────────────────
-if (!is.null(peaks_plt_df) && !is.null(peak_vals_plt_df)) {
-
-archetype_peak_ages <- peaks_plt_df |>
-  left_join(posterior_mean_latent |> select(id, archetype), by = c("player" = "id")) |>
-  filter(!is.na(archetype)) |>
-  group_by(archetype, metric) |>
-  summarise(mean_peak_age = mean(value, na.rm = TRUE), .groups = "drop")
-
-archetype_peak_vals <- peak_vals_plt_df |>
-  left_join(posterior_mean_latent |> select(id, archetype), by = c("player" = "id")) |>
-  filter(!is.na(archetype)) |>
-  group_by(archetype, metric) |>
-  summarise(mean_peak_val = mean(value, na.rm = TRUE), .groups = "drop")
-
-# ── 5b. Archetype quantitative summary table (LaTeX) ─────────────────────────
-archetype_summary_wide <- archetype_peak_ages |>
-  inner_join(archetype_peak_vals, by = c("archetype", "metric")) |>
-  mutate(cell = sprintf("%.1f (%.2f)", mean_peak_age, mean_peak_val)) |>
-  select(metric, archetype, cell) |>
-  pivot_wider(names_from = archetype, values_from = cell) |>
-  arrange(metric)
-
-# Top-3 representative players per archetype, weighted by career minutes
-archetype_reps_min <- posterior_mean_latent |>
-  left_join(latent_space |> select(id, minutes), by = "id") |>
-  filter(!is.na(archetype)) |>
-  group_by(archetype) |>
-  slice_max(order_by = minutes, n = 3, with_ties = FALSE) |>
-  summarise(reps = paste(name, collapse = ", "), .groups = "drop") |>
-  pivot_wider(names_from = archetype, values_from = reps) |>
-  mutate(metric = "\\textit{Representatives}")
-
-arch_cols <- sort(unique(archetype_peak_ages$archetype))
-col_headers <- c("Metric", paste0("Archetype ", arch_cols))
-
-# Combine metric rows + representative row, with booktabs separator
-body_rows <- bind_rows(
-  archetype_summary_wide |> mutate(across(everything(), as.character)),
-  archetype_reps_min     |> select(metric, all_of(as.character(arch_cols)))
-                         |> mutate(across(everything(), as.character))
-)
-
-archetype_table_tex <- knitr::kable(
-  body_rows,
-  format    = "latex",
-  booktabs  = TRUE,
-  escape    = FALSE,
-  col.names = col_headers,
-  caption   = "Posterior mean peak age and peak value (in parentheses) by archetype and metric. The final row lists the three highest-minutes representatives per archetype.",
-  label     = "tab:archetype_summary"
-)
-
-writeLines(
-  as.character(archetype_table_tex),
-  file.path(plots_dir, "latent_space", "mcmc", "archetype_summary_table.tex")
-)
-
-# ── 5c. Dynamic archetype bullet descriptions (LaTeX) ────────────────────────
-# For each archetype, identify the top-4 metrics where it achieves the highest
-# peak value relative to the maximum across all archetypes (z-score within metric).
-arch_metric_zscored <- archetype_peak_vals |>
-  group_by(metric) |>
-  mutate(
-    gm  = mean(mean_peak_val, na.rm = TRUE),
-    gsd = sd(mean_peak_val, na.rm = TRUE)
-  ) |>
-  ungroup() |>
-  mutate(z = ifelse(is.na(gsd) | gsd == 0, 0, (mean_peak_val - gm) / gsd)) |>
-  select(-gm, -gsd)
-
-arch_distinctive <- arch_metric_zscored |>
-  group_by(archetype) |>
-  slice_max(z, n = 4, with_ties = FALSE) |>
-  summarise(
-    top_metrics = paste0("\\textit{", metric, "}", collapse = ", "),
-    .groups = "drop"
-  )
-
-archetype_reps_long <- posterior_mean_latent |>
-  left_join(latent_space |> select(id, minutes), by = "id") |>
-  filter(!is.na(archetype)) |>
-  group_by(archetype) |>
-  slice_max(order_by = minutes, n = 3, with_ties = FALSE) |>
-  summarise(reps = paste(name, collapse = ", "), .groups = "drop")
-
-arch_bullets_df <- archetype_reps_long |>
-  left_join(arch_distinctive, by = "archetype") |>
-  arrange(archetype) |>
-  mutate(item = glue(
-    "\\item \\textbf{{Archetype {archetype}}} --- ",
-    "\\emph{{Representatives (by career minutes):}} {reps}. ",
-    "Relative to the other archetypes, this group shows the most distinctive peak ",
-    "production in {top_metrics}; see Table~\\ref{{tab:archetype_summary}} for ",
-    "complete peak-age and peak-value comparisons across all 17 metrics."
-  ))
-
-writeLines(
-  c("\\begin{itemize}", arch_bullets_df$item, "\\end{itemize}"),
-  file.path(plots_dir, "latent_space", "mcmc", "archetype_bullets.tex")
-)
-
-} # end if (!is.null(peaks_plt_df) && !is.null(peak_vals_plt_df))
+} # end else (curve_players_common >= 2)
 
 # ── 6. Archetype-coloured functional PCA plot ────────────────────────────────
 fpc_arch <- functional_pca_embedding |>
@@ -1253,7 +1293,7 @@ functional_pca_plt_archetype <- fpc_arch |>
     size = 2, fontface = "bold", max.overlaps = 20,
     inherit.aes = FALSE
   ) +
-  theme_bw() + scale_colour_brewer(palette = "Set1") +
+  theme_bw() + scale_colour_manual(values = arch_colour_pal) +
   labs(title = "Latent Space — Archetype Clusters",
        x = "PC 1", y = "PC 2", color = "Archetype", alpha = "Minutes")
 ggsave(file.path(plots_dir, "latent_space", "map", "latent_space_archetypes.png"),
@@ -1274,7 +1314,7 @@ latent_pca_plt <- latent_pca_df |>
     aes(label = plot_name(name)),
     size = 2, fontface = "bold", max.overlaps = 20
   ) +
-  theme_bw() + scale_colour_brewer(palette = "Set1") +
+  theme_bw() + scale_colour_manual(values = arch_colour_pal) +
   labs(title = "PCA of Posterior Mean Latent Coordinates — Archetype Clusters",
        x = glue("PC 1 ({round(summary(latent_pca)$importance[2,1]*100,1)}% var)"),
        y = glue("PC 2 ({round(summary(latent_pca)$importance[2,2]*100,1)}% var)"),
@@ -1326,7 +1366,7 @@ latent_pca_pc34 <- latent_pca_df34 |>
     aes(label = plot_name(name)),
     size = 2, fontface = "bold", max.overlaps = 20
   ) +
-  theme_bw() + scale_colour_brewer(palette = "Set1") +
+  theme_bw() + scale_colour_manual(values = arch_colour_pal) +
   labs(
     title = "PCA of Posterior Mean Latent Coordinates — PC3 vs PC4",
     x = glue("PC 3 ({pc3_var}% var)"),
@@ -1485,8 +1525,17 @@ run_modality_latent_analysis <- function(tag, posterior_df, phi_ref, plots_dir,
     select(all_of(dim_cols)) |>
     as.matrix()
   rownames(phi_mat) <- posterior_mean_latent |> arrange(id) |> pull(name)
-  phi_mat <- scale(phi_mat)
-  phi_dist <- dist(phi_mat)
+
+  # Per-dimension variance across players in the modality-specific (unscaled) coords.
+  # High variance = that dim is both variable across players and strongly weighted
+  # by this modality's gamma. Used directly for Ward clustering (no re-scaling).
+  dim_var     <- apply(phi_mat, 2, var)
+  top3_dims   <- names(sort(dim_var, decreasing = TRUE))[1:3]
+  dim_var_tbl <- tibble(dimension = names(dim_var), variance = dim_var) |>
+    arrange(desc(variance))
+  message(glue("  [{tag}] top-3 dims by variance: {paste(top3_dims, collapse = ', ')}"))
+
+  phi_dist <- dist(phi_mat)   # Ward clustering on unscaled modality-weighted coords
   hc_latent <- hclust(phi_dist, method = "ward.D2")
 
   wss_sil <- map_dfr(2:10, function(k) {
@@ -1517,10 +1566,105 @@ run_modality_latent_analysis <- function(tag, posterior_df, phi_ref, plots_dir,
 
   k_mod <- find_k_dendrogram(hc_latent)
   message(glue("  [{tag}] optimal k by dendrogram gap: {k_mod}"))
+  mod_colour_pal <- if (k_mod <= 9L) {
+    RColorBrewer::brewer.pal(max(3L, k_mod), "Set1")[seq_len(k_mod)]
+  } else {
+    scales::hue_pal()(k_mod)
+  }
   archetype_labels <- cutree(hc_latent, k = k_mod)
   posterior_mean_latent <- posterior_mean_latent |>
     arrange(id) |>
     mutate(archetype = factor(unname(archetype_labels)))
+
+  # ── Dimension variance bar chart (modality-level) ────────────────────────────
+  dim_var_plt <- ggplot(dim_var_tbl, aes(x = reorder(dimension, variance), y = variance)) +
+    geom_col(fill = "steelblue") +
+    coord_flip() +
+    labs(
+      title    = glue("Per-dimension variance in modality-specific coords ({tag})"),
+      subtitle = glue("Top dims: {paste(top3_dims, collapse=', ')}"),
+      x        = "Latent dimension",
+      y        = "Variance across players"
+    ) +
+    theme_bw()
+  ggsave(file.path(mod_dir, "dim_variance.png"), dim_var_plt, width = 7, height = 5)
+
+  # ── Per-archetype player representatives (top-5 by career minutes) ────────────
+  arch_reps_mod <- posterior_mean_latent |>
+    left_join(
+      latent_space |> select(id, position_group, minutes) |>
+        group_by(id) |> slice(1L) |> ungroup(),
+      by = "id"
+    ) |>
+    filter(!is.na(archetype)) |>
+    group_by(archetype) |>
+    arrange(desc(minutes)) |>
+    mutate(rank = row_number()) |>
+    filter(rank <= 5L) |>
+    ungroup()
+
+  arch_rep_blocks_mod <- map_chr(levels(arch_reps_mod$archetype), function(a) {
+    block   <- arch_reps_mod |> filter(archetype == a)
+    pos_mix <- block |>
+      count(position_group, sort = TRUE) |>
+      slice_head(n = 2L) |>
+      pull(position_group) |>
+      paste(collapse = "/")
+    header <- glue(
+      "    \\multicolumn{{4}}{{l}}{{\\textit{{Archetype {a} ({pos_mix})}}}}"
+    )
+    rows <- pmap_chr(
+      block |> select(rank, name, position_group, minutes),
+      function(rank, name, position_group, minutes, ...) {
+        mins_str <- if (is.na(minutes)) "---"
+                    else formatC(as.integer(minutes), format = "d", big.mark = ",")
+        glue("    {rank} & {name} & {position_group} & {mins_str} \\\\")
+      }
+    )
+    paste(c(paste0(header, " \\\\"), "    \\midrule", rows), collapse = "\n")
+  })
+
+  tag_tex <- gsub("_", "-", tag)   # underscores invalid in LaTeX text mode
+
+  arch_rep_tex_mod <- paste0(
+    "\\begin{table}[htbp]\n",
+    "  \\centering\\small\n",
+    "  \\begin{tabular}{rlll}\n",
+    "    \\toprule\n",
+    "    Rank & Player & Pos. & Career Min. \\\\\n",
+    "    \\midrule\n",
+    paste(arch_rep_blocks_mod, collapse = "\n    \\midrule[0.4pt]\n"), "\n",
+    "    \\bottomrule\n",
+    "  \\end{tabular}\n",
+    "  \\caption{Top 5 players by career minutes per archetype --- ",
+    tag_tex, " modality ($k=", k_mod, "$ archetypes).",
+    " Top-3 latent dimensions by variance across players in this modality:",
+    " ", paste(top3_dims, collapse = ", "), ".}\n",
+    "  \\label{tab:arch_reps_", tag, "}\n",
+    "\\end{table}\n"
+  )
+  writeLines(arch_rep_tex_mod, file.path(mod_dir, "archetype_representatives.tex"))
+
+  # ── Per-archetype bullet prose (mirrors global archetype_bullets.tex) ─────────
+  arch_reps_summary <- arch_reps_mod |>
+    group_by(archetype) |>
+    slice_min(rank, n = 3L) |>
+    summarise(reps = paste(name, collapse = ", "), .groups = "drop")
+
+  tag_tex <- gsub("_", "-", tag)   # underscores invalid in LaTeX text mode
+
+  arch_bullets_mod <- arch_reps_summary |>
+    arrange(archetype) |>
+    mutate(item = glue(
+      "\\item \\textbf{{Archetype {archetype}}} ---",
+      " \\emph{{Representatives (by career minutes):}} {reps}.",
+      " Primary separating dimensions in the {tag_tex} modality: {paste(top3_dims, collapse = ', ')}."
+    ))
+
+  writeLines(
+    c("\\begin{itemize}", arch_bullets_mod$item, "\\end{itemize}"),
+    file.path(mod_dir, "archetype_bullets.tex")
+  )
 
   # PCA of modality-specific posterior mean latent coords, coloured by archetype
   latent_pca_mod <- prcomp(phi_mat, center = FALSE, scale. = FALSE)
@@ -1553,7 +1697,7 @@ run_modality_latent_analysis <- function(tag, posterior_df, phi_ref, plots_dir,
     ggplot(aes(x = PC1, y = PC2, color = archetype)) +
     geom_point(size = 1.5) +
     pca_label_layer +
-    theme_bw() + scale_colour_brewer(palette = "Set1") +
+    theme_bw() + scale_colour_manual(values = mod_colour_pal) +
     labs(
       title = glue("PCA of Modality-Specific Latent Coords — {tag} (k={k_mod})"),
       x = glue("PC 1 ({round(summary(latent_pca_mod)$importance[2,1]*100,1)}% var)"),
@@ -1569,7 +1713,7 @@ run_modality_latent_analysis <- function(tag, posterior_df, phi_ref, plots_dir,
       pca_plt_no_labels <- pca_df |>
         ggplot(aes(x = PC1, y = PC2, color = archetype)) +
         geom_point(size = 1.5) +
-        theme_bw() + scale_colour_brewer(palette = "Set1") +
+        theme_bw() + scale_colour_manual(values = mod_colour_pal) +
         labs(
           title = glue("PCA of Modality-Specific Latent Coords — {tag} (k={k_mod})"),
           x = glue("PC 1 ({round(summary(latent_pca_mod)$importance[2,1]*100,1)}% var)"),

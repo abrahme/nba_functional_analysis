@@ -1,0 +1,139 @@
+\begin{thebibliography}{19}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Andersen et~al.(2018)Andersen, Siivola, Riutort-Mayol, and
+  Vehtari]{convexityconstraints}
+Michael~Riis Andersen, Eero Siivola, Gabriel Riutort-Mayol, and Aki Vehtari.
+\newblock A non-parametric probabilistic model for monotonic functions, 2018.
+\newblock URL
+  \url{https://drive.google.com/file/d/19kHhfuYC22ymNt3a3BlYgW0vWexOmbNy/view}.
+
+\bibitem[Bodin et~al.(2017)Bodin, Campbell, and
+  Ek]{bodin2017latentgaussianprocessregression}
+Erik Bodin, Neill D.~F. Campbell, and Carl~Henrik Ek.
+\newblock Latent gaussian process regression, 2017.
+\newblock URL \url{https://arxiv.org/abs/1707.05534}.
+
+\bibitem[Chessa et~al.(2023)Chessa, D’Urso, De~Giovanni,
+  et~al.]{chessa2023complex}
+Antonio Chessa, Pierpaolo D’Urso, Luigi De~Giovanni, et~al.
+\newblock Complex networks for community detection of basketball players.
+\newblock \emph{Annals of Operations Research}, 325:\penalty0 363--389, 2023.
+\newblock \doi{10.1007/s10479-022-04647-x}.
+\newblock URL \url{https://doi.org/10.1007/s10479-022-04647-x}.
+
+\bibitem[Elmore(2019)]{ballr}
+Ryan Elmore.
+\newblock \emph{ballr: Access to Current and Historical Basketball Data}, 2019.
+\newblock URL \url{https://CRAN.R-project.org/package=ballr}.
+\newblock R package version 0.2.4.
+
+\bibitem[Isserlis(1918)]{isserlis}
+L.~Isserlis.
+\newblock On a formula for the product-moment coefficient of any order of a
+  normal frequency distribution in any number of variables.
+\newblock \emph{Biometrika}, 12\penalty0 (1/2):\penalty0 134--139, 1918.
+\newblock ISSN 00063444, 14643510.
+\newblock URL \url{http://www.jstor.org/stable/2331932}.
+
+\bibitem[Lawrence(2005)]{JMLR:v6:lawrence05a}
+Neil Lawrence.
+\newblock Probabilistic non-linear principal component analysis with gaussian
+  process latent variable models.
+\newblock \emph{Journal of Machine Learning Research}, 6\penalty0
+  (60):\penalty0 1783--1816, 2005.
+\newblock URL \url{http://jmlr.org/papers/v6/lawrence05a.html}.
+
+\bibitem[Mauri and
+  Dunson(2025)]{mauri2025factorpretrainingbayesianmultivariate}
+Lorenzo Mauri and David~B. Dunson.
+\newblock Factor pre-training in bayesian multivariate logistic models, 2025.
+\newblock URL \url{https://arxiv.org/abs/2409.17441}.
+
+\bibitem[Page et~al.(2007)Page, Fellingham, and Reese]{page2007using}
+Garritt~L Page, Gilbert~W Fellingham, and C~Shane Reese.
+\newblock Using box-scores to determine a position's contribution to winning
+  basketball games.
+\newblock \emph{Journal of Quantitative Analysis in Sports}, 3\penalty0 (4),
+  2007.
+
+\bibitem[Rahimi and Recht(2007)]{rffs}
+Ali Rahimi and Benjamin Recht.
+\newblock Random features for large-scale kernel machines.
+\newblock In J.~Platt, D.~Koller, Y.~Singer, and S.~Roweis, editors,
+  \emph{Advances in Neural Information Processing Systems}, volume~20. Curran
+  Associates, Inc., 2007.
+\newblock URL
+  \url{https://proceedings.neurips.cc/paper_files/paper/2007/file/013a006f03dbc5392effeb8f18fda755-Paper.pdf}.
+
+\bibitem[Silver(2015)]{natesilver538_2015}
+Nate Silver.
+\newblock We're predicting the career of every {NBA} player. {H}ere's how.
+\newblock
+  \url{https://fivethirtyeight.com/features/how-were-predicting-NBA-player-career/},
+  Oct 2015.
+
+\bibitem[Silver(2019)]{natesilver538_2019}
+Nate Silver.
+\newblock How our {RAPTOR} metric works.
+\newblock
+  \url{https://fivethirtyeight.com/features/how-our-raptor-metric-works/}, Oct
+  2019.
+
+\bibitem[Solin and Särkkä(2019)]{Solin_2019}
+Arno Solin and Simo Särkkä.
+\newblock Hilbert space methods for reduced-rank gaussian process regression.
+\newblock \emph{Statistics and Computing}, 30\penalty0 (2):\penalty0 419–446,
+  August 2019.
+\newblock ISSN 1573-1375.
+\newblock \doi{10.1007/s11222-019-09886-w}.
+\newblock URL \url{http://dx.doi.org/10.1007/s11222-019-09886-w}.
+
+\bibitem[{Sports Reference LLC}(2019)]{bballref}
+{Sports Reference LLC}.
+\newblock {Basketball-Reference.com} - basketball statistics and history.
+\newblock \url{http://www.basketball-reference.com/}, 2019.
+
+\bibitem[Terner and Franks(2020)]{terner2020modeling}
+Zachary Terner and Alexander Franks.
+\newblock Modeling player and team performance in basketball.
+\newblock \emph{Annual Review of Statistics and Its Application}, 8, 2020.
+
+\bibitem[Vaci et~al.(2019)Vaci, Coci{\'c}, Gula, and
+  Bilali{\'c}]{vaci2019large}
+Nemanja Vaci, Dijana Coci{\'c}, Bartosz Gula, and Merim Bilali{\'c}.
+\newblock Large data and bayesian modeling—aging curves of {NBA} players.
+\newblock \emph{Behavior {R}esearch {M}ethods}, pages 1--21, 2019.
+
+\bibitem[Vinu{\'e} and Epifanio(2019)]{vinue2019forecasting}
+Guillermo Vinu{\'e} and Irene Epifanio.
+\newblock Forecasting basketball players' performance using sparse functional
+  data.
+\newblock \emph{Statistical Analysis and Data Mining: The ASA Data Science
+  Journal}, 2019.
+
+\bibitem[Vinu{\'e} et~al.(2015)Vinu{\'e}, Epifanio, and
+  Alemany]{vinue2015archetypoids}
+Guillermo Vinu{\'e}, Irene Epifanio, and Sandra Alemany.
+\newblock Archetypoids: A new approach to define representative archetypal
+  data.
+\newblock \emph{Computational Statistics \& Data Analysis}, 87:\penalty0
+  102--115, 2015.
+
+\bibitem[Wakim and Jin(2014)]{wakim2014functional}
+Alexander Wakim and Jimmy Jin.
+\newblock Functional data analysis of aging curves in sports.
+\newblock \emph{arXiv preprint arXiv:1403.7548}, 2014.
+
+\bibitem[Zhang et~al.(2023)Zhang, Gundersen, and
+  Engelhardt]{zhang2023bayesiannonlinearlatentvariable}
+Michael~Minyi Zhang, Gregory~W. Gundersen, and Barbara~E. Engelhardt.
+\newblock Bayesian non-linear latent variable modeling via random fourier
+  features, 2023.
+\newblock URL \url{https://arxiv.org/abs/2306.08352}.
+
+\end{thebibliography}
