@@ -939,6 +939,26 @@ Several patterns emerge.  \emph{All four archetypes} peak late in FG3A (three-po
 
 The most telling cross-positional grouping is the archetype that unites elite playmaker-scorers across all five traditional positions.  A positional-dummy approach would never cluster a pass-first center alongside a perimeter ball-handler; the jointly learned latent embedding does so because both share the same multi-metric aging structure --- creative playmaking, high offensive efficiency (OBPM), and durable late-peaking production --- rather than physical role.
 
+Beyond peak timing and peak value, the archetypes also differ in the \emph{rate} of career ascent and decline.  For each posterior draw, we compute the mean pre-peak first derivative (the instantaneous rate of improvement from career start to peak age) and the mean post-peak first derivative (the instantaneous rate of decline from peak to career end), using the analytically derived GP first derivative at each observed age.  Figure~\ref{fig:archetype_slopes} summarises these by archetype and metric.  Figure~\ref{fig:archetype_slope_ratio} shows the asymmetry ratio (pre-peak slope divided by absolute post-peak slope): values greater than 1 indicate metrics for which the ascent to peak is slower than the subsequent decline, while values less than 1 indicate faster ascent than decline.  Archetypes with systematically higher asymmetry on athleticism metrics (BLK, OREB) and lower asymmetry on skill metrics (OBPM, AST) reflect the distinction between physical and cognitive aging: athleticism metrics are slow to develop and fast to erode, whereas skill metrics accumulate more rapidly and decline more gradually.
+
+\IfFileExists{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/mcmc/archetype_slopes.png}{%
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/mcmc/archetype_slopes.png}
+    \caption{Posterior mean GP first derivative before (left) and after (right) the peak age, by archetype and metric.  Points show the mean over posterior draws; intervals are 80\% credible intervals.  Slopes are in latent-space units per year; positive post-peak values indicate skill-based metrics that continue growing or plateau after the nominal peak.}
+    \label{fig:archetype_slopes}
+\end{figure}%
+}{}
+
+\IfFileExists{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/mcmc/archetype_slope_ratio.png}{%
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/latent_space/mcmc/archetype_slope_ratio.png}
+    \caption{Career arc asymmetry by archetype and metric: pre-peak slope divided by the absolute post-peak slope.  The dashed line at 1 marks symmetric careers.  Ratios above 1 indicate faster decline than ascent (common for athleticism metrics); ratios below 1 indicate faster ascent than decline (common for skill-acquisition metrics such as three-point shooting and playmaking).}
+    \label{fig:archetype_slope_ratio}
+\end{figure}%
+}{}
+
 \subsection{Modality-Specific Archetype Clustering}
 Each modality-specific embedding is derived from the bilinear structure of the model.  For a given modality $m$ (peak timing, peak value, or curvature basis $m$), the player-metric effect is $X_p^\top \boldsymbol{\gamma}^{k,(m)}$, where $\boldsymbol{\gamma}^{k,(m)} \in \mathbb{R}^q$ is the per-metric weight vector drawn from the posterior.  We rescale each latent dimension $j$ of $X_p$ by the posterior standard deviation of $\gamma^{k,(m)}_j$ across all $K$ metrics, forming the modality-specific coordinate
 \[
