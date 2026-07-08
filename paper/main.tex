@@ -90,7 +90,7 @@ shared low-dimensional latent space so that players with similar profiles learn
 similar trajectory shapes, peak ages, and peak values.
 %
 a covariate-anchored latent variable prior that anchors player embeddings toward
-draft standing, height, and positional role; and (iv) a Weibull survival model
+draft standing, height, and positional role; and (iv) a Gompertz survival model
 that corrects for survivor bias arising from right-censored and left-truncated
 career observations.
 %
@@ -134,13 +134,13 @@ In this work, we introduce several innovations over existing approaches to produ
 %
 %
 
-Existing approaches do not account for the evolution of performance across multiple metrics. We address this gap with a Bayesian multi-task Gaussian Process Latent Variable Model (GPLVM) that jointly estimates concave production curves across over a dozen performance metrics and thousands of NBA players.  Each player is assigned a latent embedding inferred from the full metric profile; players with similar embeddings learn similar aging trajectories without relying on positional labels or hand-specified archetypes.  Concavity is enforced through a novel nonparametric prior (the Concave Process) derived analytically from an HSGP approximation.  A Weibull survival model accounts for right-censored careers, correcting the survivor bias that afflicts conditioning on observed seasons alone.  Posterior analysis of the learned embedding then supports (a) latent-space nearest-neighbor retrieval of career-comparable players, (b) hierarchical archetype discovery, and (c) counterfactual career estimation for injury-affected players.
+Existing approaches do not account for the evolution of performance across multiple metrics. We address this gap with a Bayesian multi-task Gaussian Process Latent Variable Model (GPLVM) that jointly estimates concave production curves across over a dozen performance metrics and thousands of NBA players.  Each player is assigned a latent embedding inferred from the full metric profile; players with similar embeddings learn similar aging trajectories without relying on positional labels or hand-specified archetypes.  Concavity is enforced through a novel nonparametric prior (the Concave Process) derived analytically from an HSGP approximation.  A Gompertz survival model accounts for right-censored careers, correcting the survivor bias that afflicts conditioning on observed seasons alone.  Posterior analysis of the learned embedding then supports (a) latent-space nearest-neighbor retrieval of career-comparable players, (b) hierarchical archetype discovery, and (c) counterfactual career estimation for injury-affected players.
 
 First, we derive a novel nonparametric prior over concave functions to model the aging process in athletes. Evidence across multiple sports shows that production rises during development and declines with age-related attrition \citep[see e.g.][]{vaci2019large}, motivating a concave mean model. This prior specification allows us to directly study variations in aging effects (e.g peak behavior) across players. 
 
 We construct these priors by applying a continuous push-forward map to an HSGP-approximated Gaussian process.  The resulting prior assigns positive mass to every uniform neighborhood of any continuous concave function, and admits an analytic closed form that makes it tractable for large-scale Bayesian inference.
 
-Second, we simultaneously model dependence across multiple players and multiple metrics.  We embed each player in a shared low-dimensional latent space and use this embedding to parameterize a family of metric-specific concave aging curves simultaneously.  By respecting the native sampling distributions of count and proportion data, the model avoids the Gaussianity assumptions that distort inference for low-minute players. We are also able to incorporate an explicit Weibull career-duration model accounts for right-censored and left-truncated careers, correcting the survivor bias that arises when conditioning only on observed seasons.
+Second, we simultaneously model dependence across multiple players and multiple metrics.  We embed each player in a shared low-dimensional latent space and use this embedding to parameterize a family of metric-specific concave aging curves simultaneously.  By respecting the native sampling distributions of count and proportion data, the model avoids the Gaussianity assumptions that distort inference for low-minute players. We are also able to incorporate an explicit Gompertz career-duration model accounts for right-censored and left-truncated careers, correcting the survivor bias that arises when conditioning only on observed seasons.
 
 % Covariate-anchored latent variable prior.  Standard GPLVMs place an uninformative prior $X_p \sim \mathcal{N}(0, I_q)$ on the latent coordinates, yielding a posterior identified only up to orthogonal rotation.  We instead place a structured prior $X_p \sim \mathcal{N}(Z_p^\top W,\, \sigma_X^2\, I_q)$ that anchors each player's latent position toward a learned projection of exogenous covariates (draft standing, height, and positional role).  Because $W$ and $\sigma_X$ are inferred jointly with the rest of the model, it learns both which combination of physical and scouting signals best predicts latent position and how tightly that prior should constrain the embedding.  This provides a model-level resolution to rotational non-identifiability that complements the posterior Procrustes alignment of Section~\ref{sec:inference}, and renders the learned embedding interpretable in terms of observable player characteristics.
 
@@ -372,12 +372,13 @@ that is, games played follows a Beta-Binomial distribution with 82 trials (the m
 Finally, not every player is observed for the full span of seasons covered by the data, and their dropout is likely informative.  For instance, some players retire voluntarily, whereas others are forced out due to diminishing performance or injury.  Ignoring these selection would bias estimates of the aging curve: players who exit early are systematically different from those who persist.  We therefore augment the trajectory likelihood with an explicit model for career duration that accounts for right-censored observations.
 
 
-We model the  \emph{exit age} (e.g. retirement) of player $p$ using a survival model.  Let $T_p$ be the exit age and let $\alpha_p$ denote their \emph{entrance age}.  We model the residual time at risk $T_p \mid T_p > \alpha_p$ with a player-specific Weibull distribution
+We model the  \emph{exit age} (e.g. retirement) of player $p$ using a survival model.  Let $T_p$ be the exit age and let $\alpha_p$ denote their \emph{entrance age}.  We place a player-specific \emph{Gompertz} proportional-hazards model on the time at risk $T_p \mid T_p > \alpha_p$, with age-varying hazard
 \begin{equation}
-    T_p \mid \alpha_p \;\sim\; \operatorname{Weibull}(\eta_p(X_p),\,\gamma_p(X_p)),
-    \label{eq:weibull}
+    h_p(a \mid X_p) \;=\; \eta_p(X_p)\,\exp\!\bigl(\gamma_p(X_p)\,a\bigr),
+    \label{eq:gompertz}
 \end{equation}
-where $\eta_p(X_p) > 0$ is the \emph{scale} (expected career length, in seasons) and $\gamma_p(X_p) > 0$ is the \emph{concentration} (shape).
+where $\eta_p(X_p) > 0$ is the \emph{baseline hazard} and $\gamma_p(X_p) > 0$ is the \emph{aging rate} governing how quickly exit risk accelerates with age.  The Gompertz hazard is monotonically increasing in $a$ for any $\gamma_p > 0$, so the model encodes age-related attrition by construction; both parameters are tied to the latent embedding $X_p$ (Appendix~\ref{sec:survival_linear_map}).
+We adopt the Gompertz form because its log-hazard is linear in age, $\log h_p(a) = \log\eta_p(X_p) + \gamma_p(X_p)\,a$: exit risk increases by a constant proportional factor with each additional year of age.  This exponential-in-age hazard is the classical law of human aging and mortality and is the hallmark of biological senescence, making it a mechanistically faithful and interpretable model of athletic decline.
 
 \subsection{Player Specific Latent Variables}
 \label{sec:player_similarity}
@@ -386,7 +387,7 @@ A key challenge of our approach is ensuring a dependence between players and met
 
 \subsection{A Non-Parametric Prior for Concave Functions}
 \label{sec:concave_prior}
- In addition to respecting well-studied aging processes, enforcing concavity also serves as a necessary regularizer against selection effects: cross-sectional averages at late ages (35+) are computed only over players still active in the league, who are disproportionately the better performing athletes.  Figure~\ref{fig:empirical_production} (Appendix) illustrates this directly: several metrics display an apparent uptick at older ages that violates the expected decline, an artifact of only high-performing players surviving to those ages.  A flexible unconstrained model would spuriously interpret this upward bias as a genuine late-career improvement.  The concave prior prevents the model from fitting this artifact as a real trajectory feature, playing a complementary role to the survival model: the Weibull component accounts for which players we observe at all, while the concave prior constrains the shape of what we fit to those we do observe. 
+ In addition to respecting well-studied aging processes, enforcing concavity also serves as a necessary regularizer against selection effects: cross-sectional averages at late ages (35+) are computed only over players still active in the league, who are disproportionately the better performing athletes.  Figure~\ref{fig:empirical_production} (Appendix) illustrates this directly: several metrics display an apparent uptick at older ages that violates the expected decline, an artifact of only high-performing players surviving to those ages.  A flexible unconstrained model would spuriously interpret this upward bias as a genuine late-career improvement.  The concave prior prevents the model from fitting this artifact as a real trajectory feature, playing a complementary role to the survival model: the Gompertz survival component accounts for which players we observe at all, while the concave prior constrains the shape of what we fit to those we do observe. 
  
 We call this prior the ``concave process prior''. This process is the result of a composition of continuous push-forward maps applied to a Gaussian Process with a stationary kernel. Our approach is inspired the strategy used by \cite{convexityconstraints}, who propose a non-parametric prior over the space of monotonic functions.
 The prior is placed on the latent function $f^k(X_p,t)$ in the linear predictor space and can be re-formulated to allow for more control of the peak behavior of the concave functions as well as allow covariate effects to modulate concave behavior. 
@@ -577,7 +578,7 @@ Much like the univariate case in \ref{theorem:concave_max_approx},  parameters $
 We implement our model in the probabilistic programming language \texttt{NumPyro} \cite{numpyro}. Full MCMC inference in this model is challenging Bayesian factor models typically have rotational identifiability issues with either the loadings or the factors themselves, yielding a multi-modal posterior. 
 
 
-In particular, we find that MCMC sampler gets stuck at suboptimal modes when randomly initialized.  As such, to start the the sampler near a well-identified mode by initializing the MCMC chains from a maximum a posteriori estimate. The MAP estimate is used to fix a small set of kernel hyperparameters whose posterior is well-determined by the full data: specifically, the concave GP lengthscale and amplitude ($\alpha$, $l_k$, $\sigma_t$, $\sigma_c$), the structured prior scales ($\sigma_W$, $\sigma_X$), and the Weibull scale offset parameters. All remaining parameters, including the latent embeddings $X_p$ for all players, the HSGP curve weights $\beta$, the per-metric peak parameters ($c_{\max}$, $t_{\max}^{\text{raw}}$), and the full AR(1) components ($\rho^k$, $\sigma^k_{\mathrm{AR}}$, $\mathbf{r}^k_p$) are sampled. 
+In particular, we find that MCMC sampler gets stuck at suboptimal modes when randomly initialized.  As such, to start the the sampler near a well-identified mode by initializing the MCMC chains from a maximum a posteriori estimate. The MAP estimate is used to fix a small set of kernel hyperparameters whose posterior is well-determined by the full data: specifically, the concave GP lengthscale and amplitude ($\alpha$, $l_k$, $\sigma_t$, $\sigma_c$), the structured prior scales ($\sigma_W$, $\sigma_X$), and the Gompertz global hazard offset parameters. All remaining parameters, including the latent embeddings $X_p$ for all players, the HSGP curve weights $\beta$, the per-metric peak parameters ($c_{\max}$, $t_{\max}^{\text{raw}}$), and the full AR(1) components ($\rho^k$, $\sigma^k_{\mathrm{AR}}$, $\mathbf{r}^k_p$) are sampled. 
 
 The MAP estimation and MCMC sampling were conducted in \texttt{NumPyro} \citep{numpyro} with a GPU, with the MAP estimate obtained by Stochastic Gradient Descent (SGD) and MCMC samples acquired using No U-Turn Sampling (NUTS). Posterior samples were obtained from 4 chains, each running 2{,}000 post-warmup iterations (1{,}000 warmup) and thinned by a factor of 8, yielding 250 retained draws per chain (1{,}000 total); the injury variant uses 50 draws per chain (200 total) due to its higher computational cost. Effective sample size and  $\hat{R}$ diagnostics can be found in Appendix~\ref{sec:convergence}. We select the dimension of the latent player embedding, $q$, by conducting a holdout ablation study (Appendix~\ref{sec:ablation_q}).  A latent dimension of $q = 10$ was used for the player embedding space, along with 20 HSGP basis functions, to approximate the CPLVM. 
 
@@ -592,65 +593,6 @@ Many metrics are conditional on each other through the exposure structure: count
 \section{Results}
 \label{sec:results}
 In this Section, we highlight a select number of ways in which our model can be used.  First in Section \ref{} 
-
-
-
-
-
-\subsection{Example Posterior Curves}
-
-Stephen Curry is known for his shooting and passing ability, relying on superior shot-making ability to create for himself and his teammates. He has a later peak across a variety of metrics. Figure~\ref{fig:posterior_curves} shows the joint model posterior for Curry; a direct comparison with the Naive AR baseline for both Curry and Joki\'{c} is provided in Appendix~\ref{sec:ar_comparison}.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/player_plots/mcmc/Stephen Curry.png}
-  \caption{Posterior production curves for Stephen Curry (joint model). The posterior mean of $f_k(X_p, t)$ (green) and 95\% predictive intervals (gray)}
-\label{fig:posterior_curves}
-\end{figure}
-
-
-
-
-
-Figure~\ref{fig:jokic_comparison} shows the joint model posterior for Nikola Joki\'{c}, producing narrow, smooth credible bands that respect the concave aging structure across all metrics.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/player_plots/mcmc/Nikola Jokic.png}
-  \caption{Posterior production curves for Nikola Joki\'{c} (joint model). he posterior mean of $f_k(X_p, t)$ (green) and 95\% predictive intervals (gray)}
-  \label{fig:jokic_comparison}
-\end{figure}
-
-The latent embedding further enables principled similarity retrieval.
-Figure \ref{fig:jokic_neighbor_curves} overlays Nikola Joki\'{c}'s neighbors curves over his own, illustrating the ability to retrieve similar career arcs.
-This kind of multi-dimensional similarity retrieval is only possible because the model jointly infers all metrics: a single-metric model cannot recover this cross-dimensional player archetype.
-
-% \input{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/tables/Nikola_Jokic_neighbors.tex}
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/map/latent_neighbors_curves_Nikola_Jokic.png}
-  \caption{Posterior mean trajectories for Nikola Joki\'{c} (solid line) and his five nearest latent-space neighbors. Neighbors are identified from Procrustes-aligned posterior mean coordinates; rank labels indicate distance ordering.}
-  \label{fig:jokic_neighbor_curves}
-\end{figure}
-
-% Table~\ref{tab:Nikola_Jokic_frechet_curve_neighbors} shows Joki\'{c}'s five nearest neighbors under the Fr\'{e}chet curve distance, which measures dissimilarity in aggregate trajectory shape directly in curve space without the latent embedding.
-
-% \input{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/frechet/tables/Nikola_Jokic_frechet_curve_neighbors.tex}
-
-% The two neighbor lists share only Giannis Antetokounmpo; otherwise they are disjoint.
-% The disagreement is mechanical and interpretable.
-% The \emph{latent-space} distance operates in the GPLVM embedding $X_p \in \mathbb{R}^q$: two players are close if their entire 17-metric production profile is globally similar after dimensionality reduction, which is why Joki\'{c}'s latent neighbors are all high-usage, multi-metric playmakers (Luka Don\v{c}i\'{c}, Arvydas and Alperen Sengun) who share his unusual combination of elite rebounding, elite playmaking, and elite scoring.
-% The \emph{Fr\'{e}chet} distance, by contrast, compares the raw posterior mean curves $\hat{\mu}_{ptk}$ as functions of age: two players are close if their trajectories rise, peak, and decline at similar times and with similar curvature, regardless of the absolute production level.
-% Players such as Shai Gilgeous-Alexander, Clyde Drexler, and Michael Jordan share Joki\'{c}'s arc shape --- early emergence, a prolonged plateau in their late twenties, and minimal early decline --- even though their metric profiles are guard-specific and their absolute rebound and assist rates are incomparable.
-% The Fr\'{e}chet neighbors therefore answer the question ``whose career \emph{unfolded} most like Joki\'{c}'s?'' while the latent-space neighbors answer ``who was most like Joki\'{c} \emph{in what they produced}?''
-
-% \begin{figure}[htbp]
-%   \centering
-%   \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/frechet/map/frechet_neighbors_curves_Nikola_Jokic.png}
-%   \caption{Posterior mean trajectories for Nikola Joki\'{c} (solid line) and his five nearest Fr\'{e}chet curve neighbors. Fr\'{e}chet neighbors are identified from trajectory arc shape and share Joki\'{c}'s early emergence and prolonged plateau, despite having guard- or wing-specific production profiles that differ markedly from his rebounding-and-playmaking output.}
-%   \label{fig:jokic_frechet_neighbor_curves}
-% \end{figure}
 
 \subsection{Model Validation}
 \label{sec:validation}
@@ -669,66 +611,103 @@ A key advantage of the joint model is its ability to borrow information across m
 Even for an established star with many seasons of data, a single-metric AR(1) model treats each metric in isolation and cannot capture the cross-metric coherence that defines a player's archetype.
 The joint model pools information from all 17 metrics simultaneously: the shared latent embedding ties together rebounding, playmaking, and scoring into a single player representation, producing tighter and more coherent posteriors. By ELPPD, the Concave$+$AR model significantly outperforms the AR baseline, where the bounded career arc provides regularization unavailable to a pure AR process.
 
-Table~\ref{tab:all_summary} summarises overall predictive performance (pooled across all metrics) for the three model variants across the holdout last k scheme, reporting holdout 95\% HDI coverage and $\Delta$ELPPD per observation relative to the best model.
-The AR baseline performs substantially worse than either Concave variant, confirming that the concave aging prior captures genuine structure in career trajectories.
-The Concave$+$AR model achieves the best pooled ELPPD in the holdout last k scheme, while Concave-only coverage is lower on metrics with strong persistence (DBPM, DREB).
-Per-metric breakdowns of RMSE, log-loss, coverage, bias intervals, and ELPPD across all models are provided in Appendix~\ref{sec:full_comparison_tables}.
+Table~\ref{tab:all_summary} summarises overall predictive performance (pooled across all 17 metrics) for the seven model variants across the five holdout schemes, reporting holdout 95\% HDI coverage and $\Delta$ELPPD per observation relative to the best model in each scheme.
+The Concave$+$AR model attains the best pooled ELPPD in three of the five schemes---Hold-out Last $k$, First $k$, and Peak---while on Stratified Next $k$ the Concave RFF$+$AR variant attains the best ELPPD of all variants; the Concave-only and GP$+$AR models are typically next and often statistically indistinguishable.
+The sole exception is the Random Interior scheme, where the AR baseline attains the best ELPPD: when held-out seasons are interpolated between observed ones a pure per-player AR(1) process is difficult to beat, whereas the bounded concave career arc is most valuable when extrapolating to held-out early-, late-, or peak-career seasons.
+On calibration, the AR baseline carries the highest (widest) 95\% HDI coverage in every scheme while the plain GP model is consistently the least calibrated; adding the AR(1) component to either curve model improves coverage on metrics with strong persistence (DBPM, DREB).
+Per-metric breakdowns of RMSE, log-loss, coverage, bias intervals, and ELPPD across all models and schemes are provided in Appendix~\ref{sec:full_comparison_tables}.
 
 
 
 \input{../model_output/model_plots/coverage/combined_all_summary.tex}
 
 
+
+
+
+\subsection{Example Posterior Curves}
+
+Stephen Curry is known for his shooting and passing ability, relying on superior shot-making ability to create for himself and his teammates. He has a later peak across a variety of metrics. Figure~\ref{fig:posterior_curves} shows the joint model posterior for Curry; a direct comparison with the Naive AR baseline for both Curry and Joki\'{c} is provided in Appendix~\ref{sec:ar_comparison}.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/player_plots/mcmc/Jokic_Curry_comparison.png}
+  \caption{Posterior mean production curves (joint model) for Nikola Joki\'{c} (top row) and Stephen Curry (bottom row), with the four representative metrics (OBPM, FG2\%, FG2A, FTA) as columns. Posterior mean of $f_k(X_p, t)$ (green) with 95\% credible band on the mean (gray) and observed values (black points).}
+  \label{fig:posterior_curves}
+\end{figure}
+
+
+
+
+
+The left panels of Figure~\ref{fig:posterior_curves} show the joint model posterior for Nikola Joki\'{c}, producing narrow, smooth credible bands that respect the concave aging structure.
+
+The latent embedding further enables principled similarity retrieval.
+Figure \ref{fig:jokic_neighbor_curves} overlays Nikola Joki\'{c}'s neighbors curves over his own, illustrating the ability to retrieve similar career arcs.
+This kind of multi-dimensional similarity retrieval is only possible because the model jointly infers all metrics: a single-metric model cannot recover this cross-dimensional player archetype.
+
+% \input{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/tables/Nikola_Jokic_neighbors.tex}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/map/latent_neighbors_curves_Nikola_Jokic.png}
+  \caption{Posterior mean trajectories for Nikola Joki\'{c} (solid line) and his five nearest latent-space neighbors. Neighbors are identified from Procrustes-aligned posterior mean coordinates; rank labels indicate distance ordering.}
+  \label{fig:jokic_neighbor_curves}
+\end{figure}
+
+% Table~\ref{tab:Nikola_Jokic_frechet_curve_neighbors} shows Joki\'{c}'s five nearest neighbors under the Fr\'{e}chet curve distance, which measures dissimilarity in aggregate trajectory shape directly in curve space without the latent embedding.
+
+% \input{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/frechet/tables/Nikola_Jokic_frechet_curve_neighbors.tex}
+
+% The two neighbor lists share only Giannis Antetokounmpo; otherwise they are disjoint.
+% The disagreement is mechanical and interpretable.
+% The \emph{latent-space} distance operates in the GPLVM embedding $X_p \in \mathbb{R}^q$: two players are close if their entire 17-metric production profile is globally similar after dimensionality reduction, which is why Joki\'{c}'s latent neighbors are all high-usage, multi-metric playmakers (Luka Don\v{c}i\'{c}, Arvydas and Alperen Sengun) who share his unusual combination of elite rebounding, elite playmaking, and elite scoring.
+% The \emph{Fr\'{e}chet} distance, by contrast, compares the raw posterior mean curves $\hat{\mu}_{ptk}$ as functions of age: two players are close if their trajectories rise, peak, and decline at similar times and with similar curvature, regardless of the absolute production level.
+% Players such as Shai Gilgeous-Alexander, Clyde Drexler, and Michael Jordan share Joki\'{c}'s arc shape --- early emergence, a prolonged plateau in their late twenties, and minimal early decline --- even though their metric profiles are guard-specific and their absolute rebound and assist rates are incomparable.
+% The Fr\'{e}chet neighbors therefore answer the question ``whose career \emph{unfolded} most like Joki\'{c}'s?'' while the latent-space neighbors answer ``who was most like Joki\'{c} \emph{in what they produced}?''
+
+% \begin{figure}[htbp]
+%   \centering
+%   \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/frechet/map/frechet_neighbors_curves_Nikola_Jokic.png}
+%   \caption{Posterior mean trajectories for Nikola Joki\'{c} (solid line) and his five nearest Fr\'{e}chet curve neighbors. Fr\'{e}chet neighbors are identified from trajectory arc shape and share Joki\'{c}'s early emergence and prolonged plateau, despite having guard- or wing-specific production profiles that differ markedly from his rebounding-and-playmaking output.}
+%   \label{fig:jokic_frechet_neighbor_curves}
+% \end{figure}
+
+
 \subsection{Uncovering Metric Relationships}
 \label{sec:uncovering_metrics}
-In order to understand how metrics are correlated, we compute the posterior mean of each player's age of peak performance across metrics. This is only made possible by the reparameterization of the concave process to explicitly encode $f^{*}$ and $t^{*}$, which allows us to explicitly sample the posterior of the peak value for a metric, as well as the peak age. We then perform Principal Component Analysis (PCA) on the resultant matrix, and plot the loadings for each of the metrics for the first two principal components. We then cluster the resultant 2-D data. 
+In order to understand how metrics are correlated, we compute the posterior mean of each player's age of peak performance across metrics. This is only made possible by the reparameterization of the concave process to explicitly encode $f^{*}$ and $t^{*}$, which allows us to explicitly sample the posterior of the peak value for a metric, as well as the peak age. We then perform Principal Component Analysis (PCA) on the resultant matrix, and plot the loadings for each of the metrics for the first two principal components. We then assign each metric to one of three groups---athleticism, skill, or a composition of both---according to the basketball ability it primarily reflects.
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.72\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/peaks/mcmc/peaks_pca.png}
-    \caption{PCA on posterior mean peak ages by metric. Higher PC1 / lower PC2 corresponds to later-peaking players (e.g.\ Nash, Curry); lower PC1 / higher PC2 to earlier-peaking players (e.g.\ Steve Francis).}
+    \includegraphics[width=0.72\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/peaks/mcmc/peaks_pca.png}
+    \caption{PCA on posterior mean peak ages by metric; four representative players are labelled per quadrant. The horizontal axis (PC1) captures overall peak timing --- all metric loadings share the same sign, so players toward the right peak later across the board (e.g.\ Nash, Stockton) and those toward the left peak earlier (e.g.\ Jonny Flynn, O.J.\ Mayo). The vertical axis (PC2) is a contrast in \emph{relative} timing: players near the top have their defense and rebounding peak later (largely interior bigs, e.g.\ Gobert, Mutombo), while those near the bottom have their scoring and usage peak later (largely lead guards, e.g.\ Ginobili, Hornacek).}
     \label{fig:metric_loadings}
 \end{figure}
 
-The low cumulative variance captured by PC1 and PC2 (22.6\%) is expected: with 17 heterogeneous metrics spanning athleticism, skill, and composite production, the latent aging structure is inherently high-dimensional and no two principal components can summarise it compactly. The eigenvalue scree plot (Appendix~\ref{fig:pca_scree}) shows that variance accumulates gradually across all 10 latent dimensions, with no sharp elbow, confirming that the full $q=10$ embedding is needed to represent the diversity of career trajectory types.
+The first two principal components capture 68\% of the variance in metric peak ages (PC1 44\%, PC2 24\%): the athleticism--skill contrast of Figure~\ref{fig:metric_loadings} accounts for most of the cross-metric peak-timing structure.
 
-What emerges is a natural clustering of metrics by "skill" or "athleticism" or a composition of both. Group 1 (green) consists of offensive rebounding and blocked shots, both metrics which rely predominantly quickness, vertical jump ability, and strength. 
-Group 3 (red) consist of measures of skill such as shooting metrics. Group 2 (blue) illustrates metrics which lie at the intersection of both learned ability and athleticism --- producing a steal for example requires anticipatory knowledge that can be gained over time coupled with the athletic ability required to act on such knowledge. 
+What emerges is a natural grouping of metrics by "skill" or "athleticism" or a composition of both. The athleticism group (green) --- offensive rebounding, steals, blocked shots, free-throw attempts, and games played --- consists of metrics which rely predominantly on quickness, vertical jump ability, and strength. The skill group (red) collects the pure shooting metrics: free-throw percentage, three-point percentage, and three-point attempt rate. The remaining metrics form the "both" group (blue), which lies at the intersection of learned ability and athleticism: assists, turnovers, offensive and defensive box plus/minus, minutes per game, usage, defensive rebounding, and two-point shooting volume and efficiency. Generating an assist, for example, requires the anticipatory court vision accrued over time coupled with the athletic ability required to deliver it.
 
 
-To see how various metrics peak, we compute the 95 \% CI of samples, averaged over all players by metric. There is some pattern which reflects that metrics determined by our previously mentioned cluster analysis to be reliant on "athleticism"  tend to peak earlier, while those categorized as "skill" based metrics tend to peak later. This is showcased in \ref{fig:peaks}. All metrics seem to peak between the ages of 20 and 30, with the athleticism metrics peaking before 25. Most importantly, it appears as if skill based metrics seem to peak around 26-28; this suggests to NBA decision makers that if young players do not show significant improvement in these metrics by age 23-24, it is likely that they are already close to their peak value. 
+To see how various metrics peak, we compute the 95 \% CI of samples, averaged over all players by metric. There is some pattern which reflects that metrics assigned by our previously mentioned grouping to be reliant on "athleticism"  tend to peak earlier, while those categorized as "skill" based metrics tend to peak later. This is showcased in \ref{fig:peaks}. All metrics seem to peak between the ages of 20 and 30, with the athleticism metrics peaking before 25. Most importantly, it appears as if skill based metrics seem to peak around 26-28; this suggests to NBA decision makers that if young players do not show significant improvement in these metrics by age 23-24, it is likely that they are already close to their peak value. 
 
 
 
 
 \begin{figure}[H]
   \centering
-  \begin{minipage}[t]{0.48\linewidth}
+  \begin{minipage}[t]{0.49\linewidth}
     \centering
-    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/peaks/mcmc/peaks.png}
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/peaks/mcmc/peaks.png}
   \end{minipage}%
   \hfill
-  \begin{minipage}[t]{0.48\linewidth}
+  \begin{minipage}[t]{0.49\linewidth}
     \centering
-    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/peaks/mcmc/peaks_pca_loadings.png}
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/peaks/mcmc/peaks_pca_loadings.png}
   \end{minipage}
 
-  \caption{Posterior estimates of peak age by metric (left) and the first two PCA loadings of the peak-age matrix (right). Athleticism metrics (Group 1) peak earlier; skill metrics (Group 3) peak later; Group 2 blends both.}
+  \caption{Posterior estimates of peak age by metric (left) and the first two PCA loadings of the peak-age matrix (right). Athleticism metrics (green) peak earlier; skill metrics (red) peak later; the ``both'' group (blue) blends the two. The analogous peak-value decomposition is provided in Appendix~\ref{fig:peaks_vals}.}
   \label{fig:peaks}
-\end{figure}
-
-\begin{figure}[H]
-  \centering
-  \begin{minipage}[t]{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/peaks/mcmc/peak_vals_pca.png}
-  \end{minipage}%
-  \hfill
-  \begin{minipage}[t]{0.48\linewidth}
-    \centering
-    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/peaks/mcmc/peak_vals_pca_loadings.png}
-  \end{minipage}
-  \caption{Posterior estimates of peak value by metric (left) and the first two PCA loadings of the peak-value matrix (right). The cluster structure mirrors the peak-age grouping, confirming that athleticism-reliant metrics not only peak earlier but also reach lower absolute ceilings relative to skill-based metrics.}
-  \label{fig:peaks_vals}
 \end{figure}
 
 
@@ -741,13 +720,13 @@ A central question for front offices is how quickly the model can resolve a play
 
 The structured prior on $X_p$ (Equation~\ref{eq:structured_prior}) anchors this process: draft standing, height, and positional role provide an informative starting point, so that the model does not require five seasons of evidence before forming a view.  Posterior uncertainty has a direct front-office interpretation --- a wide credible region for $f^*_{pk}$ indicates that a player's ceiling is not yet determined by the data, while a narrow region indicates confident placement.  A breakout season shifts the posterior mean of $X_p$ substantially, whereas consistent-but-unremarkable production converges slowly. 
 
-We operationalise this as a draft-cohort evaluation tool using four posterior summaries per player: posterior mean peak OBPM; $P(\text{OBPM}{>}2)$, $P(\text{OBPM}{>}3)$, and $P(\text{OBPM}{>}4)$ — the fraction of posterior peak-value draws exceeding each threshold; and expected years to peak, the posterior mean OBPM peak age minus the player's last observed age.  Empirically, a career-peak OBPM of 2 corresponds to roughly the 81st percentile of NBA players, 3 to the 88th, and 4 to the 93rd, so these thresholds span the range from reliable above-average starter to All-Star caliber production.  Table~\ref{tab:breakout_cohort} reports the top five players per entry cohort ranked by posterior mean peak OBPM.  Posterior confidence grows sharply with seasons observed: the 2021--2022 cohorts show high mean peak OBPM for their top players (Zion Williamson, Tyrese Haliburton, LaMelo Ball) with near-certain $P(\text{OBPM}{>}2)$, while the 2026 cohort, with only one season of data, yields more diffuse probabilities.  Victor Wembanyama appears prominently in the 2025 cohort , reflecting the model's rapid posterior contraction after an exceptional rookie season; his years-to-peak estimate is 2, suggesting that we are not yet close to his projected prime.  
+We operationalise this as a draft-cohort evaluation tool using four posterior summaries per player: posterior mean peak OBPM; $P(\text{OBPM}{>}2)$, $P(\text{OBPM}{>}3)$, and $P(\text{OBPM}{>}4)$ — the fraction of posterior peak-value draws exceeding each threshold; and expected years to peak, the posterior mean OBPM peak age minus the player's last observed age.  Empirically, a career-peak OBPM of 2 corresponds to roughly the 81st percentile of NBA players, 3 to the 88th, and 4 to the 93rd, so these thresholds span the range from reliable above-average starter to All-Star caliber production.  Table~\ref{tab:breakout_cohort} reports the top five players per entry cohort ranked by posterior mean peak OBPM.  Posterior confidence grows sharply with seasons observed: the 2021--2022 cohorts show high mean peak OBPM for their top players (Zion Williamson, Tyrese Haliburton, LaMelo Ball) with near-certain $P(\text{OBPM}{>}2)$, while the 2026 cohort, with only one season of data, yields more diffuse probabilities.  Victor Wembanyama tops the 2025 cohort, reflecting the model's rapid posterior contraction after an exceptional rookie season; his years-to-peak estimate is under one year (0.7), placing him at the leading edge of his projected prime.  
 
-\input{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/map/breakout_by_cohort.tex}
+\input{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/map/breakout_by_cohort.tex}
 
 % \begin{figure}[htbp]
 %     \centering
-%     \includegraphics[width=0.85\textwidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/map/breakout_cohort_distributions.png}
+%     \includegraphics[width=0.85\textwidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/map/breakout_cohort_distributions.png}
 %     \caption{Distribution of posterior mean peak OBPM by player entry cohort. Each violin summarises the full player-level posterior mean peak OBPM distribution. Narrowing spread from earlier to later cohorts reflects posterior contraction as more seasons of data are observed.}
 %     \label{fig:breakout_cohort_dist}
 % \end{figure}
@@ -798,5 +777,6 @@ Finally, integrating the trajectory model with contract-length and salary-cap da
 \bibliography{references}
 }
 
+\input{appendix}
 \input{appendix_labels}
 \end{document}

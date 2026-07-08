@@ -138,12 +138,12 @@
 \subsection{Archetype Discovery via Hierarchical Clustering}
 \label{sec:latent_space}
 
-While the position-colored view confirms that the embedding respects broad categorical roles, the latent space contains richer structure than the three traditional positions can capture.  We apply Ward hierarchical clustering to the posterior mean latent coordinates (Procrustes-aligned across MCMC samples) and select $k=4$ archetypes based on the silhouette criterion.  Figure~\ref{fig:latent_archetypes} overlays these four clusters on a PCA of the posterior mean latent coordinates.
+While the position-colored view confirms that the embedding respects broad categorical roles, the latent space contains richer structure than the three traditional positions can capture.  We apply Ward hierarchical clustering to the posterior mean latent coordinates (Procrustes-aligned across MCMC samples) and select $k=4$ archetypes based on the silhouette criterion.  Figure~\ref{fig:latent_archetypes} overlays these four clusters on a PCA of the posterior mean latent coordinates.  Because the RFF projection applies a single automatic-relevance-determination rescaling $X_p \odot \sqrt{\ell}$ to the shared latent (Appendix~\ref{sec:rff}), this clustering is also the model's only modality-specific view: unlike the linear model, whose per-metric weight matrices induce distinct peak-timing, peak-value, and curvature embeddings, the RFF model exposes one ARD-rescaled representation common to all facets of the career arc.
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/map/latent_pca_archetypes.png}
-    \caption{PCA of the posterior mean latent coordinates colored by discovered archetype ($k=4$, Ward clustering on Procrustes-aligned posterior mean coordinates).  PC1 and PC2 explain 11.2\% and 10.6\% of variance respectively.  Point size scales with career minutes.  The four archetypes partition the space in a way that transcends traditional positional labels.}
+    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/map/latent_pca_archetypes.png}
+    \caption{PCA of the posterior mean latent coordinates colored by discovered archetype ($k=4$, Ward clustering on Procrustes-aligned posterior mean coordinates).  PC1 and PC2 explain 29.9\% and 15.6\% of variance respectively.  Point size scales with career minutes.  The four archetypes partition the space in a way that transcends traditional positional labels.}
     \label{fig:latent_archetypes}
 \end{figure}
 
@@ -151,14 +151,14 @@ To understand what distinguishes these archetypes, we compute Frechet mean curve
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/frechet/mcmc/archetype_frechet_curves_basic.png}
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/frechet/mcmc/archetype_frechet_curves_basic.png}
     \caption{Frechet archetype mean curves across metrics. Each panel shows the archetype-level mean trajectory, summarizing curve shape and timing differences that distinguish player types.}
     \label{fig:archetype_frechet_curves}
 \end{figure}
 
 Table~\ref{tab:archetype_summary} provides a quantitative characterisation of each archetype: posterior mean peak age and peak value per metric.
 
-\input{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/mcmc/archetype_summary_table.tex}
+\input{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/mcmc/archetype_summary_table.tex}
 
 Several patterns emerge.  \emph{All four archetypes} peak late in FG3A (three-point attempt rate) and DBPM (defensive box plus/minus), consistent with the finding in Section~\ref{sec:uncovering_metrics} that these are skill-acquisition metrics that develop with experience regardless of player type.  The archetypes diverge most sharply on athleticism metrics (BLK, OREB, STL, USG) and on overall production ceiling.  Reading the cluster assignments directly from Figure~\ref{fig:latent_archetypes}:
 
@@ -166,24 +166,29 @@ The most telling cross-positional grouping is the archetype that unites elite pl
 
 Beyond peak timing and peak value, the archetypes also differ in the \emph{rate} of career ascent and decline.  For each posterior draw, we compute the mean pre-peak first derivative (the instantaneous rate of improvement from career start to peak age) and the mean post-peak first derivative (the instantaneous rate of decline from peak to career end), using the analytically derived GP first derivative at each observed age.  Figure~\ref{fig:archetype_slopes} summarises these by archetype and metric.  Figure~\ref{fig:archetype_slope_ratio} shows the asymmetry ratio (pre-peak slope divided by absolute post-peak slope): values greater than 1 indicate metrics for which the ascent to peak is slower than the subsequent decline, while values less than 1 indicate faster ascent than decline.  Archetypes with systematically higher asymmetry on athleticism metrics (BLK, OREB) and lower asymmetry on skill metrics (OBPM, AST) reflect the distinction between physical and cognitive aging: athleticism metrics are slow to develop and fast to erode, whereas skill metrics accumulate more rapidly and decline more gradually.
 
-\IfFileExists{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/mcmc/archetype_slopes.png}{%
+\IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/mcmc/archetype_slopes.png}{%
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/mcmc/archetype_slopes.png}
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/mcmc/archetype_slopes.png}
     \caption{Posterior mean GP first derivative before (left) and after (right) the peak age, by archetype and metric.  Points show the mean over posterior draws; intervals are 80\% credible intervals.  Slopes are in latent-space units per year; positive post-peak values indicate skill-based metrics that continue growing or plateau after the nominal peak.}
     \label{fig:archetype_slopes}
 \end{figure}%
 }{}
 
-\IfFileExists{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/mcmc/archetype_slope_ratio.png}{%
+\IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/mcmc/archetype_slope_ratio.png}{%
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/mcmc/archetype_slope_ratio.png}
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/mcmc/archetype_slope_ratio.png}
     \caption{Career arc asymmetry by archetype and metric: pre-peak slope divided by the absolute post-peak slope.  The dashed line at 1 marks symmetric careers.  Ratios above 1 indicate faster decline than ascent (common for athleticism metrics); ratios below 1 indicate faster ascent than decline (common for skill-acquisition metrics such as three-point shooting and playmaking).}
     \label{fig:archetype_slope_ratio}
 \end{figure}%
 }{}
 
+% --- RFF version: the per-modality archetype clustering below applies to the LINEAR model only.
+% The RFF model uses a single shared latent with one ARD rescaling (Appendix~\ref{sec:rff}), so its
+% modality-specific clustering coincides with the shared-latent Archetype Discovery of
+% Section~\ref{sec:latent_space}. Commented out for the RFF paper. ---
+\iffalse
 \subsection{Modality-Specific Archetype Clustering}
 Each modality-specific embedding is derived from the bilinear structure of the model.  For a given modality $m$ (peak timing, peak value, or curvature basis $m$), the player-metric effect is $X_p^\top \boldsymbol{\gamma}^{k,(m)}$, where $\boldsymbol{\gamma}^{k,(m)} \in \mathbb{R}^q$ is the per-metric weight vector drawn from the posterior.  We rescale each latent dimension $j$ of $X_p$ by the posterior standard deviation of $\gamma^{k,(m)}_j$ across all $K$ metrics, forming the modality-specific coordinate
 \[
@@ -276,6 +281,23 @@ To characterise each modality's archetypes concretely, Tables~\ref{tab:arch_reps
 \IfFileExists{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/modalities/peak_value/archetype_representatives.tex}{%
   \input{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/modalities/peak_value/archetype_representatives.tex}%
 }{}
+
+\fi
+% --- end RFF-commented Modality-Specific Archetype Clustering ---
+
+\subsection{Peak-Value Principal Components}
+The peak-value analogue of the peak-age decomposition in Figure~\ref{fig:peaks} is shown below. The same athleticism/skill grouping appears, confirming that athleticism-reliant metrics not only peak earlier but also reach lower absolute ceilings relative to skill-based metrics.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.72\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/peaks/mcmc/peak_vals_pca.png}
+
+  \vspace{1em}
+
+  \includegraphics[width=0.72\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/peaks/mcmc/peak_vals_pca_loadings.png}
+  \caption{Posterior estimates of peak value by player (top) and the first two PCA loadings of the peak-value matrix (bottom). The same athleticism/skill grouping is reflected here, confirming that athleticism-reliant metrics not only peak earlier but also reach lower absolute ceilings relative to skill-based metrics.}
+  \label{fig:peaks_vals}
+\end{figure}
 
 \subsection{Prior Specifications}
 
@@ -373,7 +395,11 @@ The complete generative structure is summarised in Figure~\ref{fig:graphical_mod
         $l_k$ (lengthscale) & $\mathcal{IG}(0.3, 0.7)$ & Concave GP lengthscale \\
         $\sigma_k$ (Gaussian obs.\ variance) & $\mathcal{IG}(300, 6000)$ & BPM observation noise \\
         $\sigma_\beta$ (Beta dispersion) & $\mathcal{IG}(2, 1)$ & MPG observation dispersion \\
-        $\boldsymbol{\psi}_{\text{exit}},\,\boldsymbol{\psi}_{\text{rate}}$ & $\mathcal{N}(0, I)$ & Weibull scale/shape weights \\
+        $\boldsymbol{\psi}_{\text{exit}}$ & $\mathcal{N}(0, I)$ & Gompertz log baseline-hazard weights \\
+        $\boldsymbol{\psi}_{\text{rate}}$ & $\mathcal{N}(0, 0.1^2 I)$ & Gompertz log aging-rate weights \\
+        $\eta_{\text{glob}}$ & $\mathcal{N}(\log 0.04,\, 0.5)$ & Global log baseline hazard \\
+        $\gamma_{\text{glob}}$ & $\mathcal{N}(\log 0.15,\, 0.3)$ & Global log aging rate \\
+        $\sigma_{\text{exit}}$ & $\mathrm{HalfNormal}(0.5)$ & Baseline-hazard latent spread \\
         \bottomrule
     \end{tabular}}%
     \caption{Prior specification for key model parameters.  $\mathcal{IG}(\alpha, \beta)$ denotes an Inverse-Gamma with shape $\alpha$ and scale $\beta$; $S_k$ is the spectral density matrix of the squared-exponential kernel evaluated at the HSGP eigenvalues for metric $k$.}
@@ -398,29 +424,54 @@ The prior mean $Z_p^\top W$ pulls a player's latent position toward the subspace
 
 \subsection{Career Duration Formulation}
 \label{sec:survival_linear_map}
-A concentration greater than one encodes an increasing hazard—players become progressively more likely to exit as they age, consistent with age-related attrition. 
-Because player $p$ is only observed after season $\alpha_p$, the exit-time likelihood must be left-truncated at $\alpha_p$.  For a Weibull with cumulative hazard
+We model career exit with a player-specific \emph{Gompertz} proportional-hazards model, whose hazard rises monotonically with age and thereby encodes age-related attrition by construction.  Because player $p$ is only observed from entrance age $\alpha_p$ onward, the exit-time likelihood is left-truncated at $\alpha_p$ (and right-censored for players still active at the end of the observation window).  The Gompertz hazard and cumulative hazard are
 \begin{equation}
-    H(t;\,\eta_p(X_p),\gamma_p(X_p)) = \left(\frac{t}{\eta_p(X_p)}\right)^{\gamma_p(X_p)},
+    h_p(a) = \eta_p\,e^{\gamma_p a}, \qquad
+    H_p(a) = \frac{\eta_p}{\gamma_p}\bigl(e^{\gamma_p a} - 1\bigr),
 \end{equation}
-the truncated log-likelihood contributions are:
+and the left-truncated log-likelihood contributions for exit age $T_p$ are
 \begin{equation}
     \ell_p =
     \begin{cases}
-        \log h(T_p;\,\eta_p(X_p),\gamma_p(X_p)) - \bigl[H(T_p;\,\eta_p(X_p),\gamma_p(X_p)) - H(\alpha_p;\,\eta_p(X_p),\gamma_p(X_p))\bigr] & \text{(observed)}, \\
-        -\bigl[H(T_p;\,\eta_p(X_p),\gamma_p(X_p)) - H(\alpha_p;\,\eta_p(X_p),\gamma_p(X_p))\bigr] & \text{(censored)},
+        \log h_p(T_p) - \bigl[H_p(T_p) - H_p(\alpha_p)\bigr] & \text{(observed exit)}, \\
+        -\bigl[H_p(T_p) - H_p(\alpha_p)\bigr] & \text{(right-censored)},
     \end{cases}
     \label{eq:surv_lik}
 \end{equation}
-where $h(t;\,\eta,\gamma) = (\gamma/\eta)(\,t/\eta)^{\gamma-1}$ is the Weibull hazard.
-Both parameters are linked to the latent embedding $X_p \in \mathbb{R}^q$ via a bilinear projection shared with the performance likelihood:
+where $\log h_p(a) = \log\eta_p + \gamma_p a$ and the truncated increment is $H_p(T_p) - H_p(\alpha_p) = (\eta_p/\gamma_p)\bigl(e^{\gamma_p T_p} - e^{\gamma_p \alpha_p}\bigr)$; in practice this increment is accumulated over the yearly age intervals spanned by $[\alpha_p, T_p]$.  Both parameters are linked to the latent embedding $X_p \in \mathbb{R}^q$ on the log scale (keeping them positive), via the same projection used by the performance likelihood:
 \begin{align}
-    \tilde{\eta}_p   &= \frac{\sigma_{\text{exit}}}{\sqrt{q}}\,X_p^\top \psi_{\text{exit}}, \qquad
-    \eta_p = \exp\!\bigl(\mu_{\text{scale}} + \tilde{\eta}_p\bigr), \label{eq:eta} \\
-    \tilde{\gamma}_p &= X_p^\top \psi_{\text{rate}} + \delta_0,\qquad
-    \gamma_p = 1 + 2\,\sigma(\tilde{\gamma}_p), \label{eq:gamma}
+    \log \eta_p   &= \eta_{\text{glob}} + \frac{\sigma_{\text{exit}}}{\sqrt{q}}\,X_p^\top \psi_{\text{exit}}, \label{eq:eta} \\
+    \log \gamma_p &= \gamma_{\text{glob}} + X_p^\top \psi_{\text{rate}}, \label{eq:gamma}
 \end{align}
-where $\sigma(\cdot)$ is the logistic function, $\mu_{\text{scale}} \sim \mathcal{N}(\log 11.5,\, 0.5)$ is a global log-scale offset, $\sigma_{\text{exit}} \sim \mathrm{HalfNormal}(0.5)$ controls the player-specific spread in career length, and $\delta_0 \sim \mathcal{N}(\log 10,\, 0.5)$ is a global offset on the log-odds of the concentration.  The log-linear scale places the prior central career length near 11.5 seasons while allowing the latent embedding to shift $\eta_p$ multiplicatively; the sigmoid on $\tilde{\gamma}_p$ constrains $\gamma_p \in (1, 3)$, encoding the prior belief that career-exit hazard is increasing.  The latent embedding thereby links career longevity to the same low-dimensional player representation that drives performance.
+where $\eta_{\text{glob}} \sim \mathcal{N}(\log 0.04,\, 0.5)$ and $\gamma_{\text{glob}} \sim \mathcal{N}(\log 0.15,\, 0.3)$ are global log baseline-hazard and log aging-rate offsets, $\sigma_{\text{exit}} \sim \mathrm{HalfNormal}(0.5)$ controls the player-specific spread in baseline hazard, $\psi_{\text{exit}} \sim \mathcal{N}(0, I)$, and $\psi_{\text{rate}} \sim \mathcal{N}(0,\, 0.1^2 I)$.  The exponential links keep $\eta_p, \gamma_p > 0$, so every player's exit hazard is increasing in age; the latent embedding thereby ties career longevity to the same low-dimensional representation that drives on-court performance.
+
+\subsection{Random Fourier Feature Latent Projection}
+\label{sec:rff}
+
+The performance and survival likelihoods above let every metric-specific weight act \emph{linearly} on the latent coordinates $X_p \in \mathbb{R}^q$, so any two players covary through the Euclidean inner product $\langle X_p, X_{p'}\rangle$.  As an alternative projection we replace this linear map with a \emph{random Fourier feature} (RFF) expansion \cite{rffs}, which induces a stationary, automatic-relevance-determination (ARD) squared-exponential kernel over the same latent space while leaving every downstream component --- the concave performance curves $f^k(\cdot, t)$, the peak-age and peak-value readouts, and the Gompertz survival links --- structurally unchanged.  This is the random Fourier feature latent variable model (RFLVM) of \cite{gundersen2021latent}, together with its fully Bayesian extension \cite{zhang2023bayesiannonlinearlatentvariable}, specialised here to a single shared concave-aging model.
+
+Draw $m$ spectral frequencies collected into $\Omega \in \mathbb{R}^{m \times q}$ with $\Omega_{ij} \sim \mathcal{N}(0,1)$, together with a per-dimension lengthscale $\ell = (\ell_1, \dots, \ell_q)$, $\ell_j \sim \mathrm{HalfNormal}(1)$.  Writing $\tilde\Omega = \Omega\,\mathrm{diag}\!\bigl(\sqrt{\ell_1}, \dots, \sqrt{\ell_q}\bigr)$, define the unit-norm feature map
+\begin{equation}
+  \phi(X_p) = \frac{1}{\sqrt{m}}\Bigl[\cos(\tilde\Omega X_p)^\top,\; \sin(\tilde\Omega X_p)^\top\Bigr]^\top \in \mathbb{R}^{2m},
+  \qquad \lVert \phi(X_p) \rVert_2 = 1.
+  \label{eq:rff_features}
+\end{equation}
+By Bochner's theorem the feature inner product is an unbiased Monte-Carlo estimator of the ARD squared-exponential kernel \cite{rffs},
+\begin{equation}
+  \phi(X_p)^\top \phi(X_{p'}) \;\xrightarrow[\;m \to \infty\;]{}\;
+  k(X_p, X_{p'}) = \exp\!\Bigl(-\tfrac{1}{2}\textstyle\sum_{j=1}^{q} \ell_j\,(X_{pj} - X_{p'j})^2\Bigr),
+  \label{eq:rff_kernel}
+\end{equation}
+so $\ell_j$ is the relevance (inverse squared bandwidth) of latent dimension $j$: dimensions with small $\ell_j$ are effectively pruned, giving the embedding automatic relevance determination.  Every contraction against $X_p$ in the baseline model is replaced by the same contraction against $\phi(X_p)$: the peak-age and peak-value weights become $\boldsymbol\gamma^k_{\text{age}}, \boldsymbol\gamma^k_{\text{val}} \in \mathbb{R}^{2m}$, the concave HSGP basis weights become $\mathbf{A}_k \in \mathbb{R}^{2m \times M}$, and the Gompertz links of Equations~\ref{eq:eta}--\ref{eq:gamma} become
+\begin{equation}
+  \log \eta_p = \eta_{\text{glob}} + \sigma_{\text{exit}}\,\phi(X_p)^\top \boldsymbol\psi_{\text{exit}},
+  \qquad
+  \log \gamma_p = \gamma_{\text{glob}} + \phi(X_p)^\top \boldsymbol\psi_{\text{rate}},
+  \label{eq:rff_surv}
+\end{equation}
+with $\boldsymbol\psi_{\text{exit}}, \boldsymbol\psi_{\text{rate}} \in \mathbb{R}^{2m}$.  Because $\lVert \phi(X_p) \rVert_2^2 = k(X_p, X_p) = 1$ is constant across players, the $1/\sqrt{q}$ scaling of the linear baseline-hazard link (Equation~\ref{eq:eta}) is replaced by this unit kernel self-covariance.
+
+We keep the structured prior on $X_p$ (Equation~\ref{eq:structured_prior}) unchanged: the RFF map is a fixed-rank, computationally efficient approximation applied on top of the same latent coordinates rather than a separate embedding, so the projection remains \emph{shared} across all metrics and the survival model.  The frequencies $\Omega$ are drawn once and, as is standard for random-feature latent-variable models \cite{gundersen2021latent, zhang2023bayesiannonlinearlatentvariable}, are learned rather than held at their random initialisation: we initialise $\Omega$ at its MAP estimate and continue to sample it during MCMC, while the lengthscale $\ell$ is learned at the MAP estimate and plugged in as a fixed value during posterior sampling.  We use $m = 50$ random features (hence $2m = 100$ feature dimensions) over the $q = 10$ latent dimensions.  Because the model carries a single shared latent with no per-modality decomposition, we summarise the RFF embedding through the ARD-rescaled coordinates $X_p \odot \sqrt{\ell}$, which place inter-player distances on the scale of the induced kernel~\ref{eq:rff_kernel}.
 
 \subsection{AR Baseline Comparison}
 \label{sec:ar_comparison}
@@ -431,7 +482,7 @@ Figure~\ref{fig:ar_comparison} contrasts the joint model's posterior with the Na
   \centering
   \begin{subfigure}[t]{0.48\linewidth}
     \centering
-    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/player_plots/mcmc/Stephen Curry.png}
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/player_plots/mcmc/Stephen Curry.png}
     \caption{Stephen Curry --- joint model.}
   \end{subfigure}%
   \hfill
@@ -443,7 +494,7 @@ Figure~\ref{fig:ar_comparison} contrasts the joint model's posterior with the Na
 
   \begin{subfigure}[t]{0.48\linewidth}
     \centering
-    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/player_plots/mcmc/Nikola Jokic.png}
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/player_plots/mcmc/Nikola Jokic.png}
     \caption{Nikola Joki\'{c} --- joint model.}
   \end{subfigure}%
   \hfill
@@ -459,14 +510,14 @@ Figure~\ref{fig:ar_comparison} contrasts the joint model's posterior with the Na
 \subsection{Full Model Comparison Tables}
 \label{sec:full_comparison_tables}
 
-Per-metric RMSE, log-loss, coverage, posterior bias intervals, and ELPPD across all four holdout schemes for the AR, Concave, and Concave$+$AR model variants.
+Per-metric RMSE, log-loss, coverage, posterior bias intervals, and ELPPD across all five holdout schemes for the AR, GP, GP$+$AR, Concave, and Concave$+$AR model variants.
 
 \input{../model_output/model_plots/coverage/combined_holdout_body.tex}
 
 \subsection{Model Validation}
 \label{sec:appendix_validation}
 
-The four holdout schemes are implemented by selecting a random 20\% subset of players and masking their observations as follows.
+The five holdout schemes are implemented by selecting a random 20\% subset of players and masking their observations as follows. (The Stratified Next $k$ scheme draws its 20\% in a balanced manner across career-length cohorts rather than uniformly; see below.)
 
 \begin{description}
   \item[Hold-out Last $k$ ($k{=}2$, 727 obs).] The final 2 observed seasons of each selected player are excluded from the training likelihood. The model therefore sees the player's career up to but not including their most recent 2 seasons, then is scored on those withheld seasons. This is the most operationally relevant scheme: it mimics the real task of forecasting a player's next 1--2 seasons from their career to date.
@@ -476,9 +527,30 @@ The four holdout schemes are implemented by selecting a random 20\% subset of pl
   \item[Random Interior (413 obs).] For each selected player, a random 20\% of their interior seasons (all but the first and last) are withheld. Unlike the last-$k$ and first-$k$ schemes, the model has observations on both sides of every gap, so this tests \emph{interpolation} rather than extrapolation. It simulates partial seasons due to injury or data censoring.
 
   \item[Hold-out Peak (450 obs).] The single season of peak observed production for each selected player is withheld. This directly evaluates whether the model's explicit peak parameterisation ($t^*$, $f^*$) allows it to recover the peak even when it is unobserved, which is the hardest interpolation task and the one most sensitive to misspecification of the concave prior.
+
+  \item[Stratified Next $k$ ($k{=}2$, 1{,}484 obs).] A balanced forecasting scheme that controls for career stage. Players are first binned into six career-length cohorts by their maximum observed age, using the thresholds $\geq 25, 27, 29, 31, 33, 35$ (each player assigned to the highest cohort it qualifies for), with corresponding hold-out start ages of $23, 25, 27, 29, 31, 33$. The 20\% hold-out budget is divided \emph{equally} across the six cohorts, and that many players are drawn at random from each, so the held-out set is balanced across the age spectrum rather than concentrated where careers happen to end. For every selected player the \emph{entire} career tail from its cohort's start age onward is removed from the training likelihood --- the model never observes any post-window season, so there is no future leakage --- and predictions are scored on the next $k$ withheld seasons, i.e.\ the cohort's two-year window (ages 23--24, 25--26, $\dots$, 33--34). Unlike Hold-out Last $k$, whose scored seasons cluster at each player's individual career end, this scheme evaluates the next-two-season forecast evenly across the full $23$--$34$ age range, isolating how forecast quality varies by career stage; per-stratum coverage and ELPPD are reported in Figure~\ref{fig:stratum_diagnostics}.
 \end{description}
 
-Tables below report, average log-loss from the best model for all four schemes and all four model variants.
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[t]{0.48\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/stratum_coverage.png}
+        \caption{95\% HDI coverage by metric, grouped by age stratum (nominal 95\% marked).}
+        \label{fig:stratum_coverage}
+    \end{subfigure}%
+    \hfill
+    \begin{subfigure}[t]{0.48\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/stratum_elppd.png}
+        \caption{ELPPD per held-out observation by age stratum ($\pm 1$ SE).}
+        \label{fig:stratum_elppd}
+    \end{subfigure}
+    \caption{Per-stratum forecast diagnostics for the Concave$+$AR model under the Stratified Next $k$ scheme. Each stratum is a career-stage cohort whose next two withheld seasons (ages 23--24, 25--26, $\dots$, 33--34) are scored. Panel (a) shows that calibration is broadly stable across career stage, while panel (b) shows how predictive accuracy varies by stratum.}
+    \label{fig:stratum_diagnostics}
+\end{figure}
+
+Tables below report, average log-loss from the best model for all five schemes and all five model variants.
 
 
 
@@ -491,25 +563,33 @@ $q = 10$ achieves the best mean holdout RMSE (0.924) and mean log-loss (3.99) ac
 
 \input{../model_output/model_plots/coverage/ablation_holdout_body.tex}
 
+% --- Latent PCA Diagnostics subsection removed: the latent PCA (scree + PC3--PC4) is z-scored, not
+% lengthscale-adjusted (see Appendix~\ref{sec:rff}); restore once the ARD-rescaled PCA is regenerated. ---
+\iffalse
 \subsection{Latent PCA Diagnostics}
 \label{sec:latent_appendix}
 
-Figure~\ref{fig:pca_scree} shows the eigenvalue scree plot for the posterior mean latent coordinate PCA, with cumulative variance explained overlaid.  Figure~\ref{fig:latent_pca_pc34} shows the PC3--PC4 projection coloured by archetype, confirming that the archetype structure visible in PC1--PC2 persists into higher components.
+Figure~\ref{fig:latent_pca_pc34} shows the PC3--PC4 projection of the posterior mean latent coordinates coloured by archetype, confirming that the archetype structure visible in PC1--PC2 persists into higher components.
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.75\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/map/latent_pca_scree.png}
+    \includegraphics[width=0.75\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/map/latent_pca_scree.png}
     \caption{Eigenvalue scree plot for the posterior mean latent coordinate PCA. Bars show individual variance explained per component; the red line shows cumulative variance explained.}
     \label{fig:pca_scree}
 \end{figure}
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/map/latent_pca_pc34_archetypes.png}
+    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/map/latent_pca_pc34_archetypes.png}
     \caption{PC3 vs.\ PC4 of the Procrustes-aligned posterior mean latent coordinates, coloured by archetype. The separation of archetype clusters confirms that the four-archetype structure extends beyond the first two principal components.}
     \label{fig:latent_pca_pc34}
 \end{figure}
+\fi
 
+% --- RFF version: curvature-modality clustering applies to the LINEAR model only; the RFF model's
+% single shared latent collapses all modalities (incl. curvature) to one ARD-rescaled representation
+% (Appendix~\ref{sec:rff}), already covered by Section~\ref{sec:latent_space}. Commented out. ---
+\iffalse
 \subsection{Curvature-Modality Archetype Clustering}
 We also examine archetype structure derived from curvature-based modalities. Figures~\ref{fig:curvature_modality_pca}, \ref{fig:curvature_modality_k_diagnostics}, and \ref{fig:curvature_modality_dendrograms} show the PCA of each modality-specific latent space, cluster-selection diagnostics, and Ward dendrograms for curvature summaries $m=1\ldots5$.
 
@@ -669,6 +749,9 @@ We also examine archetype structure derived from curvature-based modalities. Fig
 \IfFileExists{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m5/archetype_representatives.tex}{%
   \input{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/modalities/curvature_m5/archetype_representatives.tex}}{}
 
+\fi
+% --- end RFF-commented Curvature-Modality Archetype Clustering ---
+
 \subsection{MCMC Convergence Diagnostics}
 \label{sec:convergence}
 
@@ -676,7 +759,7 @@ Figure~\ref{fig:log_post_trace} shows the log joint posterior trace across 50 po
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.5\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/mcmc/log_posterior_trace.png}
+    \includegraphics[width=0.5\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/mcmc/log_posterior_trace.png}
     \caption{Log joint posterior trace by chain for the injury variant (4 chains, 50 retained draws each after thinning).  Stationarity and chain overlap indicate adequate mixing given the scale of the model.}
     \label{fig:log_post_trace}
 \end{figure}
@@ -686,7 +769,7 @@ Figures~\ref{fig:rhat_latent} and \ref{fig:rhat_mu} report the Gelman--Rubin $\h
 \begin{figure}[htbp]
     \centering
     \resizebox{\linewidth}{!}{
-    \includegraphics{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/rhat_summary_latent_ar.png}
+    \includegraphics{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/rhat_summary_latent_ar.png}
     }
     \caption{Fraction of (player $\times$ age) cells with $\hat{R} > 1.05$ for the latent embedding and AR components, by metric.}
     \label{fig:rhat_latent}
@@ -695,7 +778,7 @@ Figures~\ref{fig:rhat_latent} and \ref{fig:rhat_mu} report the Gelman--Rubin $\h
 \begin{figure}[htbp]
     \centering
     \resizebox{\linewidth}{!}{
-    \includegraphics{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/rhat_summary_mu_ar.png}
+    \includegraphics{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/rhat_summary_mu_ar.png}
     }
     \caption{Fraction of (player $\times$ age) cells with $\hat{R} > 1.05$ for the predictive mean $\mu_{ptk}$, by metric.}
     \label{fig:rhat_mu}
@@ -705,7 +788,7 @@ Figure~\ref{fig:rotated_trace} shows the Procrustes-aligned MCMC trace for Steph
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\linewidth,height=0.82\textheight,keepaspectratio]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/mcmc/rotated_trace_Stephen Curry.png}
+    \includegraphics[width=\linewidth,height=0.82\textheight,keepaspectratio]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/mcmc/rotated_trace_Stephen Curry.png}
     \caption{Procrustes-aligned MCMC trace plots for Stephen Curry's latent embedding (one panel per dimension, colors = chains).  After aligning each draw to the MAP reference frame, the chains mix well within each coordinate.}
     \label{fig:rotated_trace}
 \end{figure}
@@ -806,6 +889,8 @@ Thus,
     &= \tilde{K}(t,t') \sum_{i=1}^M \phi(x)\phi(x^{'})
 \end{align}
 {\sloppy In our implementation, $\phi_i(x)$ is a linear (identity) projection, so $\sum_{i=1}^M \phi(x)\phi(x^{'}) = K_{\mathrm{lin}}(x,x^{'})$ exactly. The product $\tilde{K}(t,t^{'}) K_{\mathrm{lin}}(x,x^{'})$ therefore gives an exact separable covariance structure in the $x$ dimension, while the HSGP approximation $\tilde{K}(t,t^{'})$ converges uniformly to $K(t,t^{'})$ from \cite{Solin_2019}.\par}
+
+{\sloppy For the random Fourier feature projection (Appendix~\ref{sec:rff}), the $x$-factor $\sum_{i=1}^{2m}\phi_i(x)\phi_i(x^{'}) = \phi(x)^\top\phi(x^{'})$ is instead a random-feature approximation of the ARD kernel that converges as the number of features grows \cite{rffs}.\par}
 
 \subsection{Enforcing Concavity}
 
@@ -1276,7 +1361,7 @@ Finally, we can bound the variance of our process as the sum of \eqref{eq:varian
 
 \begin{figure}[!h]
     \centering
-    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/coverage/coverage_validation_yearly.png}
+    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/coverage/coverage_validation_yearly.png}
     \caption{We can see the hold-out coverage as we move further from the end of our in-sample dataset. We see that coverage slightly dips as we move further into the future, but not significantly.}
     \label{fig:coverage_yearly}
 \end{figure}
@@ -1284,7 +1369,7 @@ Finally, we can bound the variance of our process as the sum of \eqref{eq:varian
 
 \begin{figure}[!h]
     \centering
-    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/coverage/coverage_validation_minutes.png}
+    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/coverage/coverage_validation_minutes.png}
     \caption{Hold-out coverage by metric does not seem to significantly differ by number of in-sample seasons available. Note that the lone observation for number of seasons is LeBron James, which we fail to project well as his career arc is anomalous.}
     \label{fig:coverage_minutes}
 \end{figure}
@@ -1384,7 +1469,7 @@ Kyle Korver & F & 26.7 \\
 
 \begin{figure}[!h]
     \centering
-    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/latent_space/K_X_heatmap.png}
+    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/K_X_heatmap.png}
     \caption{We see that there is a separation of players by position type, much like the PCA plot. }
     \label{fig:cov_matrix}
 \end{figure}
