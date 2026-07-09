@@ -54,6 +54,12 @@ posterior_latent_X_peak_value <- read_parquet_if_exists(file.path(model_dir, "po
 phi_X_peak_age    <- read_parquet_if_exists(file.path(model_dir, "phi_X_peak_age.parquet"))
 phi_X_peak_value  <- read_parquet_if_exists(file.path(model_dir, "phi_X_peak_value.parquet"))
 
+# Load first derivative lazily (98M rows — do not collect until after aggregation)
+posterior_first_deriv_ds <- {
+  fd_path <- file.path(model_dir, "posterior_first_deriv_ar.parquet")
+  if (file.exists(fd_path)) arrow::open_dataset(fd_path) else NULL
+}
+
 curvature_post_paths <- list.files(
   model_dir,
   pattern   = "^posterior_latent_X_curvature_m[0-9]+\\.parquet$",
@@ -111,7 +117,7 @@ latent_space_plot  <- latent_space_umap |> ggplot(aes(x = UMAP1, y = UMAP2)) + g
                       fontface = "bold",
                       max.overlaps = 5,
                       inherit.aes = FALSE) +
-  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("UMAP Visualization of Learned Latent Embedding") + labs(x = "UMAP 1", y = "UMAP 2", alpha = "Minutes", color = "Position Group")
+  theme_bw(base_size = 14) + scale_colour_brewer(palette = "Set1") + ggtitle("UMAP Visualization of Learned Latent Embedding") + labs(x = "UMAP 1", y = "UMAP 2", alpha = "Minutes", color = "Position Group")
 
 ggsave(file.path(plots_dir, "latent_space", "map", "latent_space_umap.png"), latent_space_plot)
 
@@ -144,7 +150,7 @@ functional_pca_plt <- functional_pca_embedding %>% filter(PCA1 <= 20 & PCA2 <=20
                       fontface = "bold",
                       max.overlaps = 20,
                       inherit.aes = FALSE) +
-  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("PCA Visualization of Learned Metric Functionals") + labs(x = "PC 1", y = "PC 2", alpha = "Minutes", color = "Position Group")
+  theme_bw(base_size = 14) + scale_colour_brewer(palette = "Set1") + ggtitle("PCA Visualization of Learned Metric Functionals") + labs(x = "PC 1", y = "PC 2", alpha = "Minutes", color = "Position Group")
 ggsave(file.path(plots_dir, "latent_space", "map", "latent_space_functional_pca.png"), functional_pca_plt)
 
 
@@ -189,7 +195,7 @@ lp_trace_plt <- log_posterior |>
   mutate(chain = factor(chain)) |>
   ggplot(aes(x = draw, y = log_joint, color = chain, group = chain)) +
   geom_line(alpha = 0.7, linewidth = 0.4) +
-  theme_bw() +
+  theme_bw(base_size = 14) +
   scale_colour_brewer(palette = "Set1") +
   labs(title = "Log Joint Trace by Chain", x = "Draw", y = "Log Joint", color = "Chain")
 
@@ -229,7 +235,7 @@ plt_trace <- function(player_trace_df) {
   ggplot(player_trace_df, aes(x = sample, y = value, color = chain)) +
     geom_line(alpha = 0.6, linewidth = 0.3) +
     facet_wrap(~ strip_label, scales = "free_y", ncol = 3) +
-    theme_bw() +
+    theme_bw(base_size = 14) +
     theme(strip.text = element_text(size = 7)) +
     labs(title = glue("MCMC Trace Plots: {player_name}"), x = "Sample", y = "Value", color = "Chain")
 }
@@ -312,7 +318,7 @@ plt_peaks_trace <- function(player_df, title_suffix) {
   ggplot(player_df, aes(x = sample, y = value, color = chain)) +
     geom_line(alpha = 0.6, linewidth = 0.3) +
     facet_wrap(~ strip_label, scales = "free_y", ncol = 3) +
-    theme_bw() +
+    theme_bw(base_size = 14) +
     theme(strip.text = element_text(size = 7)) +
     labs(title = glue("{title_suffix}: {player_name}"), x = "Sample", y = "Value", color = "Chain")
 }
@@ -432,30 +438,96 @@ wss_sil <- map_dfr(2:10, function(k) {
 
 wss_plt <- ggplot(wss_sil, aes(x = k, y = wss)) +
   geom_line() + geom_point() +
-  labs(title = "Within-cluster SS vs. k", x = "k", y = "WSS") + theme_bw()
+  labs(title = "Within-cluster SS vs. k", x = "k", y = "WSS") + theme_bw(base_size = 14)
 sil_plt <- ggplot(wss_sil, aes(x = k, y = silhouette)) +
   geom_line() + geom_point() +
-  labs(title = "Mean silhouette vs. k", x = "k", y = "Avg silhouette") + theme_bw()
+  labs(title = "Mean silhouette vs. k", x = "k", y = "Avg silhouette") + theme_bw(base_size = 14)
 ggsave(file.path(plots_dir, "latent_space", "map", "archetype_k_diagnostics.png"),
        wss_plt + sil_plt, width = 12, height = 5)
 
-# ── 3. Dendrogram (base R — no ggdendro dependency) ─────────────────────────
-label_notable_leaves <- function(hc, keep_labels) {
-  # Operate on the hclust object's flat label vector — no C-level recursion.
-  # dendrapply on a 2000+ leaf tree exhausts the C stack; this avoids it entirely.
-  hc$labels <- ifelse(hc$labels %in% keep_labels, hc$labels, "")
-  as.dendrogram(hc)
+# ── 3. Dendrogram utilities ──────────────────────────────────────────────────
+# Extract ggplot-ready segment data from an hclust object by iterating over
+# the merge matrix. No dendrapply, no C-stack exhaustion on 2000+ leaf trees.
+hclust_segments <- function(hc) {
+  n      <- length(hc$order)
+  leaf_y <- integer(n)
+  leaf_y[hc$order] <- seq_len(n)
+
+  node_y <- numeric(n - 1L)
+  node_x <- hc$height
+
+  get_cy <- function(idx) if (idx < 0L) leaf_y[-idx] else node_y[idx]
+  get_cx <- function(idx) if (idx < 0L) 0            else node_x[idx]
+
+  mat <- matrix(0.0, nrow = (n - 1L) * 3L, ncol = 4L)
+  k   <- 0L
+  for (i in seq_len(n - 1L)) {
+    ya <- get_cy(hc$merge[i, 1L]); xa <- get_cx(hc$merge[i, 1L])
+    yb <- get_cy(hc$merge[i, 2L]); xb <- get_cx(hc$merge[i, 2L])
+    node_y[i] <- (ya + yb) / 2.0
+    xi <- node_x[i]
+    k <- k + 1L; mat[k, ] <- c(xa, xi, ya, ya)   # left arm
+    k <- k + 1L; mat[k, ] <- c(xb, xi, yb, yb)   # right arm
+    k <- k + 1L; mat[k, ] <- c(xi, xi, ya, yb)   # vertical bar
+  }
+
+  list(
+    segments = data.frame(x = mat[,1], xend = mat[,2], y = mat[,3], yend = mat[,4]),
+    labels   = data.frame(y = as.integer(leaf_y), label = hc$labels,
+                          stringsAsFactors = FALSE),
+    n        = n,
+    max_h    = max(node_x)
+  )
+}
+
+# Horizontal dendrogram with geom_text_repel — no label overlap.
+# keep_labels: character vector of leaf names to annotate.
+plot_dendrogram_gg <- function(hc, keep_labels, title = "") {
+  ddata    <- hclust_segments(hc)
+  max_h    <- ddata$max_h
+  label_df <- ddata$labels |> filter(label %in% keep_labels)
+
+  ggplot() +
+    geom_segment(
+      data = ddata$segments,
+      aes(x = x, xend = xend, y = y, yend = yend),
+      linewidth = 0.25, color = "grey40"
+    ) +
+    ggrepel::geom_text_repel(
+      data               = label_df,
+      aes(x = 0, y = y, label = label),
+      direction          = "y",
+      nudge_x            = -max_h * 0.35,
+      hjust              = 0,
+      size               = 3.2,
+      segment.size       = 0.2,
+      segment.color      = "grey60",
+      max.overlaps       = Inf,
+      force              = 0.3,
+      min.segment.length = 0,
+      box.padding        = 0.1
+    ) +
+    scale_x_reverse(expand = expansion(mult = c(0.01, 0.01))) +
+    scale_y_continuous(limits = c(0, ddata$n + 1), breaks = NULL) +
+    coord_cartesian(clip = "off") +
+    labs(title = title, x = "Height", y = NULL) +
+    theme_bw(base_size = 14) +
+    theme(
+      axis.text.y  = element_blank(),
+      axis.ticks.y = element_blank(),
+      panel.grid   = element_blank(),
+      plot.margin  = unit(c(0.5, 6, 0.5, 0.5), "cm")
+    )
 }
 
 notable_names <- posterior_plot_names
 
-png(file.path(plots_dir, "latent_space", "map", "archetype_dendrogram.png"),
-    width = 1200, height = 2000, res = 120)
-par(mar = c(4, 1, 2, 8))
-plot(label_notable_leaves(hc_latent, notable_names), horiz = TRUE,
-     main = "Ward hierarchical clustering — posterior mean latent dims",
-     xlab = "Height")
-dev.off()
+ggsave(
+  file.path(plots_dir, "latent_space", "map", "archetype_dendrogram.png"),
+  plot_dendrogram_gg(hc_latent, notable_names,
+                     "Ward hierarchical clustering — posterior mean latent dims"),
+  width = 14, height = 18
+)
 
 # ── 4. Cut tree and assign archetypes ────────────────────────────────────────
 find_k_dendrogram <- function(hc, default_k = 4L, max_k = 50L) {
@@ -522,6 +594,12 @@ if (!is.null(posterior_peak_vals) && !is.null(posterior_latent_X)) {
     select(id, draft_year) |>
     mutate(draft_year = suppressWarnings(as.integer(draft_year)))
 
+  player_birth_year <- data |>
+    filter(!is.na(age), !is.na(year), id != "99999999") |>
+    group_by(id) |>
+    summarise(birth_year = as.integer(round(median(year - age, na.rm = TRUE))), .groups = "drop") |>
+    mutate(age_2026 = 2026L - birth_year)
+
   entry_cohort <- data |>
     filter(!is.na(year)) |>
     group_by(id) |>
@@ -535,20 +613,43 @@ if (!is.null(posterior_peak_vals) && !is.null(posterior_latent_X)) {
     left_join(player_info, by = "id") |>
     mutate(cohort = coalesce(draft_year + 1L, first_obs_year))
 
-  # ── (A) P(peak OBPM > threshold) ───────────────────────────────────────────
-  obpm_breakout <- posterior_peak_vals |>
+  # ── Peak OBPM per posterior draw, including observation/sampling variance.
+  # The peak AGE is the concave curve's peak (posterior_peaks); the peak VALUE is
+  # the posterior PREDICTIVE OBPM at that age (posterior_ar.parquet = latent
+  # mu + AR(1) residual + sampling noise). So P(peak > threshold) is the
+  # probability of a breakout SEASON at the projected peak, integrating parameter
+  # AND sampling uncertainty. NB: we fix the age rather than argmax the predictive
+  # over all ages, because the predictive variance sigma^2/(minutes+1) blows up at
+  # low-minute far-future ages and an argmax there just tracks noise spikes. OBPM
+  # uses the identity link, so predictive values are already in OBPM units. ─────
+  obpm_peak_age_draw <- posterior_peaks |>
     filter(metric == "obpm") |>
+    transmute(player, chain, sample,
+              peak_age = pmin(pmax(round(value), 18L), 38L))
+
+  obpm_pred_peak <- open_dataset(file.path(model_dir, "posterior_ar.parquet")) |>
+    filter(metric == "obpm") |>
+    select(player, chain, sample, age, value) |>
+    collect() |>
+    inner_join(obpm_peak_age_draw, by = c("player", "chain", "sample")) |>
+    filter(age == peak_age, is.finite(value)) |>
+    transmute(player, chain, sample, peak_age, peak_val = value)
+
+  # ── (A) P(peak OBPM > threshold) ───────────────────────────────────────────
+  obpm_breakout <- obpm_pred_peak |>
     group_by(player) |>
     summarise(
-      p_breakout_obpm  = mean(value > 2.0),
-      p_breakout_obpm3 = mean(value > 3.0),
-      p_breakout_obpm4 = mean(value > 4.0),
-      mean_peak_obpm   = mean(value),
-      sd_peak_obpm     = sd(value),
+      p_breakout_obpm  = mean(peak_val > 2.0),
+      p_breakout_obpm3 = mean(peak_val > 3.0),
+      p_breakout_obpm4 = mean(peak_val > 4.0),
+      mean_peak_obpm   = mean(peak_val),
+      sd_peak_obpm     = sd(peak_val),
       .groups          = "drop"
     )
 
   # ── (B) Expected years to peak (OBPM peak age minus last observed age) ───────
+  # Peak age comes from the concave curve (continuous), not the rounded lookup
+  # age above — sampling variance affects the peak VALUE, not where it occurs.
   obpm_peak_age <- posterior_peaks |>
     filter(metric == "obpm") |>
     group_by(player) |>
@@ -562,20 +663,25 @@ if (!is.null(posterior_peak_vals) && !is.null(posterior_latent_X)) {
     left_join(player_last_age, by = c("player" = "id")) |>
     mutate(yrs_to_peak = pmax(mean_peak_age - last_obs_age, 0))
 
-  # ── (C) Empirical OBPM percentiles (career peak per player in observed data) ─
+  # ── (C) Fraction of players whose career-peak OBPM exceeded each threshold ───
   empirical_peak_obpm <- data |>
+    filter(!is.na(obpm), id != "99999999") |>
     group_by(id) |>
     summarise(peak_obpm = max(obpm, na.rm = TRUE), .groups = "drop") |>
+    filter(is.finite(peak_obpm)) |>
     pull(peak_obpm)
-  obpm_pctile <- function(thresh) round(mean(empirical_peak_obpm <= thresh) * 100, 0)
-  pctile_2 <- obpm_pctile(2); pctile_3 <- obpm_pctile(3); pctile_4 <- obpm_pctile(4)
+  pct_peaked_above <- function(thresh) round(mean(empirical_peak_obpm > thresh) * 100, 0)
+  pct_above_2 <- pct_peaked_above(2)
+  pct_above_3 <- pct_peaked_above(3)
+  pct_above_4 <- pct_peaked_above(4)
 
   arch_memb_probs <- rotated_posterior_df |>
     select(id, name) |>
     distinct() |>
-    left_join(entry_cohort,   by = c("id", "name")) |>
-    left_join(obpm_breakout,  by = c("id" = "player")) |>
-    left_join(yrs_to_peak_df, by = c("id" = "player"))
+    left_join(entry_cohort,      by = c("id", "name")) |>
+    left_join(obpm_breakout,     by = c("id" = "player")) |>
+    left_join(yrs_to_peak_df,    by = c("id" = "player")) |>
+    left_join(player_birth_year, by = "id")
 
   # ── LaTeX table: top 5 per cohort ───────────────────────────────────────────
   recent_cohorts <- sort(unique(arch_memb_probs$cohort[!is.na(arch_memb_probs$cohort)]),
@@ -602,20 +708,21 @@ if (!is.null(posterior_peak_vals) && !is.null(posterior_latent_X)) {
     function(yr) {
       block        <- top5_per_cohort |> filter(cohort == yr)
       max_obs_year <- cohort_max_year$max_obs_year[cohort_max_year$cohort == yr]
-      ns           <- max(max_obs_year - yr + 1L, 1L)
+      ns           <- max(2026L - yr + 1L, 1L)
       season_label <- if (ns == 1) "1 season" else glue("{ns} seasons")
       header_row <- glue(
-        "    \\multicolumn{{8}}{{l}}{{\\textit{{Entry {yr} ({season_label})}}}}"
+        "    \\multicolumn{{9}}{{l}}{{\\textit{{Entry {yr} ({season_label})}}}}"
       )
-      data_rows <- pmap_chr(block, function(rank, name, position_group,
+      data_rows <- pmap_chr(block, function(rank, name, position_group, age_2026,
                                             mean_peak_obpm, p_breakout_obpm,
                                             p_breakout_obpm3, p_breakout_obpm4,
                                             yrs_to_peak, ...) {
-        fmt_p <- function(x) if (is.na(x)) "---" else sprintf("%.0f\\%%", x * 100)
-        ytp   <- if (is.na(yrs_to_peak) || yrs_to_peak < 0.5) "$<$1"
-                 else sprintf("%.1f", yrs_to_peak)
+        fmt_p   <- function(x) if (is.na(x)) "---" else sprintf("%.0f\\%%", x * 100)
+        ytp     <- if (is.na(yrs_to_peak) || yrs_to_peak < 0.5) "$<$1"
+                   else sprintf("%.1f", yrs_to_peak)
+        age_str <- if (is.na(age_2026)) "---" else as.character(age_2026)
         glue(
-          "    {rank} & {name} & {position_group}",
+          "    {rank} & {name} & {age_str} & {position_group}",
           " & {sprintf('%.1f', mean_peak_obpm)}",
           " & {fmt_p(p_breakout_obpm)}",
           " & {fmt_p(p_breakout_obpm3)}",
@@ -632,9 +739,11 @@ if (!is.null(posterior_peak_vals) && !is.null(posterior_latent_X)) {
   breakout_tex <- paste0(
     "\\begin{table}[htbp]\n",
     "  \\centering\\small\n",
-    "  \\begin{tabular}{rllrrrrr}\n",
+    "  \\begin{tabular}{rlrlrrrrr}\n",
     "    \\toprule\n",
-    "    Rank & Player & Pos. & Mean Peak OBPM",
+    "     & & & & OBPM & & & & \\\\\n",
+    "    \\cmidrule(lr){5-5}\n",
+    "    Rank & Player & Age & Pos. & Expected Peak",
     " & P($>$2) & P($>$3) & P($>$4) & Yrs to Peak \\\\\n",
     "    \\midrule\n",
     tex_body, "\n",
@@ -642,9 +751,9 @@ if (!is.null(posterior_peak_vals) && !is.null(posterior_latent_X)) {
     "  \\end{tabular}\n",
     "  \\caption{Top 5 players by posterior mean peak OBPM per entry cohort.",
     " P($>$2), P($>$3), P($>$4) are posterior probabilities that peak OBPM exceeds",
-    " the threshold; empirically, OBPM\\,$=$\\,2 is the ", pctile_2, "th percentile,",
-    " OBPM\\,$=$\\,3 the ", pctile_3, "th, and OBPM\\,$=$\\,4 the ", pctile_4,
-    "th (career peak per player).",
+    " the threshold; empirically, ", pct_above_2, "\\% of players peaked above",
+    " OBPM\\,$=$\\,2, ", pct_above_3, "\\% above OBPM\\,$=$\\,3, and ",
+    pct_above_4, "\\% above OBPM\\,$=$\\,4 (career peak per player).",
     " Yrs to Peak is the posterior mean OBPM peak age minus last observed age",
     " ($<$1 = already at or within one year of peak).}\n",
     "  \\label{tab:breakout_cohort}\n",
@@ -671,7 +780,7 @@ if (!is.null(posterior_peak_vals) && !is.null(posterior_latent_X)) {
       fill     = "Cohort",
       colour   = "Position"
     ) +
-    theme_bw()
+    theme_bw(base_size = 14)
   ggsave(
     file.path(plots_dir, "latent_space", "map", "breakout_cohort_distributions.png"),
     cohort_violin_plt, width = 12, height = 6
@@ -721,11 +830,26 @@ db_cands_ls <- lapply(eps_grid_ls, function(eps_val) {
        n_clusters = length(setdiff(unique(db_try$cluster), 0L)),
        n_noise    = sum(db_try$cluster == 0L))
 })
-exact_3_ls <- Filter(function(x) x$n_clusters == 3L, db_cands_ls)
-best_ls <- if (length(exact_3_ls) > 0) {
+# Priority 1: exactly 3 clusters with no noise points
+zero_noise_3_ls <- Filter(function(x) x$n_clusters == 3L && x$n_noise == 0L, db_cands_ls)
+exact_3_ls      <- Filter(function(x) x$n_clusters == 3L, db_cands_ls)
+best_ls <- if (length(zero_noise_3_ls) > 0) {
+  zero_noise_3_ls[[1L]]
+} else if (length(exact_3_ls) > 0) {
   exact_3_ls[[which.min(sapply(exact_3_ls, `[[`, "n_noise"))]]
 } else {
   db_cands_ls[[which.min(sapply(db_cands_ls, function(x) abs(x$n_clusters - 3L)))]]
+}
+# Reassign any remaining noise points (cluster == 0) to their nearest cluster centroid
+if (any(best_ls$db$cluster == 0L)) {
+  cl    <- best_ls$db$cluster
+  k_ids <- setdiff(unique(cl), 0L)
+  cents <- sapply(k_ids, function(ki)
+    colMeans(loadings_mat_ls[cl == ki, , drop = FALSE]))
+  for (i in which(cl == 0L)) {
+    dists_i <- colSums((cents - loadings_mat_ls[i, ])^2)
+    best_ls$db$cluster[i] <- k_ids[which.min(dists_i)]
+  }
 }
 loadings$metric_group <- as.factor(best_ls$db$cluster)
 
@@ -741,7 +865,7 @@ peaks_plt <- ggplot(
   stat_pointinterval() +
   scale_fill_brewer(palette = "Set1") +
   scale_colour_brewer(palette = "Set1") +
-  theme_bw() +
+  theme_bw(base_size = 14) +
   labs(title = "Posterior Mean of Peak Age by Metric",
        x = "Age", y = "Metric",
        fill = "Metric Group", color = "Metric Group") +
@@ -896,6 +1020,129 @@ writeLines(
 
 } # end if (!is.null(peaks_plt_df) && !is.null(peak_vals_plt_df))
 
+# ── 5d. Pre/post-peak slope by archetype ────────────────────────────────────
+# Uses the GP first derivative (posterior_first_deriv_ar.parquet) loaded lazily
+# above. Joins with posterior_peaks to split each player's derivative series at
+# their posterior peak age, then averages the pre-peak and post-peak slopes
+# within each archetype.
+if (!is.null(posterior_first_deriv_ds) && !is.null(posterior_peaks) &&
+    !is.null(posterior_mean_latent)) {
+
+  peaks_ref <- posterior_peaks |>
+    transmute(player, metric,
+              chain  = as.integer(chain),
+              sample = as.integer(sample),
+              peak_age = value)
+
+  # Lazy arrow pipeline: join, classify phase, aggregate — collect only once
+  slope_by_draw <- posterior_first_deriv_ds |>
+    mutate(chain = as.integer(chain), sample = as.integer(sample)) |>
+    left_join(peaks_ref, by = c("player", "metric", "chain", "sample")) |>
+    filter(!is.na(peak_age)) |>
+    mutate(
+      phase = case_when(
+        age < peak_age ~ "pre",
+        age > peak_age ~ "post",
+        TRUE           ~ NA_character_
+      )
+    ) |>
+    filter(!is.na(phase)) |>
+    group_by(player, metric, chain, sample, phase) |>
+    summarise(mean_slope = mean(value, na.rm = TRUE), .groups = "drop") |>
+    collect()
+
+  metric_display <- function(m) {
+    m <- toupper(m)
+    dplyr::case_when(
+      m == "GAMES"       ~ "GP%",
+      m == "FG2M"        ~ "FG2%",
+      m == "FG3M"        ~ "FG3%",
+      m == "FTM"         ~ "FT%",
+      m == "PCT_MINUTES" ~ "MPG",
+      .default = m
+    )
+  }
+
+  arch_slope_df <- slope_by_draw |>
+    left_join(posterior_mean_latent |> select(id, archetype), by = c("player" = "id")) |>
+    filter(!is.na(archetype)) |>
+    mutate(metric_disp = metric_display(metric)) |>
+    group_by(archetype, metric_disp, phase) |>
+    summarise(
+      lo_slope   = quantile(mean_slope, 0.1, na.rm = TRUE),
+      hi_slope   = quantile(mean_slope, 0.9, na.rm = TRUE),
+      mean_slope = mean(mean_slope, na.rm = TRUE),
+      .groups    = "drop"
+    ) |>
+    mutate(
+      phase       = factor(if_else(phase == "pre", "Pre-peak", "Post-peak"),
+                           levels = c("Pre-peak", "Post-peak")),
+      metric_disp = fct_reorder(metric_disp, mean_slope, .fun = median, .desc = TRUE)
+    )
+
+  # ── Plot 1: faceted pre / post slope per metric, archetype-coloured
+  plt_arch_slopes <- ggplot(
+    arch_slope_df,
+    aes(x = mean_slope, y = metric_disp, color = archetype)
+  ) +
+    geom_pointrange(
+      aes(xmin = lo_slope, xmax = hi_slope),
+      position = position_dodge(0.6),
+      size = 0.35, linewidth = 0.5
+    ) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+    facet_wrap(~phase, scales = "free_x") +
+    scale_color_brewer(palette = "Set1") +
+    theme_bw(base_size = 14) +
+    labs(
+      x     = "Mean GP first derivative (latent units / year)",
+      y     = NULL,
+      color = "Archetype"
+    ) +
+    scale_y_discrete(expand = expansion(mult = c(0.1, 0.1))) +
+    theme(
+      legend.position  = "right",
+      strip.background = element_blank(),
+      strip.text       = element_text(face = "bold")
+    )
+
+  ggsave(
+    file.path(plots_dir, "latent_space", "mcmc", "archetype_slopes.png"),
+    plt_arch_slopes, width = 12, height = 7
+  )
+
+  # ── Plot 2: asymmetry ratio (|pre| / |post|) — > 1 means faster decline
+  arch_slope_wide <- arch_slope_df |>
+    select(archetype, metric_disp, phase, mean_slope) |>
+    pivot_wider(names_from = phase, values_from = mean_slope) |>
+    mutate(
+      skew_ratio  = `Pre-peak` / abs(pmin(`Post-peak`, -1e-6)),
+      metric_disp = fct_reorder(metric_disp, skew_ratio, .fun = median, .desc = TRUE)
+    )
+
+  plt_arch_ratio <- ggplot(
+    arch_slope_wide,
+    aes(x = skew_ratio, y = metric_disp, color = archetype)
+  ) +
+    geom_point(position = position_dodge(0.5), size = 2.5) +
+    geom_vline(xintercept = 1, linetype = "dashed", color = "grey40") +
+    scale_color_brewer(palette = "Set1") +
+    theme_bw(base_size = 14) +
+    labs(
+      x     = "Pre-peak slope / |Post-peak slope|  (>1 = faster decline than ascent)",
+      y     = NULL,
+      color = "Archetype"
+    ) +
+    scale_y_discrete(expand = expansion(mult = c(0.1, 0.1))) +
+    theme(legend.position = "right")
+
+  ggsave(
+    file.path(plots_dir, "latent_space", "mcmc", "archetype_slope_ratio.png"),
+    plt_arch_ratio, width = 10, height = 7
+  )
+
+} # end archetype slopes
+
 # Archetype average curves via Frechet mean (fdasrvf)
 frechet_mean_curve_basic <- function(time, mat) {
   if (ncol(mat) == 0) {
@@ -904,16 +1151,26 @@ frechet_mean_curve_basic <- function(time, mat) {
   rowMeans(mat, na.rm = TRUE)
 }
 
-# frechet_mean_curve_elastic <- function(time, mat) {
-#   if (ncol(mat) == 0) {
-#     return(rep(NA_real_, length(time)))
-#   }
-#   if (ncol(mat) == 1) {
-#     return(as.numeric(mat[, 1]))
-#   }
-#   warp_res <- fdasrvf::time_warping(f = mat, time = time)
-#   as.numeric(warp_res$fmean)
-# }
+frechet_mean_curve_elastic <- function(time, mat) {
+  if (ncol(mat) == 0) {
+    return(rep(NA_real_, length(time)))
+  }
+  if (ncol(mat) == 1) {
+    return(as.numeric(mat[, 1]))
+  }
+  # fdasrvf expects time in [0,1]
+  t_norm <- (time - min(time)) / (max(time) - min(time))
+  tryCatch(
+    {
+      warp_res <- fdasrvf::time_warping(f = mat, time = t_norm, parallel = FALSE)
+      as.numeric(warp_res$fmean)
+    },
+    error = function(e) {
+      warning(paste0("SRV Frechet mean failed: ", e$message, " — falling back to arithmetic mean"))
+      rowMeans(mat, na.rm = TRUE)
+    }
+  )
+}
 
 interp_curve_matrix <- function(time, mat) {
   apply(mat, 2, function(col) {
@@ -946,13 +1203,56 @@ transform_metric_mu <- function(metric, mu) {
 
 metrics_for_archetypes <- c("obpm", "ast", "blk", "pct_minutes")
 
+# Curve-based clustering using Frechet mean curves across 16 metrics
+metrics_for_curve_cluster <- c(
+  "obpm", "dbpm", "games", "pct_minutes",
+  "blk", "ast", "tov", "oreb", "dreb", "stl",
+  "usg", "fg2a", "fg3a", "fta", "fg2m", "fg3m"
+)
+
+all_srv_metrics <- union(metrics_for_archetypes, metrics_for_curve_cluster)
+
+# Raw posterior mean curves (for basic Frechet mean, which shows observed-scale values).
 posterior_mu_means <- posterior_mu_data |>
   filter(metric %in% metrics_for_archetypes) |>
   group_by(player, metric, age) |>
   summarize(mu = mean(value, na.rm = TRUE), .groups = "drop")
 
-compute_archetype_curves <- function(method_label) {
-  player_curves <- posterior_mu_means |>
+# Per-draw normalisation → per-player elastic Frechet mean across draws.
+# Each draw is shifted to start at 0 then divided by sqrt(TV) = sqrt(sum|f'(t)|),
+# giving unit SRVF L2 norm. The elastic Frechet mean across draws is then computed
+# in parallel, so the resulting curve per player is a proper shape summary.
+posterior_mu_means_norm <- if (!is.null(posterior_first_deriv_ds)) {
+  arc_per_draw <- posterior_first_deriv_ds |>
+    filter(metric %in% all_srv_metrics) |>
+    group_by(chain, sample, player, metric) |>
+    summarize(tv = sum(abs(value)), .groups = "drop") |>
+    collect()
+
+  start_per_draw <- posterior_mu_data |>
+    filter(metric %in% all_srv_metrics) |>
+    group_by(chain, sample, player, metric) |>
+    slice_min(age, n = 1, with_ties = FALSE) |>
+    ungroup() |>
+    select(chain, sample, player, metric, start_val = value)
+
+  posterior_mu_data |>
+    filter(metric %in% all_srv_metrics) |>
+    left_join(start_per_draw, by = c("chain", "sample", "player", "metric")) |>
+    left_join(arc_per_draw,   by = c("chain", "sample", "player", "metric")) |>
+    mutate(
+      tv    = if_else(is.na(tv) | tv == 0, 1, tv),
+      value = (value - start_val) / tv
+    ) |>
+    group_by(player, metric, age) |>
+    summarize(mu = mean(value, na.rm = TRUE), .groups = "drop")
+} else {
+  posterior_mu_means
+}
+
+compute_archetype_curves <- function(data, method_fn, method_label, show_observed = TRUE) {
+  player_curves <- data |>
+    filter(metric %in% metrics_for_archetypes) |>
     left_join(posterior_mean_latent |> select(id, archetype), by = c("player" = "id")) |>
     filter(!is.na(archetype))
 
@@ -972,25 +1272,22 @@ compute_archetype_curves <- function(method_label) {
         return(tibble())
       }
       mat <- interp_curve_matrix(time, mat)
-      mu <- frechet_mean_curve_basic(time, mat)
+      mu <- method_fn(time, mat)
       tibble(age = time, mu = mu, n_players = ncol(mat))
     }) |>
     ungroup() |>
     mutate(
-      observed_mu = transform_metric_mu(metric, mu),
+      observed_mu = if (show_observed) transform_metric_mu(metric, mu) else mu,
       metric = toupper(metric),
       metric = case_when(metric == "PCT_MINUTES" ~ "MPG", .default = metric),
       method = method_label
     )
 }
 
-archetype_frechet_basic <- compute_archetype_curves("Basic Frechet Mean")
-# archetype_frechet_elastic <- compute_archetype_curves(
-#   frechet_mean_curve_elastic,
-#   "Elastic Frechet Mean"
-# )
+archetype_frechet_basic   <- compute_archetype_curves(posterior_mu_means,      frechet_mean_curve_basic, "Basic Frechet Mean",    show_observed = TRUE)
+archetype_frechet_elastic <- compute_archetype_curves(posterior_mu_means_norm,  frechet_mean_curve_basic, "SRV Normalised (mean)", show_observed = FALSE)
 
-archetype_frechet_curves <- archetype_frechet_basic
+archetype_frechet_curves <- bind_rows(archetype_frechet_basic, archetype_frechet_elastic)
 
 frechet_dir <- file.path(plots_dir, "latent_space", "frechet")
 frechet_mcmc_dir <- file.path(frechet_dir, "mcmc")
@@ -1002,16 +1299,16 @@ dir.create(frechet_map_dir, recursive = TRUE, showWarnings = FALSE)
 
 archetype_curve_dir <- frechet_mcmc_dir
 
-plot_archetype_curves <- function(curve_df, title_suffix) {
+plot_archetype_curves <- function(curve_df, title_suffix, y_label = "Metric value") {
   curve_df |>
     ggplot(aes(x = age, y = observed_mu, color = archetype)) +
     geom_line(linewidth = 1) +
     facet_wrap(~ metric, scales = "free_y") +
-    theme_bw() +
+    theme_bw(base_size = 14) +
     labs(
       title = paste("Archetype Average Curves (Frechet mean):", title_suffix),
       x = "Age",
-      y = "Metric value",
+      y = y_label,
       color = "Archetype"
     )
 }
@@ -1020,30 +1317,20 @@ archetype_curve_plot_basic <- plot_archetype_curves(
   archetype_frechet_curves |> filter(method == "Basic Frechet Mean"),
   "basic"
 )
-# archetype_curve_plot_elastic <- plot_archetype_curves(
-#   archetype_frechet_curves |> filter(method == "Elastic Frechet Mean"),
-#   "elastic"
-# )
+archetype_curve_plot_elastic <- plot_archetype_curves(
+  archetype_frechet_curves |> filter(method == "SRV Normalised (mean)"),
+  "elastic",
+  y_label = "Normalised shape (TV units)"
+)
 
 ggsave(file.path(archetype_curve_dir, "archetype_frechet_curves_basic.png"),
        archetype_curve_plot_basic, width = 12, height = 8)
-# ggsave(file.path(archetype_curve_dir, "archetype_frechet_curves_elastic.png"),
-#        archetype_curve_plot_elastic, width = 12, height = 8)
+ggsave(file.path(archetype_curve_dir, "archetype_frechet_curves_elastic.png"),
+       archetype_curve_plot_elastic, width = 12, height = 8)
 
-# Curve-based clustering using Frechet mean curves across 16 metrics
-metrics_for_curve_cluster <- c(
-  "obpm", "dbpm", "games", "pct_minutes",
-  "blk", "ast", "tov", "oreb", "dreb", "stl",
-  "usg", "fg2a", "fg3a", "fta", "fg2m", "fg3m"
-)
-
-# Posterior mean curves: mean across samples per player, metric, age.
-player_curve_means <- posterior_mu_data |>
+# Curve-based clustering: SRVF distances on normalised per-player Frechet mean shapes.
+curve_dist_list <- posterior_mu_means_norm |>
   filter(metric %in% metrics_for_curve_cluster) |>
-  group_by(player, metric, age) |>
-  summarize(mu = mean(value, na.rm = TRUE), .groups = "drop")
-
-curve_dist_list <- player_curve_means |>
   group_by(metric) |>
   group_map(~ {
     wide <- .x |>
@@ -1104,13 +1391,12 @@ curve_archetype_lookup <- tibble(
   curve_archetype = factor(unname(curve_archetype_labels))
 )
 
-png(file.path(frechet_map_dir, "frechet_curve_cluster_dendrogram.png"),
-    width = 1200, height = 2000, res = 120)
-par(mar = c(4, 1, 2, 8))
-plot(label_notable_leaves(curve_hc, notable_names), horiz = TRUE,
-     main = "Frechet curve clustering — mean distance across metrics",
-     xlab = "Height")
-dev.off()
+ggsave(
+  file.path(frechet_map_dir, "frechet_curve_cluster_dendrogram.png"),
+  plot_dendrogram_gg(curve_hc, notable_names,
+                     "Frechet curve clustering — mean distance across metrics"),
+  width = 14, height = 18
+)
 
 player_lookup_curve <- data |>
   group_by(id) |>
@@ -1181,9 +1467,10 @@ curve_neighbors |>
     )
   })
 
-frechet_neighbor_curve_means <- player_curve_means |>
+frechet_neighbor_curve_means <- posterior_mu_means_norm |>
+  filter(metric %in% metrics_for_curve_cluster) |>
   mutate(
-    observed_mu = transform_metric_mu(metric, mu),
+    observed_mu = mu,
     metric = toupper(metric),
     metric = case_when(metric == "PCT_MINUTES" ~ "MPG", .default = metric)
   )
@@ -1204,18 +1491,22 @@ plot_neighbor_curves_frechet <- function(focal_id, focal_name, neighbor_ids) {
 
   plot_df <- frechet_neighbor_curve_means |>
     filter(player %in% plot_ids) |>
-    left_join(latent_space |> select(id, name), by = c("player" = "id")) |>
+    left_join(latent_space |> select(id, name, position_group), by = c("player" = "id")) |>
     left_join(neighbor_rank_df, by = c("player" = "id")) |>
     mutate(
       role = if_else(player == focal_id, "Focal", "Neighbor"),
       name_label = case_when(
-        role == "Focal" ~ name,
-        TRUE ~ paste0(neighbor_rank, ". ", name)
+        role == "Focal" ~ paste0(name, " (", position_group, ")"),
+        TRUE ~ paste0(neighbor_rank, ". ", name, " (", position_group, ")")
       )
     )
 
   focal_label     <- unique(plot_df$name_label[plot_df$role == "Focal"])
-  neighbor_labels <- paste0(seq_len(n_neighbors), ". ", neighbor_names_ordered)
+  neighbor_labels <- plot_df |>
+    filter(role == "Neighbor") |>
+    distinct(neighbor_rank, name_label) |>
+    arrange(neighbor_rank) |>
+    pull(name_label)
   labels_ordered  <- c(focal_label, neighbor_labels)
   plot_df <- plot_df |>
     mutate(name_label = factor(name_label, levels = labels_ordered))
@@ -1235,7 +1526,7 @@ plot_neighbor_curves_frechet <- function(focal_id, focal_name, neighbor_ids) {
     geom_text(
       data = label_df,
       aes(label = neighbor_rank),
-      size = 3, hjust = -0.2, show.legend = FALSE
+      size = 6, hjust = -0.2, show.legend = FALSE
     ) +
     facet_wrap(~ metric, scales = "free_y") +
     scale_color_manual(values = line_colors, name = "Player") +
@@ -1254,7 +1545,7 @@ plot_neighbor_curves_frechet <- function(focal_id, focal_name, neighbor_ids) {
         )
       )
     ) +
-    theme_bw() +
+    theme_bw(base_size = 22) +
     labs(
       title = glue("Frechet Neighbor Curves: {focal_name}"),
       x = "Age",
@@ -1293,7 +1584,7 @@ functional_pca_plt_archetype <- fpc_arch |>
     size = 2, fontface = "bold", max.overlaps = 20,
     inherit.aes = FALSE
   ) +
-  theme_bw() + scale_colour_manual(values = arch_colour_pal) +
+  theme_bw(base_size = 14) + scale_colour_manual(values = arch_colour_pal) +
   labs(title = "Latent Space — Archetype Clusters",
        x = "PC 1", y = "PC 2", color = "Archetype", alpha = "Minutes")
 ggsave(file.path(plots_dir, "latent_space", "map", "latent_space_archetypes.png"),
@@ -1314,7 +1605,7 @@ latent_pca_plt <- latent_pca_df |>
     aes(label = plot_name(name)),
     size = 2, fontface = "bold", max.overlaps = 20
   ) +
-  theme_bw() + scale_colour_manual(values = arch_colour_pal) +
+  theme_bw(base_size = 14) + scale_colour_manual(values = arch_colour_pal) +
   labs(title = "PCA of Posterior Mean Latent Coordinates — Archetype Clusters",
        x = glue("PC 1 ({round(summary(latent_pca)$importance[2,1]*100,1)}% var)"),
        y = glue("PC 2 ({round(summary(latent_pca)$importance[2,2]*100,1)}% var)"),
@@ -1344,7 +1635,7 @@ latent_pca_scree <- ggplot(pca_scree_df, aes(x = PC)) +
     title = "Latent PCA — Eigenvalue Scree Plot",
     x = "Principal Component", y = "Variance explained"
   ) +
-  theme_bw()
+  theme_bw(base_size = 14)
 
 ggsave(file.path(plots_dir, "latent_space", "map", "latent_pca_scree.png"),
        latent_pca_scree, width = 9, height = 5)
@@ -1366,7 +1657,7 @@ latent_pca_pc34 <- latent_pca_df34 |>
     aes(label = plot_name(name)),
     size = 2, fontface = "bold", max.overlaps = 20
   ) +
-  theme_bw() + scale_colour_manual(values = arch_colour_pal) +
+  theme_bw(base_size = 14) + scale_colour_manual(values = arch_colour_pal) +
   labs(
     title = "PCA of Posterior Mean Latent Coordinates — PC3 vs PC4",
     x = glue("PC 3 ({pc3_var}% var)"),
@@ -1550,19 +1841,18 @@ run_modality_latent_analysis <- function(tag, posterior_df, phi_ref, plots_dir,
 
   wss_plt <- ggplot(wss_sil, aes(x = k, y = wss)) +
     geom_line() + geom_point() +
-    labs(title = glue("Within-cluster SS vs. k ({tag})"), x = "k", y = "WSS") + theme_bw()
+    labs(title = glue("Within-cluster SS vs. k ({tag})"), x = "k", y = "WSS") + theme_bw(base_size = 14)
   sil_plt <- ggplot(wss_sil, aes(x = k, y = silhouette)) +
     geom_line() + geom_point() +
-    labs(title = glue("Mean silhouette vs. k ({tag})"), x = "k", y = "Avg silhouette") + theme_bw()
+    labs(title = glue("Mean silhouette vs. k ({tag})"), x = "k", y = "Avg silhouette") + theme_bw(base_size = 14)
   ggsave(file.path(mod_dir, "archetype_k_diagnostics.png"),
          wss_plt + sil_plt, width = 12, height = 5)
 
-  png(file.path(mod_dir, "archetype_dendrogram.png"),
-      width = 1200, height = 2000, res = 120)
-  par(mar = c(4, 1, 2, 8))
-  plot(label_notable_leaves(hc_latent, notable_names), horiz = TRUE,
-       main = glue("Ward clustering — {tag}"), xlab = "Height")
-  dev.off()
+  ggsave(
+    file.path(mod_dir, "archetype_dendrogram.png"),
+    plot_dendrogram_gg(hc_latent, notable_names, glue("Ward clustering — {tag}")),
+    width = 14, height = 18
+  )
 
   k_mod <- find_k_dendrogram(hc_latent)
   message(glue("  [{tag}] optimal k by dendrogram gap: {k_mod}"))
@@ -1586,7 +1876,7 @@ run_modality_latent_analysis <- function(tag, posterior_df, phi_ref, plots_dir,
       x        = "Latent dimension",
       y        = "Variance across players"
     ) +
-    theme_bw()
+    theme_bw(base_size = 14)
   ggsave(file.path(mod_dir, "dim_variance.png"), dim_var_plt, width = 7, height = 5)
 
   # ── Per-archetype player representatives (top-5 by career minutes) ────────────
@@ -1697,7 +1987,7 @@ run_modality_latent_analysis <- function(tag, posterior_df, phi_ref, plots_dir,
     ggplot(aes(x = PC1, y = PC2, color = archetype)) +
     geom_point(size = 1.5) +
     pca_label_layer +
-    theme_bw() + scale_colour_manual(values = mod_colour_pal) +
+    theme_bw(base_size = 14) + scale_colour_manual(values = mod_colour_pal) +
     labs(
       title = glue("PCA of Modality-Specific Latent Coords — {tag} (k={k_mod})"),
       x = glue("PC 1 ({round(summary(latent_pca_mod)$importance[2,1]*100,1)}% var)"),
@@ -1713,7 +2003,7 @@ run_modality_latent_analysis <- function(tag, posterior_df, phi_ref, plots_dir,
       pca_plt_no_labels <- pca_df |>
         ggplot(aes(x = PC1, y = PC2, color = archetype)) +
         geom_point(size = 1.5) +
-        theme_bw() + scale_colour_manual(values = mod_colour_pal) +
+        theme_bw(base_size = 14) + scale_colour_manual(values = mod_colour_pal) +
         labs(
           title = glue("PCA of Modality-Specific Latent Coords — {tag} (k={k_mod})"),
           x = glue("PC 1 ({round(summary(latent_pca_mod)$importance[2,1]*100,1)}% var)"),
@@ -1880,18 +2170,22 @@ plot_neighbor_curves <- function(focal_id, focal_name, neighbor_ids) {
 
   plot_df <- neighbor_curve_means |>
     filter(player %in% plot_ids) |>
-    left_join(latent_space |> select(id, name), by = c("player" = "id")) |>
+    left_join(latent_space |> select(id, name, position_group), by = c("player" = "id")) |>
     left_join(neighbor_rank_df, by = c("player" = "id")) |>
     mutate(
       role = if_else(player == focal_id, "Focal", "Neighbor"),
       name_label = case_when(
-        role == "Focal" ~ name,
-        TRUE ~ paste0(neighbor_rank, ". ", name)
+        role == "Focal" ~ paste0(name, " (", position_group, ")"),
+        TRUE ~ paste0(neighbor_rank, ". ", name, " (", position_group, ")")
       )
     )
 
   focal_label     <- unique(plot_df$name_label[plot_df$role == "Focal"])
-  neighbor_labels <- paste0(seq_len(n_neighbors), ". ", neighbor_names_ordered)
+  neighbor_labels <- plot_df |>
+    filter(role == "Neighbor") |>
+    distinct(neighbor_rank, name_label) |>
+    arrange(neighbor_rank) |>
+    pull(name_label)
   labels_ordered  <- c(focal_label, neighbor_labels)
   plot_df <- plot_df |>
     mutate(name_label = factor(name_label, levels = labels_ordered))
@@ -1911,7 +2205,7 @@ plot_neighbor_curves <- function(focal_id, focal_name, neighbor_ids) {
     geom_text(
       data = label_df,
       aes(label = neighbor_rank),
-      size = 3, hjust = -0.2, show.legend = FALSE
+      size = 6, hjust = -0.2, show.legend = FALSE
     ) +
     facet_wrap(~ metric, scales = "free_y") +
     scale_color_manual(values = line_colors, name = "Player") +
@@ -1930,7 +2224,7 @@ plot_neighbor_curves <- function(focal_id, focal_name, neighbor_ids) {
         )
       )
     ) +
-    theme_bw() +
+    theme_bw(base_size = 22) +
     labs(
       title = glue("Latent-Space Neighbor Curves: {focal_name}"),
       x = "Age",

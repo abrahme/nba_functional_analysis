@@ -6,14 +6,14 @@ import numpyro
 import numpy as np
 from numpyro import sample 
 from numpyro.infer.util import log_density
-from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Weibull, StudentT, Independent, Beta, HalfCauchy, LogNormal, Binomial, HalfNormal, Categorical, MultivariateNormal, BetaProportion, Distribution, Uniform, BetaBinomial, Gamma, BinomialLogits, NegativeBinomial2, Dirichlet, MixtureSameFamily
+from numpyro.distributions import  InverseGamma, Normal, Exponential, Poisson, Weibull, StudentT, Independent, Beta, HalfCauchy, LogNormal, Binomial, HalfNormal, Categorical, MultivariateNormal, BetaProportion, Distribution, Uniform, BetaBinomial, Gamma, BinomialLogits, NegativeBinomial2, Dirichlet, MixtureSameFamily, LKJCholesky
 from numpyro.infer import MCMC, NUTS, init_to_median, SVI, Trace_ELBO, Predictive, init_to_value
 from numpyro.infer.autoguide import AutoDelta, AutoNormal,  AutoLaplaceApproximation
 from numpyro.handlers import substitute, seed, trace, mask, replay
 import optax
 from optax import linear_onecycle_schedule, adam
 from jaxopt import LBFGS
-from .hsgp import make_convex_f, make_psi_gamma, make_spectral_mixture_density, diag_spectral_density, make_convex_phi,  vmap_make_convex_phi, vmap_make_convex_phi_prime, eigenfunctions_multivariate, vmap_make_convex_phi_double_prime
+from .hsgp import make_convex_f, make_psi_gamma, make_spectral_mixture_density, diag_spectral_density, make_convex_phi,  vmap_make_convex_phi, vmap_make_convex_phi_prime, eigenfunctions_multivariate, vmap_make_convex_phi_double_prime, vmap_make_convex_phi_triple_prime
 import jax.numpy as jnp
 import jax.scipy as jsci
 from .MultiHMCGibbs import MultiHMCGibbs
@@ -549,10 +549,19 @@ class RFLVMBase(LinearPredictorCompositionMixin, ABC):
 
     def _resolve_prior(self, key: str, sample_shape=None, site_name: str = None, dist_override=None):
         prior_value = self.prior.get(key)
+        # When the numpyro site name differs from the internal prior key (e.g. "ar_0" vs "AR_0"),
+        # fixed_params are stored under the site name — check it before falling through to sampling.
+        if site_name and site_name != key:
+            site_value = self.prior.get(site_name)
+            if site_value is not None and not isinstance(site_value, Distribution):
+                return site_value
         if isinstance(prior_value, Distribution):
             dist_to_sample = dist_override if dist_override is not None else prior_value
             sample_kwargs = {}
-            if sample_shape is not None:
+            # If the distribution is already batched to the requested shape (e.g. a per-metric
+            # HalfNormal with scale of shape (k,1)), don't re-expand — its batch shape already
+            # provides the per-metric dimensions. Scalar-param dists (batch_shape ()) expand as before.
+            if sample_shape is not None and tuple(dist_to_sample.batch_shape) != tuple(sample_shape):
                 sample_kwargs["sample_shape"] = sample_shape
             return sample(site_name or key, dist_to_sample, **sample_kwargs)
         return prior_value
@@ -604,7 +613,10 @@ class RFLVMBase(LinearPredictorCompositionMixin, ABC):
         self._sample_family_likelihoods(data_set, mu, expanded_sigmas=expanded_sigmas)
     @abstractmethod
     def run_inference(self, num_warmup, num_samples, num_chains, vectorized:bool, model_args, initial_values = {}, thinning = 1):
-        kernel = NUTS(self.model_fn, init_strategy=init_to_value(values=initial_values))
+        # Empty initial_values -> init each param at its prior median (init_to_median), the natural
+        # "regularized to prior" start for data-poor players, instead of seeding from the (overfit) MAP.
+        init_strategy = init_to_median() if not initial_values else init_to_value(values=initial_values)
+        kernel = NUTS(self.model_fn, init_strategy=init_strategy)
         key = jax.random.PRNGKey(0)
         if vectorized:
             n_parallel = jax.local_device_count()
@@ -769,7 +781,7 @@ class RFLVMMaxBase(LinearPredictorCompositionMixin, ABC):
         else:
             raise ValueError(f"Unknown offset_mode '{offset_mode}'")
 
-        return t_max_value if not prior else numpyro.deterministic("t_max", t_max_det_value)
+        return t_max_value  # no deterministic recording; curves are produced via _compute_mu
 
     def _build_c_max_curve(self, psi_x, c_max_raw, sigma_c_max, c_offset, prior: bool, *, scale_inside: bool = True):
         c_offset_value = c_offset
@@ -778,7 +790,7 @@ class RFLVMMaxBase(LinearPredictorCompositionMixin, ABC):
             if scale_inside
             else make_psi_gamma(psi_x, c_max_raw) * sigma_c_max
         ) + c_offset_value
-        return c_max_value if not prior else numpyro.deterministic("c_max_", c_max_value)
+        return c_max_value  # no deterministic recording
 
     def _build_max_curves(self, psi_x, t_max_raw, c_max_raw, sigma_t_max, sigma_c_max, t_offset, c_offset, prior: bool, *, amplitude: float = 10.0):
         t_max = self._build_t_max_curve(
@@ -816,11 +828,11 @@ class RFLVMMaxBase(LinearPredictorCompositionMixin, ABC):
         projected_weights = jnp.einsum("nm,mdk->nkd", psi_x, weights) + weight_offset
         gamma_phi_gamma_x = jnp.einsum("nkd,nktdz,nkz->knt", projected_weights, core_tensor, projected_weights)
         mu_value = intercept + gamma_phi_gamma_x
-        return mu_value if not prior else numpyro.deterministic("mu", mu_value)
+        return mu_value  # no deterministic recording
 
     def _build_mu_from_base(self, mu_base, prior: bool, *effects):
         mu_value = self._compose_additive(mu_base, *effects)
-        return mu_value if not prior else numpyro.deterministic("mu", mu_value)
+        return mu_value  # no deterministic recording
 
     def _orthogonalize_ar_to_mu(self, ar: jnp.ndarray, mu: jnp.ndarray, eps: float = 1e-8) -> jnp.ndarray:
         mu_norm_sq = jnp.sum(jnp.square(mu), axis=-1, keepdims=True)
@@ -1059,7 +1071,7 @@ class ConvexTVRFLVM(TVRFLVM):
         weights = self._resolve_prior("beta", sample_shape=(self.m * 2, M_time, self.k))
         weights = weights * spd * .0001
         gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
-        mu = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, (intercept + offsets)[..., None]) if not prior else numpyro.deterministic("mu", make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, (intercept + offsets)[..., None]))
+        mu = make_convex_f(gamma_phi_gamma_x, shifted_x_time, slope, (intercept + offsets)[..., None])  # no deterministic recording
         if num_gaussians > 0 :
             expanded_sigmas = self._sample_gaussian_sigmas(num_gaussians)
         sigma_beta = self._resolve_prior("sigma_beta")
@@ -1176,7 +1188,7 @@ class ConvexMaxTVRFLVM(ConvexTVRFLVM, RFLVMMaxBase):
         raise NotImplementedError(f"Unsupported family '{family}' for ConvexMaxTVRFLVM likelihood builder")
 
     def model_fn(self, data_set, hsgp_params, offsets = {}, inference_method:str = "prior",sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([])) -> None:
-        prior = (inference_method == "prior")
+        prior = getattr(self, "_prior_predictive", False)
         num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
         num_neg_bins = data_set["negative-binomial"]["Y"].shape[0] if "negative-binomial" in data_set else 0
         phi_time  = hsgp_params["phi_x_time"]
@@ -1187,7 +1199,7 @@ class ConvexMaxTVRFLVM(ConvexTVRFLVM, RFLVMMaxBase):
         lengthscale_t_max = self._resolve_prior("lengthscale_t_max", sample_shape=(self.r,))
         lengthscale_c_max = self._resolve_prior("lengthscale_c_max", sample_shape=(self.r,))
         alpha_time = self._resolve_prior("alpha", sample_shape=(self.k, 1))
-        ls_deriv = 3 +  self._resolve_prior("lengthscale_deriv", sample_shape=(self.k, 1))
+        ls_deriv = self._resolve_prior("lengthscale_deriv", sample_shape=(self.k, 1))
         spd = jnp.squeeze(jnp.sqrt(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(alpha_time, ls_deriv)))
         W = self._resolve_prior("W", sample_shape=(self.m, self.r))
         W_t_max = self._resolve_prior("W_t_max", sample_shape=(self.m, self.r))
@@ -1366,7 +1378,7 @@ class ConvexMaxARTVRFLVM(ConvexMaxTVRFLVM):
     
         
     def model_fn(self, data_set, hsgp_params, offsets = {}, inference_method:str = "prior", sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([])) -> None:
-        prior = (inference_method == "prior")
+        prior = getattr(self, "_prior_predictive", False)
         num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
         num_neg_bins = data_set["negative-binomial"]["Y"].shape[0] if "negative-binomial" in data_set else 0
         phi_time  = hsgp_params["phi_x_time"]
@@ -1377,7 +1389,7 @@ class ConvexMaxARTVRFLVM(ConvexMaxTVRFLVM):
         lengthscale_t_max = self._resolve_prior("lengthscale_t_max", sample_shape=(self.r,))
         lengthscale_c_max = self._resolve_prior("lengthscale_c_max", sample_shape=(self.r,))
         alpha_time = self._resolve_prior("alpha", sample_shape=(self.k, 1))
-        ls_deriv = 3 +  self._resolve_prior("lengthscale_deriv", sample_shape=(self.k, 1))
+        ls_deriv = self._resolve_prior("lengthscale_deriv", sample_shape=(self.k, 1))
         spd = jnp.squeeze(jnp.sqrt(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(alpha_time, ls_deriv)))
         W = self._resolve_prior("W", sample_shape=(self.m, self.r))
         W_t_max = self._resolve_prior("W_t_max", sample_shape=(self.m, self.r))
@@ -1564,10 +1576,19 @@ class HSGPLVMBase(LinearPredictorCompositionMixin, ABC):
 
     def _resolve_prior(self, key: str, sample_shape=None, site_name: str = None, dist_override=None):
         prior_value = self.prior.get(key)
+        # When the numpyro site name differs from the internal prior key (e.g. "ar_0" vs "AR_0"),
+        # fixed_params are stored under the site name — check it before falling through to sampling.
+        if site_name and site_name != key:
+            site_value = self.prior.get(site_name)
+            if site_value is not None and not isinstance(site_value, Distribution):
+                return site_value
         if isinstance(prior_value, Distribution):
             dist_to_sample = dist_override if dist_override is not None else prior_value
             sample_kwargs = {}
-            if sample_shape is not None:
+            # If the distribution is already batched to the requested shape (e.g. a per-metric
+            # HalfNormal with scale of shape (k,1)), don't re-expand — its batch shape already
+            # provides the per-metric dimensions. Scalar-param dists (batch_shape ()) expand as before.
+            if sample_shape is not None and tuple(dist_to_sample.batch_shape) != tuple(sample_shape):
                 sample_kwargs["sample_shape"] = sample_shape
             return sample(site_name or key, dist_to_sample, **sample_kwargs)
         return prior_value
@@ -1615,7 +1636,10 @@ class HSGPLVMBase(LinearPredictorCompositionMixin, ABC):
         self._sample_family_likelihoods(data_set, mu, expanded_sigmas=expanded_sigmas)
     @abstractmethod
     def run_inference(self, num_warmup, num_samples, num_chains, vectorized:bool, model_args, initial_values = {}, thinning = 1):
-        kernel = NUTS(self.model_fn, init_strategy=init_to_value(values=initial_values))
+        # Empty initial_values -> init each param at its prior median (init_to_median), the natural
+        # "regularized to prior" start for data-poor players, instead of seeding from the (overfit) MAP.
+        init_strategy = init_to_median() if not initial_values else init_to_value(values=initial_values)
+        kernel = NUTS(self.model_fn, init_strategy=init_strategy)
         key = jax.random.PRNGKey(0)
         if vectorized:
             n_parallel = jax.local_device_count()
@@ -1711,23 +1735,62 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
     def _project_X(self, X: jnp.ndarray, *, W: jnp.ndarray = None, lengthscale: jnp.ndarray = None):
         return X
 
+    def _projected_feature_dim(self):
+        """Width of psi_x = _project_X(X) — used to SIZE the level/peak/curvature/survival weights so
+        they contract with psi_x. Linear/cosine: r (identity / scaled unit-norm). The RFF leaf
+        overrides to 2*m. Distinct from _kernel_self_cov (the normalization scale)."""
+        return self.r
+
+    def _kernel_self_cov(self, psi_x):
+        """Kernel self-covariance phi(x)^T phi(x) ~ K(x,x) used to NORMALIZE the projections so the
+        curve/hazard amplitude tracks K(x,x) rather than the feature count (see _compute_convex_mu).
+        Linear/cosine: ~ psi_x.shape[-1] = r (E||X||^2 = r / cosine ||phi||^2 = r). The RFF leaf
+        overrides to 1.0 (a unit-norm SE-kernel approximation: ||phi||^2 = 1), which keeps phi norm-1
+        — the standard RFF — while the curves stay correctly scaled."""
+        return psi_x.shape[-1]
+
     def _build_c_max_curve(self, psi_x, c_max_raw, sigma_c_max, c_offset, prior: bool, *, scale_inside: bool = True):
         # Divide by sqrt(r) so that psi_x @ c_max_raw has unit variance regardless of r.
         # Without this, the effective std of c_max is sigma_c_max * sqrt(r) instead of sigma_c_max,
         # allowing the optimizer to push c_max deeply negative for sparse-metric players.
-        n_features = psi_x.shape[-1]
+        n_features = self._kernel_self_cov(psi_x)
         c_max_value = (
             make_psi_gamma(psi_x, c_max_raw * sigma_c_max)
             if scale_inside
             else make_psi_gamma(psi_x, c_max_raw) * sigma_c_max
         ) / jnp.sqrt(n_features) + c_offset
-        return c_max_value if not prior else numpyro.deterministic("c_max_", c_max_value)
+        return c_max_value  # no deterministic recording
+
+    def _build_t_max_curve(self, psi_x, t_max_raw, sigma_t_max, t_offset, prior: bool, *,
+                           amplitude: float = 10.0, offset_mode: str = "arctanh",
+                           scale_inside: bool = True, deterministic_amplitude: float | None = None):
+        # Scaled-dot-product normalization (1/sqrt(r)) on the X @ t_max_raw projection, matching
+        # _build_c_max_curve and _compute_convex_mu. The base method omits it; since psi_x = X here
+        # (||X|| unbounded), the un-normalized t_base ~ sqrt(r)*sigma_t AND scales with ||X||, which
+        # inflated the peak-age spread by ~sqrt(r) and pushed extreme-||X|| players to the tanh rails.
+        n_features = self._kernel_self_cov(psi_x)
+        if scale_inside:
+            t_base = make_psi_gamma(psi_x, t_max_raw * sigma_t_max) / jnp.sqrt(n_features)
+        else:
+            t_base = make_psi_gamma(psi_x, t_max_raw) / jnp.sqrt(n_features) * sigma_t_max
+        if offset_mode == "arctanh":
+            eps = 1e-6
+            t_offset_scaled = jnp.clip(t_offset / amplitude, -1.0 + eps, 1.0 - eps)
+            return jnp.tanh(t_base + jnp.arctanh(t_offset_scaled)) * amplitude
+        elif offset_mode == "additive":
+            return jnp.tanh(t_base) * amplitude + t_offset
+        raise ValueError(f"Unknown offset_mode '{offset_mode}'")
 
     def _compute_convex_mu(self, psi_x, weights, phi_t_max, phi_prime_t_max, phi_time, shifted_x_time, L_time, t_max, c_max, prior: bool, weight_offset=0.0):
-        # Divide projected_weights by sqrt(r) for the same reason as _build_c_max_curve:
-        # psi_x @ weights has std sqrt(r), not 1. Without this the quadratic descent term
-        # is inflated by r, allowing mu to dip arbitrarily below c_max.
-        n_features = psi_x.shape[-1]
+        # Scaled-dot-product normalization: divide the projection gamma = X @ weights by sqrt(r),
+        # so the quadratic descent gamma^T [.] gamma carries a 1/r factor and is invariant to the
+        # latent dimension r (consistent with c_max/t_max, which get 1/sqrt(r) on their LINEAR
+        # projections). This matches the paper's requirement that phi(x)^T phi(x) ~ K(x,x): the
+        # descent amplitude should track the kernel self-covariance, not grow with r. NOTE: this is
+        # still only a 1/r (dimension) normalization; because psi_x = X is a *linear* kernel, the
+        # per-player ||X||^2 inflation (extreme covariates) is NOT removed by this — that needs a
+        # bounded feature map (phi(x)^T phi(x) ~ const), handled separately.
+        n_features = self._kernel_self_cov(psi_x)
         intercept = jnp.transpose(c_max)[..., None]
         core_tensor = (
             phi_t_max[:, :, None, ...] - phi_time[None, None]
@@ -1736,8 +1799,35 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         )
         projected_weights = jnp.einsum("nm,mdk->nkd", psi_x, weights) / jnp.sqrt(n_features) + weight_offset
         gamma_phi_gamma_x = jnp.einsum("nkd,nktdz,nkz->knt", projected_weights, core_tensor, projected_weights)
+        # Per-player x metric curvature amplitude: scales how hard the curve bends below c_max.
+        # curve_amp (n,k) -> (k,n,1) broadcasts over the (k,n,t) descent. a>0 preserves mu <= c_max.
+        curve_amp = self._resolve_curve_amp()
+        if curve_amp is not None:
+            gamma_phi_gamma_x = jnp.transpose(curve_amp)[:, :, None] * gamma_phi_gamma_x
         mu_value = intercept + gamma_phi_gamma_x
-        return mu_value if not prior else numpyro.deterministic("mu", mu_value)
+        return mu_value  # no deterministic recording
+
+    def _compute_curve_derivatives(self, psi_x, weights, t_max, phi_prime_t_max, L_time, M_time, shifted_x_time):
+        """1st/2nd/3rd derivatives of the convex-max curve w.r.t. age, for model_export. Uses the
+        SAME projection normalization as _compute_convex_mu: the 5-operand einsum with weights =
+        beta*spd (no r**0.25) and an explicit /r equals (gamma/sqrt(n_features))^T [.] (gamma/...),
+        i.e. /r == (1/sqrt(r))^2 — so derivatives are consistent with mu by construction. curve_amp
+        (t-independent) factors through, so it multiplies all derivatives exactly as it does mu.
+        Returns first_deriv (k,n,j), second_deriv (n,k), third_deriv (n,k)."""
+        r = self._kernel_self_cov(psi_x)
+        phi_double_prime_tmax = jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))(t_max)
+        phi_triple_prime_tmax = jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))(t_max)
+        phi_prime_t = vmap_make_convex_phi_prime(jnp.squeeze(shifted_x_time) - jnp.squeeze(L_time), jnp.squeeze(L_time), M_time)
+        second_deriv = -1 * jnp.einsum("nm, mdk, nkdz, jzk, nj -> nk", psi_x, weights, phi_double_prime_tmax, weights, psi_x) / r
+        third_deriv  = -1 * jnp.einsum("nm, mdk, nkdz, jzk, nj -> nk", psi_x, weights, phi_triple_prime_tmax, weights, psi_x) / r
+        first_deriv  = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights,
+                                  phi_prime_t_max[:, :, None, ...] - phi_prime_t[None, None], weights, psi_x) / r
+        curve_amp = self._resolve_curve_amp()
+        if curve_amp is not None:
+            first_deriv  = jnp.transpose(curve_amp)[:, :, None] * first_deriv
+            second_deriv = curve_amp * second_deriv
+            third_deriv  = curve_amp * third_deriv
+        return first_deriv, second_deriv, third_deriv
 
     def _build_family_distribution(self, family: str, linear_predictor, family_data: dict, **context):
         exposure = family_data["exposure"]
@@ -1772,31 +1862,69 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
         self.prior["sigma_beta"] = Uniform(0, 1)
-        self.prior["sigma"] = InverseGamma(300, 6000)
+        self.prior["sigma"] = InverseGamma(3, 2000)
         self.prior["sigma_negative_binomial"] = Exponential()
         self.prior["sigma_beta_binomial"] = Exponential()
-        self.prior["lengthscale_deriv"] = HalfNormal(2.0)   # loosened: allows ls in [3,10] for smoother trajectories
-        self.prior["alpha"] = HalfNormal(0.3)               # tightened: reduces spectral weight variance ~10x
+        self.prior["lengthscale_deriv"] = LogNormal(jnp.log(3.0), 0.7)  # flexible prior (NO +3 floor); median 3, 95%~[0.7,12]: lets ls go short (peak-tracking) or long (smooth)
+        # alpha base=1 (hard constant): avoids the alpha<->beta ridge / overshoot (learned alpha
+        # inflated to ~10 and blew up holdout). sigma_c/sigma_t base=1 here but LEARNED via prior_knobs.
+        self.prior["alpha"] = jnp.ones((self.k, 1))
         self.prior["t_max_raw"] = Normal()
         self.prior["c_max"] = Normal()
         self.prior["X_free"] = Normal()
-        self.prior["sigma_c"] = HalfNormal(1.5)           # unit-scale: multiplied by sqrt(c_max_var) per metric in model_fn; loosened to allow elite-player peaks (LeBron, KG, etc.)
-        self.prior["sigma_t"] = HalfNormal()
+        self.prior["sigma_c"] = 1.0
+        self.prior["sigma_t"] = 1.0
         self.prior["exit"] = Normal(0.0, 1.0)
+        # sigma_exit_scale LEARNED across all models (was hard-fixed to 1): HalfNormal(0.5) per the
+        # survival prior elicitation. Estimated at MAP and plugged in at MCMC via fixed_params, like the
+        # other scale hyperparameters (sigma_c/sigma_t/sigma_X). Sets the per-player spread of the log
+        # baseline hazard (exit_raw = make_psi_gamma(psi_x, exit)/sqrt(norm) * sigma_exit_scale).
         self.prior["sigma_exit_scale"] = HalfNormal(0.5)
-        self.prior["scale_global_log"] = Normal(jnp.log(11.5), 0.5)
-        self.prior["exit_global_offset"] = Normal(jnp.log(10.0), 0.5)
+        self.prior["eta_global_log"] = Normal(jnp.log(0.04), 0.5)
+        self.prior["gamma_global_log"] = Normal(jnp.log(0.15), 0.3)
         self.prior["exit_rate"] = Normal(0.0, 0.1)
         # self.prior["t_offset"] = Uniform(-5, 5)
         # self.prior["c_offset"] = Normal(0, .1)
+        # Player x metric level random effect on c_max (hierarchical, non-centered).
+        # Active only when self.use_c_offset_re is set (base + AR models); see _resolve_c_offset.
+        # Lets idiosyncratic peaks (e.g. Curry obpm) break from the shared-latent prediction
+        # without re-introducing an age-varying AR.
+        self.prior["sigma_c_offset"] = 1.0  # FIXED to 1: RE scale = sqrt(c_max_var); c_offset_re~N(0,1) regularizes per player
+        self.prior["c_offset_re"]    = Normal()          # (n, k) unit-normal residual
+        # Player x metric peak-AGE random effect (hierarchical, non-centered). Active only when
+        # self.use_t_offset_re is set. Lets a metric peak at a different age than the player's shared
+        # latent arc (e.g. dbpm peaks early ~24 for athletic bigs while obpm peaks late) — the shared
+        # latent alone forces one peak age across all 17 metrics. RE scale = sqrt(t_max_var) (years).
+        self.prior["sigma_t_offset"] = 1.0  # loose: peak-age RE scale = sqrt(t_max_var); lets metrics
+        # (esp. dbpm) decouple their peak age from the shared latent arc (relocates apex to true age).
+        # Player x metric CURVATURE amplitude random effect on the quadratic descent (active only when
+        # self.use_curve_re is set). a[n,k] = exp(sigma_curve * curve_re) multiplies gamma_phi_gamma:
+        # a>1 bends harder below c_max (sharp peak/crash), a<1 flatter. Multiplicative/log-normal keeps
+        # a>0 so the convex-max guarantee mu <= c_max is preserved. Centered at 1 (curve_re=0 -> a=1).
+        self.prior["sigma_curve"] = 0.5   # loose-ish log-amplitude scale; a in ~[0.37, 2.7] at +-2sd
+        self.prior["curve_re"]    = Normal()   # (n, k) unit-normal residual on log curvature amplitude
+        self.prior["t_offset_re"]    = Normal()          # (n, k) unit-normal residual on peak AGE (centered years)
         self.prior["rho_year_ar"]   = Uniform(0.9, 0.99)  # positive persistence only; allows near-unit-root for 40-yr era trends
         self.prior["sigma_year_ar"] = HalfNormal(.05)  # loosened: z~N(0,1) needs to give ~0.05/yr to track era trends (e.g. fg3a +1.6 log units over 43 yrs)
         self.prior["beta_year_ar"]  = Normal()
         self.prior["ar_0_year"]     = Normal()
         # Structured prior for X: X = Z @ W_proj + sigma_X * X_raw (non-centered)
-        self.prior["sigma_W_proj"] = HalfNormal(1.0)  # hierarchical scale; shrinks to 0 if covariates uninformative
+        self.prior["sigma_W_proj"] = 1.0  # FIXED to 1: covariates are standardized, so W_proj ~ N(0,1) is the unit-scale projection (loses ARD shrink-to-0, but removes the scale ridge)
         self.prior["W_proj"]       = Normal()          # sampled as (2, r) with scale sigma_W_proj
-        self.prior["sigma_X"]      = HalfNormal(0.5)  # residual scale, concentrated below 1
+        # FIXED latent scale (was HalfNormal(0.5)). Left free, the non-centered scale degeneracy
+        # inflates it (~3.6): shrinking X_raw across all n*r elements saves more prior cost than the
+        # sigma_X penalty, so the per-player X_raw penalty vanishes and data-poor players overfit to
+        # the latent extreme (e.g. Tyler Davis, 0.9 min, |X|=max). Fixing it restores a real N(0,1)
+        # penalty per player so sparse players pool toward their covariate mean x_loc. Reconstruction
+        # paths already default sigma_X->1.0 when the site is absent.
+        self.prior["sigma_X"]      = 1.0
+        # Heavy-tailed latent prior: StudentT(nu) on the latent residual X lets genuine outlier
+        # players (e.g. Curry obpm ~3 sigma) escape the population without inflating the bulk.
+        # scale = sqrt((nu-2)/nu) keeps the marginal variance at 1 (same calibrated width as N(0,1)),
+        # only the tails get fatter. This overrides the Normal prior["X"] from RFLVMBase and is the
+        # site actually sampled on the structured (has_free=False) path via _resolve_prior("X").
+        _nu_x = getattr(self, "x_latent_df", 4.0)
+        self.prior["X"] = StudentT(_nu_x, jnp.zeros((self.n, self.r)), jnp.sqrt((_nu_x - 2.0) / _nu_x))
 
     def _resolve_latent_X_structured(self, x_loc, x_scale, sample_free_indices, sample_fixed_indices):
         """Non-centered parameterization: sample unit-normal residuals, then shift and scale."""
@@ -1804,7 +1932,14 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         has_fixed = np.asarray(sample_fixed_indices).size > 0
         if has_free:
             n_free = len(sample_free_indices)
-            X_free_raw = numpyro.sample("X_free", Normal(jnp.zeros((n_free, self.r)), 1.0))
+            # Heavy-tailed latent: StudentT(nu) lets genuine outlier players (e.g. Curry obpm ~3 sigma)
+            # escape the population without inflating the bulk. Scale = sqrt((nu-2)/nu) makes the
+            # marginal variance exactly 1 (same calibrated width as N(0,1)), only the tails get fatter.
+            _nu = getattr(self, "x_latent_df", 4.0)
+            _unit_scale = jnp.sqrt((_nu - 2.0) / _nu)
+            X_free_raw = numpyro.sample(
+                "X_free", StudentT(_nu, jnp.zeros((n_free, self.r)), _unit_scale)
+            )
             X_free = x_loc[sample_free_indices] + x_scale * X_free_raw
             X = x_loc.at[sample_free_indices].set(X_free)
             if has_fixed:
@@ -1812,8 +1947,97 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
                     self.prior["X"].at[sample_fixed_indices].get()
                 )
             return X
-        X_raw = numpyro.sample("X", Normal(jnp.zeros((self.n, self.r)), 1.0))
+        X_raw = self._resolve_prior("X")
         return x_loc + x_scale * X_raw
+
+    def _resolve_c_offset(self, offsets):
+        """Population c_max anchor, optionally plus a hierarchical player x metric level
+        random effect. The random effect is active only when self.use_c_offset_re is True
+        (set for the plain base and AR models in main.py); otherwise this reproduces the
+        previous behaviour exactly. Scaled by sqrt(c_max_var) so the unit prior applies on
+        each metric's natural level scale; non-centered via c_offset_re ~ N(0, 1)."""
+        c_offset = self._resolve_prior("c_offset", sample_shape=(self.n, self.k))
+        if c_offset is None:
+            c_offset = offsets["c_max"]
+        if not getattr(self, "use_c_offset_re", False):
+            return c_offset
+        c_max_var = offsets.get("c_max_var", None)
+        sigma_c_offset_unit = self._resolve_prior("sigma_c_offset", sample_shape=(self.k,))
+        sigma_c_offset = (
+            sigma_c_offset_unit * jnp.sqrt(jnp.asarray(c_max_var))
+            if c_max_var is not None else sigma_c_offset_unit
+        )
+        c_offset_re = self._resolve_prior("c_offset_re", sample_shape=(self.n, self.k))
+        return c_offset + sigma_c_offset[None, :] * c_offset_re
+
+    def _resolve_t_offset(self, offsets):
+        """Population peak-age anchor, optionally plus a hierarchical player x metric peak-age
+        random effect (active only when self.use_t_offset_re is True). Scaled by sqrt(t_max_var)
+        so the unit prior applies on each metric's natural peak-age spread (years); non-centered
+        via t_offset_re ~ N(0, 1). Reproduces previous behaviour exactly when the RE is off."""
+        t_offset = self._resolve_prior("t_offset", sample_shape=(self.n, self.k))
+        if t_offset is None:
+            t_offset = offsets["t_max"]
+        if not getattr(self, "use_t_offset_re", False):
+            return t_offset
+        t_max_var = offsets.get("t_max_var", None)
+        sigma_t_offset_unit = self._resolve_prior("sigma_t_offset", sample_shape=(self.k,))
+        sigma_t_offset = (
+            sigma_t_offset_unit * jnp.sqrt(jnp.asarray(t_max_var))
+            if t_max_var is not None else sigma_t_offset_unit
+        )
+        t_offset_re = self._resolve_prior("t_offset_re", sample_shape=(self.n, self.k))
+        return t_offset + sigma_t_offset[None, :] * t_offset_re
+
+    def _resolve_curve_amp(self):
+        """Per-player x metric multiplicative curvature amplitude on the quadratic descent term,
+        active only when self.use_curve_re is True. a[n,k] = exp(sigma_curve * curve_re[n,k]),
+        curve_re ~ N(0,1), centered at 1. Lets a player bend harder/softer below c_max than the
+        shared latent implies, without breaking convexity (a > 0 keeps gamma_phi_gamma <= 0).
+        Returns None when off (callers then skip the multiply)."""
+        if not getattr(self, "use_curve_re", False):
+            return None
+        sigma_curve = self._resolve_prior("sigma_curve")
+        curve_re = self._resolve_prior("curve_re", sample_shape=(self.n, self.k))
+        return jnp.exp(sigma_curve * curve_re)   # (n, k)
+
+    def _build_curve_weights(self, effective_r, M_time, spd_time):
+        """HSGP curve weights beta, shape (effective_r, M_time, k), scaled by the per-metric
+        spectral density. Base: each metric's weights are i.i.d. N(0,1) (no cross-metric coupling).
+        Subclasses (e.g. ConvexMaxLKJTVLinearLVM) override this to correlate across the metric axis
+        while keeping unit-variance-normal marginals so the alpha/spectral calibration is unchanged."""
+        weights = self._resolve_prior("beta", sample_shape=(effective_r, M_time, self.k))
+        return weights * spd_time.T[None]
+
+    def _compute_player_ar(self):
+        """Per-player AR(1) contribution to the linear predictor, shape (k, n, j). Zero for non-AR
+        models; AR subclasses override to sample and return the process. Used by prior_check's
+        per-player draws so the plotted trajectory includes the AR — the likelihood adds it via the
+        family linear predictor, so _compute_mu (the aging curve) alone omits it."""
+        return jnp.zeros((self.k, self.n, self.j))
+
+    def _survival_rates(self, X):
+        """Per-player Gompertz hazard params from the survival latents: returns (eta, gamma), each
+        (n,1). Hazard h(t) = eta * exp(gamma * t). Shared by compute_survival_likelihood and
+        prior_check's survival predictive check (single source of truth for the survival forward)."""
+        # Project X through the kernel feature map so the hazard uses the SAME representation as the
+        # curve: cosine bounds it (||phi||^2 = r), RFF is the unit-norm SE map (||phi||^2 = 1), identity
+        # for the linear model (psi_x = X). feat_dim sizes the exit weights to contract with psi_x;
+        # the normalization divides by the kernel self-covariance (1 for RFF, r for linear/cosine) so
+        # exit_raw/gamma_base have unit variance regardless of ||X|| and of the feature count.
+        psi_x = self._project_X(X)
+        feat_dim = self._projected_feature_dim()
+        norm = self._kernel_self_cov(psi_x)
+        exit = self._resolve_prior("exit", sample_shape=(feat_dim,))
+        sigma_exit_scale = self._resolve_prior("sigma_exit_scale")
+        exit_rate = self._resolve_prior("exit_rate", sample_shape=(feat_dim,))
+        exit_raw = make_psi_gamma(psi_x, exit) / jnp.sqrt(norm) * sigma_exit_scale  # (n,)
+        eta_global_log = self._resolve_prior("eta_global_log")
+        eta = jnp.exp(eta_global_log + exit_raw)[:, None]   # (n, 1) — baseline hazard
+        gamma_base = make_psi_gamma(psi_x, exit_rate)[:, None] / jnp.sqrt(norm)  # (n, 1): kernel-self-cov scaled-dot-product, matching exit_raw/eta
+        gamma_global_log = self._resolve_prior("gamma_global_log")
+        gamma = jnp.exp(gamma_global_log + gamma_base)       # (n, 1) — aging rate
+        return eta, gamma
 
     def compute_survival_likelihood(self, X, offsets = {}) -> None:
         required_keys = ("entrance_times", "exit_times", "right_censor")
@@ -1823,19 +2047,7 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         entrance_times = jnp.ravel(jnp.asarray(offsets["entrance_times"]))
         entrance_latent = jnp.maximum(entrance_times, 1e-6)
 
-        effective_r = X.shape[-1]
-        exit = self._resolve_prior("exit", sample_shape=(effective_r,))
-        sigma_exit_scale = self._resolve_prior("sigma_exit_scale")
-        exit_rate = self._resolve_prior("exit_rate", sample_shape=(effective_r,))
-        exit_raw = make_psi_gamma(X, exit) / jnp.sqrt(effective_r) * sigma_exit_scale  # (n,)
-
-        scale_global_log = self._resolve_prior("scale_global_log")
-        scale = jnp.exp(scale_global_log + exit_raw)[:, None]  # (n, 1)
-
-        exit_rate_base = make_psi_gamma(X, exit_rate)[:, None]  # (n, 1)
-        exit_global_offset = self._resolve_prior("exit_global_offset")
-        exit_rate_raw = exit_rate_base + exit_global_offset  # (n, 1)
-        concentration = 1.0 + 2.0 * jax.nn.sigmoid(exit_rate_raw)  # (n, 1)
+        eta, gamma = self._survival_rates(X)   # (n,1),(n,1) Gompertz hazard params
 
         rc = jnp.ravel(offsets["right_censor"].astype(bool))
         exit_times = jnp.ravel(jnp.asarray(offsets["exit_times"]))
@@ -1847,23 +2059,17 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         seg_start = jnp.maximum(interval_starts, entry)
         seg_end   = jnp.minimum(interval_ends,   stop)
         valid_seg = seg_end > seg_start
-        seg_start_safe = jnp.where(valid_seg, seg_start, 1.0)
-        seg_end_safe   = jnp.where(valid_seg, seg_end,   1.0)
-        log_scale = jnp.log(scale)  # (n, 1)
-        seg_start_exp = concentration * (jnp.log(seg_start_safe) - log_scale)
-        seg_end_exp   = concentration * (jnp.log(seg_end_safe)   - log_scale)
+        seg_start_safe = jnp.where(valid_seg, seg_start, 0.0)
+        seg_end_safe   = jnp.where(valid_seg, seg_end,   0.0)
+        ratio = eta / gamma  # (n, 1)
         valid_seg_float = valid_seg.astype(exit_times.dtype)
-        delta_H = valid_seg_float * (jnp.exp(seg_end_exp) - jnp.exp(seg_start_exp))
+        delta_H = valid_seg_float * ratio * (
+            jnp.exp(gamma * seg_end_safe) - jnp.exp(gamma * seg_start_safe)
+        )
         cumulative_H = delta_H.sum(axis=-1)  # (n,)
 
         event_time = exit_times
-        concentration_event = concentration.squeeze(-1)  # (n,)
-        scale_event = scale.squeeze(-1)                  # (n,)
-        log_h_event = (
-            jnp.log(concentration_event)
-            - concentration_event * jnp.log(scale_event)
-            + (concentration_event - 1.0) * jnp.log(event_time)
-        )
+        log_h_event = jnp.log(eta.squeeze(-1)) + gamma.squeeze(-1) * event_time
 
         log_lik_exit_event    = log_h_event - cumulative_H
         log_lik_exit_censored = -cumulative_H
@@ -1878,36 +2084,26 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         trend_ar = context.get("trend_ar", jnp.zeros_like(mu))
         return self._build_linear_predictor(mu, k_indices, trend_ar[k_indices])
 
-    def model_fn(self, data_set, hsgp_params, offsets = {}, inference_method:str = "prior", sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0) -> None:
-        prior = (inference_method == "prior")
-        num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
-        num_neg_bins = data_set["negative-binomial"]["Y"].shape[0] if "negative-binomial" in data_set else 0
-        num_beta = data_set["beta"]["Y"].shape[0] if "beta" in data_set else 0
-        num_beta_bins = data_set["beta-binomial"]["Y"].shape[0] if "beta-binomial" in data_set else 0
+    def compute_curves(self, hsgp_params, offsets={}, sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0, include_derivs: bool = False):
+        """SINGLE SOURCE OF TRUTH for the aging-curve forward. Resolves the curve latents ONCE and
+        returns a dict: {mu (k,n,j), t_max (n,k), c_max (n,k), trend_ar (k,n,j), X (n,r)} plus, when
+        include_derivs=True, first_deriv (k,n,j) / second_deriv (n,k) / third_deriv (n,k).
+
+        The per-player AR(1) is NOT included here — callers add `self._compute_player_ar()` under the
+        same substitute (model_fn, prior_check, model_export), so this method never touches the AR
+        sites (avoids double-sampling when wrapped by _compute_mu). model_export reconstructs ALL
+        exported curves through this method, so any change here propagates with no parallel edits."""
         phi_time  = hsgp_params["phi_x_time"]
         L_time = hsgp_params["L_time"]
         M_time = hsgp_params["M_time"]
         shifted_x_time = hsgp_params["shifted_x_time"]
         alpha_time = self._resolve_prior("alpha", sample_shape=(self.k, 1))
-        ls_deriv = 3 +  self._resolve_prior("lengthscale_deriv", sample_shape=(self.k, 1))
+        ls_deriv = self._resolve_prior("lengthscale_deriv", sample_shape=(self.k, 1))
         spd_time = jnp.squeeze(jnp.sqrt(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(alpha_time, ls_deriv)))
         sigma_c_unit = self._resolve_prior("sigma_c", sample_shape=(self.k,))
         _c_max_var = offsets.get("c_max_var", None)
         sigma_c_max = sigma_c_unit * jnp.sqrt(jnp.asarray(_c_max_var)) if _c_max_var is not None else sigma_c_unit
         sigma_t_max = self._resolve_prior("sigma_t", sample_shape=(self.k,))
-
-        if num_gaussians > 0:
-            expanded_sigmas = self._sample_gaussian_sigmas(num_gaussians)
-
-        if num_beta > 0:
-            sigma_beta = self._resolve_prior("sigma_beta", sample_shape=(num_beta,))
-            expanded_sigma_beta = jnp.tile(sigma_beta[:, None, None], (1, self.n, self.j))
-        if num_neg_bins > 0:
-            sigma_negative_binomial = self._resolve_prior("sigma_negative_binomial", sample_shape=(num_neg_bins,))
-            expanded_sigma_neg_bin = jnp.tile(sigma_negative_binomial[:, None, None], (1, self.n, self.j))
-        if num_beta_bins > 0:
-            sigma_beta_binomial = self._resolve_prior("sigma_beta_binomial", sample_shape=(num_beta_bins,))
-            expanded_sigma_beta_bin = jnp.tile(sigma_beta_binomial[:, None, None], (1, self.n, self.j))
 
         sigma_W_proj = self._resolve_prior("sigma_W_proj")
         _n_cov = self.player_covariates.shape[1] if self.player_covariates is not None else 2
@@ -1918,50 +2114,28 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
             else jnp.zeros((self.n, 2))
         x_loc = Z @ W_proj
         X = self._resolve_latent_X_structured(x_loc, sigma_X, sample_free_indices, sample_fixed_indices)
-        effective_r = self.r
+        effective_r = self._projected_feature_dim()
 
         t_max_raw, c_max_raw = self._sample_max_raw_parameters(effective_r)
 
         psi_x = self._project_X(X)
-        t_offset = self._resolve_prior("t_offset", sample_shape=(self.n, self.k))
-        if t_offset is None:
-            t_offset = offsets["t_max"]
-        c_offset = self._resolve_prior("c_offset", sample_shape=(self.n, self.k))
-        if c_offset is None:
-            c_offset = offsets["c_max"]
-
+        t_offset = self._resolve_t_offset(offsets)
+        c_offset = self._resolve_c_offset(offsets)
 
         t_max, c_max = self._build_max_curves(
-            psi_x,
-            t_max_raw,
-            c_max_raw,
-            sigma_t_max,
-            sigma_c_max,
-            t_offset,
-            c_offset,
-            prior,
-            amplitude=hsgp_params["t_amplitude"],
+            psi_x, t_max_raw, c_max_raw, sigma_t_max, sigma_c_max,
+            t_offset, c_offset, False, amplitude=hsgp_params["t_amplitude"],
         )
 
         phi_t_max, phi_prime_t_max = self._compute_phi_at_max(t_max, L_time, M_time)
 
-        weights = self._resolve_prior("beta", sample_shape=(effective_r, M_time, self.k))
-        weights *= spd_time.T[None]
+        weights = self._build_curve_weights(effective_r, M_time, spd_time)
 
         mu = self._compute_convex_mu(
-            psi_x,
-            weights,
-            phi_t_max,
-            phi_prime_t_max,
-            phi_time,
-            shifted_x_time,
-            L_time,
-            t_max,
-            c_max,
-            prior,
+            psi_x, weights, phi_t_max, phi_prime_t_max, phi_time,
+            shifted_x_time, L_time, t_max, c_max, False,
         )
         # Calendar year AR(3) trend — only for metrics in ar_metric_indices
-        
         if num_de_trend > 0:
             ar_global_indices = ar_metric_indices
             sigma_year_ar = self._resolve_prior("sigma_year_ar", sample_shape=(num_de_trend, 1))
@@ -1976,6 +2150,45 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
             TREND_AR = TREND_AR.at[ar_global_indices].set(trend_ar_nj)
         else:
             TREND_AR = jnp.zeros((self.k, self.n, self.j))
+
+        out = {"mu": mu, "t_max": t_max, "c_max": c_max, "trend_ar": TREND_AR, "X": X, "psi_x": psi_x}
+        if include_derivs:
+            fd, sd, td = self._compute_curve_derivatives(psi_x, weights, t_max, phi_prime_t_max, L_time, M_time, shifted_x_time)
+            out["first_deriv"], out["second_deriv"], out["third_deriv"] = fd, sd, td
+        return out
+
+    def _compute_mu(self, hsgp_params, offsets={}, sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0):
+        """Thin wrapper over compute_curves preserving the (mu, TREND_AR, X) contract used by model_fn
+        and prior_check. The full export set (peaks + derivatives) is available via compute_curves."""
+        d = self.compute_curves(hsgp_params, offsets, sample_free_indices, sample_fixed_indices,
+                                ar_metric_indices, year_indices, num_years, num_de_trend, ref_year_idx)
+        return d["mu"], d["trend_ar"], d["X"]
+
+    def model_fn(self, data_set, hsgp_params, offsets = {}, inference_method:str = "map", sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0) -> None:
+        # Explicit prior-predictive flag (set by prior_check.py); when True the likelihood is
+        # drawn (obs=None). Defaults False so MAP/MCMC condition on the observed data.
+        prior = getattr(self, "_prior_predictive", False)
+        num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
+        num_neg_bins = data_set["negative-binomial"]["Y"].shape[0] if "negative-binomial" in data_set else 0
+        num_beta = data_set["beta"]["Y"].shape[0] if "beta" in data_set else 0
+        num_beta_bins = data_set["beta-binomial"]["Y"].shape[0] if "beta-binomial" in data_set else 0
+
+        mu, TREND_AR, X = self._compute_mu(
+            hsgp_params, offsets, sample_free_indices, sample_fixed_indices,
+            ar_metric_indices, year_indices, num_years, num_de_trend, ref_year_idx,
+        )
+
+        if num_gaussians > 0:
+            expanded_sigmas = self._sample_gaussian_sigmas(num_gaussians)
+        if num_beta > 0:
+            sigma_beta = self._resolve_prior("sigma_beta", sample_shape=(num_beta,))
+            expanded_sigma_beta = jnp.tile(sigma_beta[:, None, None], (1, self.n, self.j))
+        if num_neg_bins > 0:
+            sigma_negative_binomial = self._resolve_prior("sigma_negative_binomial", sample_shape=(num_neg_bins,))
+            expanded_sigma_neg_bin = jnp.tile(sigma_negative_binomial[:, None, None], (1, self.n, self.j))
+        if num_beta_bins > 0:
+            sigma_beta_binomial = self._resolve_prior("sigma_beta_binomial", sample_shape=(num_beta_bins,))
+            expanded_sigma_beta_bin = jnp.tile(sigma_beta_binomial[:, None, None], (1, self.n, self.j))
 
         self._sample_family_likelihoods(
             data_set,
@@ -2239,7 +2452,6 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
                 entrance_latent_sampled = sampled["entrance_latent"]
                 exit_param = sampled["exit"]
                 exit_rate = sampled["exit_rate"]
-                exit_global_offset = sampled.get("exit_global_offset", 0.0)
 
                 lc = jnp.ravel(jnp.asarray(offsets["left_censor"]).astype(bool))
                 rc = jnp.ravel(jnp.asarray(offsets["right_censor"]).astype(bool))
@@ -2261,29 +2473,27 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
                 lc_float = lc.astype(entrance_times.dtype)
                 entrance_latent = lc_float * entrance_latent_sampled + (1.0 - lc_float) * entrance_times
 
-                exit_raw = make_psi_gamma(X, exit_param) / jnp.sqrt(X.shape[-1]) * sampled.get("sigma_exit_scale", 1.0)
-                exit_rate_raw = make_psi_gamma(X, exit_rate)[:, None] + exit_global_offset
-                concentration = 1.0 + 2.0 * jax.nn.sigmoid(exit_rate_raw)
-                scale_global_log = sampled.get("scale_global_log", jnp.log(11.5))
-                scale = jnp.exp(scale_global_log + exit_raw)[:, None]
+                psi_x = self._project_X(X)   # kernel feature map (cosine bounds the hazard; identity for linear)
+                exit_raw = make_psi_gamma(psi_x, exit_param) / jnp.sqrt(X.shape[-1]) * sampled.get("sigma_exit_scale", 1.0)
+                gamma_base = make_psi_gamma(psi_x, exit_rate)[:, None] / jnp.sqrt(X.shape[-1])
+                gamma_global_log = sampled.get("gamma_global_log", jnp.log(0.15))
+                gamma = jnp.exp(gamma_global_log + gamma_base)  # (n, 1)
+                eta_global_log = sampled.get("eta_global_log", jnp.log(0.04))
+                eta = jnp.exp(eta_global_log + exit_raw)[:, None]  # (n, 1)
 
                 event_time = exit_times
-                concentration_event = concentration.squeeze(-1)
-                scale_event = scale.squeeze(-1)
+                gamma_event = gamma.squeeze(-1)
+                eta_event = eta.squeeze(-1)
                 entry_effective = jnp.maximum(entrance_latent, 0.0)
                 stop_effective = jnp.maximum(event_time, 0.0)
                 has_exposure_window = stop_effective > entry_effective
+                ratio = eta_event / gamma_event
                 cumulative_H = jnp.where(
                     has_exposure_window,
-                    jnp.power(stop_effective / scale_event, concentration_event)
-                    - jnp.power(entry_effective / scale_event, concentration_event),
+                    ratio * (jnp.exp(gamma_event * stop_effective) - jnp.exp(gamma_event * entry_effective)),
                     0.0,
                 )
-                log_h_event = (
-                    jnp.log(concentration_event)
-                    - concentration_event * jnp.log(scale_event)
-                    + (concentration_event - 1.0) * jnp.log(event_time)
-                )
+                log_h_event = jnp.log(eta_event) + gamma_event * event_time
 
                 log_lik_exit_event = log_h_event - cumulative_H
                 log_lik_exit_censored = -cumulative_H
@@ -2311,9 +2521,8 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
                 entrance_bad = _print_nonfinite("log_lik_entrance_observed", log_pdf_entrance, mask=(~lc))
 
                 _print_nonfinite("event_time", event_time)
-                exit_rate_raw_bad = _print_nonfinite("exit_rate_raw", jnp.ravel(exit_rate_raw))
-                _print_nonfinite("concentration", concentration_event)
-                _print_nonfinite("scale", scale_event)
+                gamma_bad = _print_nonfinite("gamma", jnp.ravel(gamma))
+                _print_nonfinite("eta", eta_event)
                 _print_nonfinite("log_h_event", log_h_event, mask=(~rc))
                 _print_nonfinite("cumulative_H", cumulative_H)
                 _print_nonfinite("log_lik_exit_censored", log_lik_exit_censored, mask=rc)
@@ -2324,17 +2533,16 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
                     f"entrance_loc=[{float(jnp.nanmin(entrance_loc)):.6g}, {float(jnp.nanmax(entrance_loc)):.6g}], "
                     f"sigma_eff={float(jnp.asarray(sigma_effective)):.6g}, "
                     f"event_time=[{float(jnp.nanmin(event_time)):.6g}, {float(jnp.nanmax(event_time)):.6g}], "
-                    f"exit_rate_raw=[{float(jnp.nanmin(exit_rate_raw)):.6g}, {float(jnp.nanmax(exit_rate_raw)):.6g}], "
-                    f"concentration=[{float(jnp.nanmin(concentration_event)):.6g}, {float(jnp.nanmax(concentration_event)):.6g}], "
-                    f"scale=[{float(jnp.nanmin(scale_event)):.6g}, {float(jnp.nanmax(scale_event)):.6g}]"
+                    f"gamma=[{float(jnp.nanmin(gamma_event)):.6g}, {float(jnp.nanmax(gamma_event)):.6g}], "
+                    f"eta=[{float(jnp.nanmin(eta_event)):.6g}, {float(jnp.nanmax(eta_event)):.6g}]"
                 )
 
-                if exit_rate_raw_bad:
-                    print("[MAP DEBUG][SURV] exit_rate_raw bad-point snapshots:")
-                    flat = jnp.ravel(exit_rate_raw)
-                    for i in exit_rate_raw_bad[:5]:
+                if gamma_bad:
+                    print("[MAP DEBUG][SURV] gamma bad-point snapshots:")
+                    flat = jnp.ravel(gamma)
+                    for i in gamma_bad[:5]:
                         print(
-                            f"  idx={i}, exit_rate_raw={_fmt_value(flat[i])}, "
+                            f"  idx={i}, gamma={_fmt_value(flat[i])}, "
                             f"x_norm={_fmt_value(jnp.linalg.norm(X[i]))}"
                         )
 
@@ -2355,7 +2563,7 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
                         print(
                             f"  idx={i}, rc={bool(rc[i])}, event_time={_fmt_value(event_time[i])}, "
                             f"entry={_fmt_value(entry_i)}, "
-                            f"conc={_fmt_value(concentration_event[i])}, scale={_fmt_value(scale_event[i])}, "
+                            f"gamma={_fmt_value(gamma_event[i])}, eta={_fmt_value(eta_event[i])}, "
                             f"log_h={_fmt_value(log_h_event[i])}, cum_H={_fmt_value(cumulative_H[i])}, "
                             f"log_lik_exit={_fmt_value(log_lik_exit_event[i])}, "
                             f"entry_eff={_fmt_value(entry_effective[i])}, stop_eff={_fmt_value(stop_effective[i])}, "
@@ -2936,6 +3144,60 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
     def predict(self, posterior_samples: dict, model_args, num_samples=1000):
         return super().predict(posterior_samples, model_args, num_samples)
 
+
+class ConvexMaxTVCosineLVM(ConvexMaxTVLinearLVM):
+    """Cosine (normalized dot-product) kernel variant of ConvexMaxTVLinearLVM. Identical in every
+    respect except the latent feature map is the direction of X scaled to norm sqrt(r):
+        phi(x) = sqrt(r) * X / ||X||.
+    The concave-process kernel phi(x)^T phi(x') is then r * cosine(x, x'), whose self-covariance
+    phi(x)^T phi(x) = r is a BOUNDED CONSTANT (vs the linear kernel's ||X||^2). So a player's curve
+    depends on the DIRECTION of their latent embedding, not its magnitude — removing the ||X||^2
+    inflation that let extreme-covariate players (e.g. high draft picks) get pathological
+    curvature/peak ages. Cosine is a dot-product kernel, so it keeps the exact weight-space feature
+    map (W/beta stay iid Normal) — no RFF / spectral density; it is the linear kernel on (scaled)
+    unit-normalized X.
+
+    The sqrt(r) scale is deliberate: it makes ||phi||^2 = r match the linear kernel's E||X||^2 = r,
+    so the inherited 1/sqrt(r) normalizations in _compute_convex_mu / _build_{t,c}_max_curve land at
+    the SAME effective amplitude as a typical convex player. Without it (plain X/||X||), ||phi||=1 and
+    the inherited 1/sqrt(r) over-shrinks the level/peak ~1/sqrt(r) and the (quadratic) curvature ~1/r.
+    With it, the convex-inherited alpha / sigma_c / sigma_t transfer directly — no amplitude re-tuning.
+    Normalizes ALL three processes (level c_max, peak age t_max, curvature), since they share psi_x."""
+
+    def _project_X(self, X: jnp.ndarray, *, W: jnp.ndarray = None, lengthscale: jnp.ndarray = None):
+        norm = jnp.sqrt(jnp.sum(jnp.square(X), axis=-1, keepdims=True))
+        return X / (norm + 1e-8) * jnp.sqrt(X.shape[-1])
+
+
+class ConvexMaxLKJTVLinearLVM(ConvexMaxTVLinearLVM):
+    """ConvexMaxTVLinearLVM with an LKJ correlation prior across the METRIC (k) axis of the HSGP
+    curve weights beta, so metrics (e.g. obpm/dbpm) share curvature structure instead of each having
+    independent N(0,1) weights.
+
+    Construction (keeps beta[r,m,k] marginally N(0,1) — preserves the alpha/spectral calibration):
+        L_corr ~ LKJCholesky(k, eta)                  # Cholesky of a k x k unit-diagonal correlation
+        z      ~ Normal(), shape (r, M_time, k)       # the "beta" site, i.i.d. standard normal
+        beta[r,m,:] = L_corr @ z[r,m,:]               # Var(beta[r,m,k]) = (L_corr L_corrᵀ)[k,k] = 1
+    Because beta is a linear combination of standard normals it is Gaussian; the unit diagonal of the
+    correlation makes each marginal exactly N(0,1); the off-diagonals carry the cross-metric sharing.
+    Only _build_curve_weights changes — everything else (the convex-max forward, REs, survival) is
+    inherited, so the LKJ variant is a drop-in for the curve weights.
+
+    `lkj_concentration` (eta) is an attribute knob (set before initialize_priors): eta>1 shrinks toward
+    independence (identity correlation), eta->1 is uniform over correlation matrices."""
+
+    def initialize_priors(self, *args, **kwargs) -> None:
+        super().initialize_priors(*args, **kwargs)
+        eta = float(getattr(self, "lkj_concentration", 2.0))
+        self.prior["beta_corr_chol"] = LKJCholesky(self.k, concentration=eta)
+
+    def _build_curve_weights(self, effective_r, M_time, spd_time):
+        L_corr = self._resolve_prior("beta_corr_chol")                       # (k, k) lower-tri Cholesky
+        z = self._resolve_prior("beta", sample_shape=(effective_r, M_time, self.k))   # i.i.d. N(0,1)
+        weights = jnp.einsum("rmj,kj->rmk", z, L_corr)                       # unit-variance, k-correlated
+        return weights * spd_time.T[None]
+
+
 class NaiveLinearLVM(ConvexMaxTVLinearLVM):
     def __init__(self, latent_rank: int, output_shape: tuple, basis) -> None:
         super().__init__(latent_rank, output_shape, basis)
@@ -2944,7 +3206,6 @@ class NaiveLinearLVM(ConvexMaxTVLinearLVM):
         for _k in ("sigma_t", "sigma_c", "t_max_raw", "c_max", "beta", "alpha",
                    "lengthscale_deriv", "exit_rate", "entrance", "exit"):
             self.prior.pop(_k, None)
-        self.prior["scale_global_log"] = Normal(jnp.log(11.5), 0.5)
         self.prior["c_offset"] = Normal(0, 1)
         # AR(1) per player per metric, parameters shared across players within metric
         self.prior["rho_ar"]   = Uniform(-.5, .5)
@@ -2964,8 +3225,21 @@ class NaiveLinearLVM(ConvexMaxTVLinearLVM):
     def _compute_convex_mu(self, psi_x, weights_scaled, phi_t_max, phi_prime_t_max, phi_time, shifted_x_time, L_time, t_max, c_max, prior):
         raise NotImplementedError("NaiveLinearLVM does not use convex mu computation")
 
+    def _compute_mu(self, hsgp_params, offsets={}, sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0):
+        """Naive forward: a per player x metric level (c_offset) plus a per-series AR(1). There is no
+        latent aging curve. Returns (mu, TREND_AR, X) for interface parity with the convex family so
+        prior_check.py's per-player draws can call it uniformly (TREND_AR is zero; X is None)."""
+        mean = self._resolve_prior("c_offset", sample_shape=(self.k, self.n, 1))
+        sigma_ar = self._resolve_prior("sigma_ar", sample_shape=(self.k, 1))
+        rho_ar   = self._resolve_prior("rho_ar",   sample_shape=(self.k, 1))
+        z        = self._resolve_prior("beta_ar",  sample_shape=(self.j, self.k, self.n))
+        ar_0     = self._resolve_prior("ar_0", sample_shape=(self.k, self.n), site_name="AR_0") * (sigma_ar / jnp.sqrt(1 - rho_ar ** 2))
+        ar       = self._compute_ar_process_from_parameters(sigma_ar, rho_ar, z, ar_0)
+        mu = jnp.repeat(mean, repeats=self.t, axis=-1) + ar
+        return mu, jnp.zeros((self.k, self.n, self.j)), None
+
     def model_fn(self, data_set, hsgp_params, offsets={}, inference_method = "prior", sample_free_indices = jnp.array([]), sample_fixed_indices = jnp.array([]), **kwargs):
-        prior = (inference_method == "prior")
+        prior = getattr(self, "_prior_predictive", False)
         num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
         num_neg_bins = data_set["negative-binomial"]["Y"].shape[0] if "negative-binomial" in data_set else 0
         num_beta = data_set["beta"]["Y"].shape[0] if "beta" in data_set else 0
@@ -2982,15 +3256,7 @@ class NaiveLinearLVM(ConvexMaxTVLinearLVM):
             sigma_beta_binomial = self._resolve_prior("sigma_beta_binomial", sample_shape=(num_beta_bins,))
             expanded_sigma_beta_bin = jnp.tile(sigma_beta_binomial[:, None, None], (1, self.n, self.j))
 
-        mean = self._resolve_prior("c_offset", sample_shape=(self.k, self.n, 1))
-
-        sigma_ar = self._resolve_prior("sigma_ar", sample_shape=(self.k, 1))
-        rho_ar   = self._resolve_prior("rho_ar",   sample_shape=(self.k, 1))
-        z        = self._resolve_prior("beta_ar",  sample_shape=(self.j, self.k, self.n))
-        ar_0     = self._resolve_prior("ar_0", sample_shape=(self.k, self.n), site_name="AR_0") * (sigma_ar / jnp.sqrt(1 - rho_ar ** 2))
-        ar       = self._compute_ar_process_from_parameters(sigma_ar, rho_ar, z, ar_0)
-
-        mu = jnp.repeat(mean, repeats=self.t, axis=-1) + ar
+        mu, _trend_ar, _X = self._compute_mu(hsgp_params, offsets, sample_free_indices, sample_fixed_indices)
         self._sample_family_likelihoods(
             data_set,
             mu,
@@ -3008,34 +3274,29 @@ class NaiveLinearLVM(ConvexMaxTVLinearLVM):
         if not all(key in offsets for key in required_keys):
             return
         entrance_times = jnp.ravel(jnp.asarray(offsets["entrance_times"]))
-        # Entrance is always observed — use directly as truncation point
         entrance_latent = jnp.maximum(entrance_times, 1e-6)
 
+        eta_global_log = self._resolve_prior("eta_global_log", sample_shape=(self.n, 1))
+        eta = jnp.exp(eta_global_log)        # (n, 1) — per-player baseline hazard
+        gamma_global_log = self._resolve_prior("gamma_global_log", sample_shape=(self.n, 1))
+        gamma = jnp.exp(gamma_global_log)    # (n, 1) — per-player aging rate
 
-        exit_global_offset = self._resolve_prior("exit_global_offset", sample_shape=(self.n, 1))
-        concentration = 1.0 + 2.0 * jax.nn.sigmoid(exit_global_offset)  # (n, 1)
-        scale_global_log = self._resolve_prior("scale_global_log", sample_shape=(self.n, 1))
-        scale = jnp.exp(scale_global_log)  # (n, 1) — per-player log-scale
         rc = jnp.ravel(offsets["right_censor"].astype(bool))
         exit_times = jnp.ravel(jnp.asarray(offsets["exit_times"]))
 
-        event_time = exit_times
-        concentration_event = concentration.squeeze(-1)
-        scale_event = scale.squeeze(-1)
         entry_effective = jnp.maximum(entrance_latent, 0.0)
-        stop_effective = jnp.maximum(event_time, 0.0)
+        stop_effective = jnp.maximum(exit_times, 0.0)
         has_exposure_window = stop_effective > entry_effective
+        ratio = eta / gamma  # (n, 1)
         cumulative_H = jnp.where(
             has_exposure_window,
-            jnp.power(stop_effective / scale_event, concentration_event)
-            - jnp.power(entry_effective / scale_event, concentration_event),
+            ratio.squeeze(-1) * (
+                jnp.exp(gamma.squeeze(-1) * stop_effective)
+                - jnp.exp(gamma.squeeze(-1) * entry_effective)
+            ),
             0.0,
         )
-        log_h_event = (
-            jnp.log(concentration_event)
-            - concentration_event * jnp.log(scale_event)
-            + (concentration_event - 1.0) * jnp.log(event_time)
-        )
+        log_h_event = jnp.log(eta.squeeze(-1)) + gamma.squeeze(-1) * exit_times
 
         log_lik_exit_event = log_h_event - cumulative_H
         log_lik_exit_censored = -cumulative_H
@@ -3082,7 +3343,7 @@ class ConvexMaxLinearTrendTVLinearLVM(ConvexMaxTVLinearLVM):
         return beta_slope * (jax.nn.leaky_relu(t_norm[None, :]) - jax.nn.leaky_relu(t_norm[None, :] - 1.0))
 
     def model_fn(self, data_set, hsgp_params, offsets={}, inference_method: str = "prior", sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, observed_covariates=None, ref_year_idx: int = 0, year_max_idx: int = None) -> None:
-        prior = (inference_method == "prior")
+        prior = getattr(self, "_prior_predictive", False)
         num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
         num_neg_bins = data_set["negative-binomial"]["Y"].shape[0] if "negative-binomial" in data_set else 0
         num_beta = data_set["beta"]["Y"].shape[0] if "beta" in data_set else 0
@@ -3092,7 +3353,7 @@ class ConvexMaxLinearTrendTVLinearLVM(ConvexMaxTVLinearLVM):
         M_time = hsgp_params["M_time"]
         shifted_x_time = hsgp_params["shifted_x_time"]
         alpha_time = self._resolve_prior("alpha", sample_shape=(self.k, 1))
-        ls_deriv = 3 + self._resolve_prior("lengthscale_deriv", sample_shape=(self.k, 1))
+        ls_deriv = self._resolve_prior("lengthscale_deriv", sample_shape=(self.k, 1))
         spd_time = jnp.squeeze(jnp.sqrt(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(alpha_time, ls_deriv)))
         sigma_c_unit = self._resolve_prior("sigma_c", sample_shape=(self.k,))
         _c_max_var = offsets.get("c_max_var", None)
@@ -3118,12 +3379,8 @@ class ConvexMaxLinearTrendTVLinearLVM(ConvexMaxTVLinearLVM):
 
         t_max_raw, c_max_raw = self._sample_max_raw_parameters(effective_r)
         psi_x = self._project_X(X)
-        t_offset = self._resolve_prior("t_offset", sample_shape=(self.n, self.k))
-        if t_offset is None:
-            t_offset = offsets["t_max"]
-        c_offset = self._resolve_prior("c_offset", sample_shape=(self.n, self.k))
-        if c_offset is None:
-            c_offset = offsets["c_max"]
+        t_offset = self._resolve_t_offset(offsets)
+        c_offset = self._resolve_c_offset(offsets)
 
         t_max, c_max = self._build_max_curves(
             psi_x, t_max_raw, c_max_raw, sigma_t_max, sigma_c_max, t_offset, c_offset, prior,
@@ -3165,8 +3422,8 @@ class ConvexMaxARTVLinearLVM(ConvexMaxTVLinearLVM):
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
         self.prior["rho_ar"] = Uniform(-.5, .5)
-        self.prior["sigma_ar"] = HalfNormal()
-        self.prior["beta_ar"] = StudentT(3)
+        self.prior["sigma_ar"] = HalfNormal(0.3)
+        self.prior["beta_ar"] = Normal(0, 1)
         self.prior["ar_0"] = Normal(0, 1)
         # Calendar year AR(3) trend priors (only sampled for de_trend_metrics)
         self.prior["rho_year_ar"]   = Uniform(0.0, 0.99)  # positive persistence only; allows near-unit-root for 40-yr era trends
@@ -3180,12 +3437,21 @@ class ConvexMaxARTVLinearLVM(ConvexMaxTVLinearLVM):
         trend_ar = context["trend_ar"]
         return self._build_linear_predictor(mu, k_indices, ar[k_indices] + trend_ar[k_indices])
 
+    def _compute_player_ar(self):
+        """Per-player AR(1) process (k, n, j) — sampled + assembled. Used by both model_fn (likelihood)
+        and prior_check's per-player draws so the plotted trajectory includes the AR."""
+        sigma_ar = self._resolve_prior("sigma_ar", sample_shape=(self.k, 1))
+        rho_ar = self._resolve_prior("rho_ar", sample_shape=(self.k, 1))
+        z = self._resolve_prior("beta_ar", sample_shape=(self.j, self.k, self.n))
+        ar_0 = self._resolve_prior("ar_0", sample_shape=(self.k, self.n), site_name="AR_0") * (sigma_ar / jnp.sqrt(1 - rho_ar ** 2))
+        return self._build_ar_process(sigma_ar=sigma_ar, rho_ar=rho_ar, z=z, ar_0=ar_0)
+
     def _build_ar_process(self, sigma_ar=None, rho_ar=None, z=None, ar_0=None):
         return self._compute_ar_process_from_parameters(sigma_ar, rho_ar, z, ar_0)
 
 
     def model_fn(self, data_set, hsgp_params, offsets = {}, inference_method:str = "prior", sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0) -> None:
-        prior = (inference_method == "prior")
+        prior = getattr(self, "_prior_predictive", False)
         num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
         num_neg_bins = data_set["negative-binomial"]["Y"].shape[0] if "negative-binomial" in data_set else 0
         num_beta = data_set["beta"]["Y"].shape[0] if "beta" in data_set else 0
@@ -3195,7 +3461,7 @@ class ConvexMaxARTVLinearLVM(ConvexMaxTVLinearLVM):
         M_time = hsgp_params["M_time"]
         shifted_x_time = hsgp_params["shifted_x_time"]
         alpha_time = self._resolve_prior("alpha", sample_shape=(self.k, 1))
-        ls_deriv = 3 +  self._resolve_prior("lengthscale_deriv", sample_shape=(self.k, 1))
+        ls_deriv = self._resolve_prior("lengthscale_deriv", sample_shape=(self.k, 1))
         spd_time = jnp.squeeze(jnp.sqrt(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(alpha_time, ls_deriv)))
         sigma_c_unit = self._resolve_prior("sigma_c", sample_shape=(self.k,))
         _c_max_var = offsets.get("c_max_var", None)
@@ -3224,17 +3490,13 @@ class ConvexMaxARTVLinearLVM(ConvexMaxTVLinearLVM):
             else jnp.zeros((self.n, 2))
         x_loc = Z @ W_proj
         X = self._resolve_latent_X_structured(x_loc, sigma_X, sample_free_indices, sample_fixed_indices)
-        effective_r = self.r
+        effective_r = self._projected_feature_dim()
 
         t_max_raw, c_max_raw = self._sample_max_raw_parameters(effective_r)
 
         psi_x = self._project_X(X)
-        t_offset = self._resolve_prior("t_offset", sample_shape=(self.n, self.k))
-        if t_offset is None:
-            t_offset = offsets["t_max"]
-        c_offset = self._resolve_prior("c_offset", sample_shape=(self.n, self.k))
-        if c_offset is None:
-            c_offset = offsets["c_max"]
+        t_offset = self._resolve_t_offset(offsets)
+        c_offset = self._resolve_c_offset(offsets)
 
         t_max, c_max = self._build_max_curves(
             psi_x,
@@ -3250,15 +3512,9 @@ class ConvexMaxARTVLinearLVM(ConvexMaxTVLinearLVM):
 
         phi_t_max, phi_prime_t_max = self._compute_phi_at_max(t_max, L_time, M_time)
 
-        weights = self._resolve_prior("beta", sample_shape=(effective_r, M_time, self.k))
-        weights *= spd_time.T[None]
+        weights = self._build_curve_weights(effective_r, M_time, spd_time)
 
-        sigma_ar = self._resolve_prior("sigma_ar", sample_shape=(self.k, 1))
-        rho_ar = self._resolve_prior("rho_ar", sample_shape=(self.k, 1))
-
-        z = self._resolve_prior("beta_ar", sample_shape=(self.j, self.k, self.n))
-        ar_0 = self._resolve_prior("ar_0", sample_shape=(self.k, self.n), site_name="AR_0") * (sigma_ar / jnp.sqrt(1 - rho_ar ** 2))
-        AR = self._build_ar_process(sigma_ar=sigma_ar, rho_ar=rho_ar, z=z, ar_0=ar_0)
+        AR = self._compute_player_ar()
 
         # Calendar year AR(3) trend — only for metrics in ar_metric_indices
         if num_de_trend > 0:
@@ -3391,6 +3647,321 @@ class ConvexMaxARTVLinearLVM(ConvexMaxTVLinearLVM):
         return super().predict(posterior_samples, model_args, num_samples)
 
 
+class ConvexMaxARLKJTVLinearLVM(ConvexMaxARTVLinearLVM, ConvexMaxLKJTVLinearLVM):
+    """ConvexMaxARTVLinearLVM + LKJ correlation across the metric axis of the curve weights.
+    Inherits the AR(1) forward from ConvexMaxARTVLinearLVM and the LKJ beta construction +
+    beta_corr_chol prior from ConvexMaxLKJTVLinearLVM. Cooperative super() in initialize_priors adds
+    both the AR priors and beta_corr_chol; the AR model_fn builds weights via _build_curve_weights,
+    which the MRO resolves to the LKJ override. No new body needed."""
+    pass
+
+
+class ConvexMaxARTVCosineLVM(ConvexMaxARTVLinearLVM, ConvexMaxTVCosineLVM):
+    """ConvexMaxARTVLinearLVM with the cosine (normalized dot-product) latent kernel.
+    Inherits the AR(1) forward from ConvexMaxARTVLinearLVM and the L2-normalized _project_X from
+    ConvexMaxTVCosineLVM; the MRO resolves _project_X to the cosine override, so the AR model_fn's
+    `psi_x = self._project_X(X)` uses X/||X||. No new body needed."""
+    pass
+
+
+class ConvexMaxRFFTVLinearLVM(ConvexMaxTVLinearLVM):
+    """Random Fourier Feature latent kernel variant of ConvexMaxTVLinearLVM. Identical in every
+    respect (structured X prior, level/peak/curvature REs, survival, compute_curves) except the
+    latent feature map is the standard RFF approximation of a stationary (SE) kernel:
+        phi(x) = [cos(W x), sin(W x)] / sqrt(m),   W ~ N(0, I)_{m x r}.
+    This is the canonical norm-1 RFF: ||phi||^2 = 1 and phi(x)^T phi(x') ~ K(x,x') with K(x,x)=1, so
+    the kernel approximation is faithful (no amplitude baked into the feature map). The curve/hazard
+    amplitude is kept correct by overriding _kernel_self_cov -> 1.0 (the SE self-covariance): the
+    inherited 1/sqrt(K(x,x)) normalizations then divide by 1 for RFF, matching the linear/cosine
+    amplitude without re-tuning alpha / sigma_c / sigma_t. _projected_feature_dim stays 2*m (it sizes
+    the weights to contract with the 2*m features). Single shared W across level/peak-age/peak-value/
+    curvature (compute_curves calls _project_X(X) once)."""
+
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis, player_covariates=None) -> None:
+        super().__init__(latent_rank, output_shape, basis, player_covariates)
+        self.m = rff_dim   # number of RFF frequencies; projected feature dim = 2*m
+        self._rff_W = None          # per-forward cache of the sampled frequency / inverse-bandwidth,
+        self._rff_lengthscale = None  # populated in _resolve_latent_X_structured (single sample point)
+
+    def _projected_feature_dim(self):
+        return 2 * self.m
+
+    def _kernel_self_cov(self, psi_x):
+        # Standard RFF is norm-1: ||phi||^2 = 1 ~ K(x,x) for the unit-variance SE kernel. Normalizing
+        # by 1 (not the 2*m feature count) keeps phi norm-1 AND the curves correctly scaled.
+        return 1.0
+
+    def initialize_priors(self, *args, **kwargs) -> None:
+        super().initialize_priors(*args, **kwargs)
+        # RFF frequency + inverse-bandwidth sites (sampled once per forward in _resolve_latent_X_structured).
+        # The structured StudentT prior on the latent X (set by the parent) is kept; W/lengthscale
+        # parameterize the RFF map on top of the latent. W is iid N(0,I) (the SE spectral density).
+        self.prior["W"] = Normal()                # resolved with sample_shape (m, r)
+        self.prior["lengthscale"] = HalfNormal()  # resolved with sample_shape (r,)
+
+    def _resolve_latent_X_structured(self, x_loc, x_scale, sample_free_indices, sample_fixed_indices):
+        # Sample W and lengthscale ONCE here, at the single X-resolution point that always runs before
+        # every _project_X call in a given forward (the curve in compute_curves / AR model_fn, then the
+        # hazard in _survival_rates). Sampling inside _project_X instead would register a duplicate "W"
+        # site (it's invoked once for the curve and again for survival within the same trace).
+        X = super()._resolve_latent_X_structured(x_loc, x_scale, sample_free_indices, sample_fixed_indices)
+        self._rff_W = self._resolve_prior("W", sample_shape=(self.m, self.r))
+        self._rff_lengthscale = self._resolve_prior("lengthscale", sample_shape=(self.r,))[None]
+        return X
+
+    def _project_X(self, X: jnp.ndarray, *, W: jnp.ndarray = None, lengthscale: jnp.ndarray = None):
+        # Reuse the W/lengthscale sampled in _resolve_latent_X_structured (always run first). Fall back
+        # to sampling only if the cache is unset (a standalone projection with no prior X resolution).
+        if W is None:
+            W = self._rff_W if self._rff_W is not None else self._resolve_prior("W", sample_shape=(self.m, self.r))
+        if lengthscale is None:
+            lengthscale = self._rff_lengthscale if self._rff_lengthscale is not None \
+                else self._resolve_prior("lengthscale", sample_shape=(self.r,))[None]
+        _, phi = self._build_rff_features(X, W, lengthscale)   # (n, 2m), ||phi||^2 = 1 (standard RFF)
+        return phi                                             # norm-1; amplitude handled by _kernel_self_cov
+
+
+class ConvexMaxARRFFTVLinearLVM(ConvexMaxARTVLinearLVM, ConvexMaxRFFTVLinearLVM):
+    """ConvexMaxARTVLinearLVM with the RFF latent kernel. Inherits the AR(1) + calendar-year-trend
+    forward from ConvexMaxARTVLinearLVM and the RFF _project_X / _projected_feature_dim / W+lengthscale
+    priors from ConvexMaxRFFTVLinearLVM; the MRO resolves _project_X to the RFF override, so the AR
+    model_fn's `psi_x = self._project_X(X)` uses the RFF map. Mirrors ConvexMaxARTVCosineLVM."""
+
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis, player_covariates=None) -> None:
+        ConvexMaxRFFTVLinearLVM.__init__(self, latent_rank, rff_dim, output_shape, basis, player_covariates)
+
+
+class TVLinearLVM(ConvexMaxTVLinearLVM):
+    def initialize_priors(self, *args, **kwargs) -> None:
+        super().initialize_priors(*args, **kwargs)
+        del self.prior["lengthscale_deriv"]
+        del self.prior["t_max_raw"]
+        del self.prior["sigma_t"]
+        self.prior["lengthscale"] = InverseGamma(1.0, 1.0)
+
+    def _build_tv_beta(self, alpha_time, kernel_base):
+        """GP curve weights beta (k, r, T): a per (metric, latent-dim) MVN(0, kernel_base) draw over
+        the age basis, scaled by the per-metric amplitude alpha. Base: metrics are i.i.d. Subclasses
+        (LKJTVLinearLVM) correlate the metric axis while preserving each metric's MVN marginal."""
+        beta_raw = self._resolve_prior(
+            "beta", site_name="beta",
+            dist_override=MultivariateNormal(loc=jnp.zeros_like(self.basis), covariance_matrix=kernel_base),
+            sample_shape=(self.k, self.r),
+        )
+        return jnp.reshape(alpha_time, (self.k, 1, 1)) * beta_raw
+
+    def _compute_mu(self, hsgp_params, offsets={}, sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0):
+        """GPLVM forward: a per-metric GP-over-time curve beta (MVN with the `lengthscale` kernel)
+        projected onto the latent X, plus the c_max level. Returns (mu, TREND_AR, X) for interface
+        parity with the convex family; mu is the (k,n,j) aging curve WITHOUT the per-player AR /
+        calendar trend (those enter the likelihood), matching ConvexMaxTVLinearLVM._compute_mu."""
+        prior = getattr(self, "_prior_predictive", False)
+        alpha_time = self._resolve_prior("alpha", sample_shape=(self.k, 1))
+        ls = self._resolve_prior("lengthscale")
+        kernel_base = self.make_kernel(ls)
+        beta = self._build_tv_beta(alpha_time, kernel_base)
+
+        sigma_c_unit = self._resolve_prior("sigma_c", sample_shape=(self.k,))
+        _c_max_var = offsets.get("c_max_var", None)
+        sigma_c_eff = sigma_c_unit * jnp.sqrt(jnp.asarray(_c_max_var)) if _c_max_var is not None else sigma_c_unit
+        c_raw = self._resolve_prior("c_max", sample_shape=(self.r, self.k))
+
+        sigma_W_proj = self._resolve_prior("sigma_W_proj")
+        _n_cov = self.player_covariates.shape[1] if self.player_covariates is not None else 2
+        W_proj = self._resolve_prior("W_proj", sample_shape=(_n_cov, self.r),
+                                     dist_override=Normal(0, sigma_W_proj))
+        sigma_X = self._resolve_prior("sigma_X")
+        Z = jnp.asarray(self.player_covariates) if self.player_covariates is not None \
+            else jnp.zeros((self.n, 2))
+        x_loc = Z @ W_proj
+        X = self._resolve_latent_X_structured(x_loc, sigma_X, sample_free_indices, sample_fixed_indices)
+
+        c_offset = offsets.get("c_mean", 0.0)
+        intercept = self._build_c_max_curve(X, c_raw, sigma_c_eff, c_offset, prior)
+
+        mu = (
+            jnp.transpose(intercept)[:, :, None]
+            + jnp.einsum("nr, krt -> knt", X, beta) / jnp.sqrt(self.r)
+        )
+
+        if num_de_trend > 0:
+            sigma_year_ar = self._resolve_prior("sigma_year_ar", sample_shape=(num_de_trend, 1))
+            rho_year_ar   = self._resolve_prior("rho_year_ar",   sample_shape=(num_de_trend, 1))
+            z_year        = self._resolve_prior("beta_year_ar",  sample_shape=(num_years, num_de_trend))
+            ar_0_year_raw = self._resolve_prior("ar_0_year", sample_shape=(1, num_de_trend), site_name="AR_0_year")
+            ar_0_year     = ar_0_year_raw * sigma_year_ar[None, :, 0]
+            trend_ar_years = self._compute_ar1_calendar_process(sigma_year_ar, rho_year_ar, z_year, ar_0_year, ref_year_idx=ref_year_idx)
+            trend_ar_nj = trend_ar_years[:, year_indices]
+            TREND_AR = jnp.zeros((self.k, self.n, self.j)).at[ar_metric_indices].set(trend_ar_nj)
+        else:
+            TREND_AR = jnp.zeros((self.k, self.n, self.j))
+        return mu, TREND_AR, X
+
+    def compute_curves(self, hsgp_params, offsets={}, sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0, include_derivs: bool = False):
+        """Single-source export forward for the non-convex GPLVM. mu comes from this class's own
+        _compute_mu; the GPLVM has no analytic peak, so peaks are argmax/max over age and derivatives
+        are finite differences (matching the retired make_mu_tvlinearlvm_mcmc). Per-player AR is added
+        by the caller via _compute_player_ar() (zero for the non-AR variant)."""
+        mu, TREND_AR, X = self._compute_mu(
+            hsgp_params, offsets, sample_free_indices, sample_fixed_indices,
+            ar_metric_indices, year_indices, num_years, num_de_trend, ref_year_idx)
+        basis = jnp.asarray(self.basis)
+        peak_idx = jnp.argmax(mu, axis=-1)                                   # (k, n)
+        t_max = jnp.swapaxes(basis[peak_idx] - basis.mean(), -1, -2)         # (n, k) centered, matches convex convention
+        c_max = jnp.swapaxes(jnp.max(mu, axis=-1), -1, -2)                   # (n, k)
+        out = {"mu": mu, "t_max": t_max, "c_max": c_max, "trend_ar": TREND_AR, "X": X}
+        if include_derivs:
+            first_deriv = jnp.gradient(mu, axis=-1)                          # (k, n, t)
+            d2 = jnp.gradient(first_deriv, axis=-1)
+            d3 = jnp.gradient(d2, axis=-1)
+            pe = peak_idx[..., None]
+            second_deriv = jnp.swapaxes(jnp.take_along_axis(d2, pe, axis=-1).squeeze(-1), -1, -2)  # (n, k)
+            third_deriv  = jnp.swapaxes(jnp.take_along_axis(d3, pe, axis=-1).squeeze(-1), -1, -2)  # (n, k)
+            out["first_deriv"], out["second_deriv"], out["third_deriv"] = first_deriv, second_deriv, third_deriv
+        return out
+
+    def model_fn(self, data_set, hsgp_params, offsets={}, inference_method: str = "prior",
+                 sample_free_indices: jnp.ndarray = jnp.array([]),
+                 sample_fixed_indices: jnp.ndarray = jnp.array([]),
+                 ar_metric_indices: jnp.ndarray = jnp.array([]),
+                 year_indices: jnp.ndarray = jnp.array([]),
+                 num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0) -> None:
+        prior = getattr(self, "_prior_predictive", False)
+        mu, TREND_AR, X = self._compute_mu(
+            hsgp_params, offsets, sample_free_indices, sample_fixed_indices,
+            ar_metric_indices, year_indices, num_years, num_de_trend, ref_year_idx,
+        )
+        num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
+        num_neg_bins = data_set["negative-binomial"]["Y"].shape[0] if "negative-binomial" in data_set else 0
+        num_beta = data_set["beta"]["Y"].shape[0] if "beta" in data_set else 0
+        num_beta_bins = data_set["beta-binomial"]["Y"].shape[0] if "beta-binomial" in data_set else 0
+        if num_gaussians > 0:
+            expanded_sigmas = self._sample_gaussian_sigmas(num_gaussians)
+        if num_beta > 0:
+            sigma_beta = self._resolve_prior("sigma_beta", sample_shape=(num_beta,))
+            expanded_sigma_beta = jnp.tile(sigma_beta[:, None, None], (1, self.n, self.j))
+        if num_neg_bins > 0:
+            sigma_negative_binomial = self._resolve_prior("sigma_negative_binomial", sample_shape=(num_neg_bins,))
+            expanded_sigma_neg_bin = jnp.tile(sigma_negative_binomial[:, None, None], (1, self.n, self.j))
+        if num_beta_bins > 0:
+            sigma_beta_binomial = self._resolve_prior("sigma_beta_binomial", sample_shape=(num_beta_bins,))
+            expanded_sigma_beta_bin = jnp.tile(sigma_beta_binomial[:, None, None], (1, self.n, self.j))
+
+        self._sample_family_likelihoods(
+            data_set,
+            mu,
+            prior=prior,
+            expanded_sigmas=expanded_sigmas if num_gaussians > 0 else None,
+            expanded_sigma_beta=expanded_sigma_beta if num_beta > 0 else None,
+            expanded_taus=None,
+            expanded_sigma_beta_bin=expanded_sigma_beta_bin if num_beta_bins > 0 else None,
+            expanded_sigma_neg_bin=expanded_sigma_neg_bin if num_neg_bins > 0 else None,
+            trend_ar=TREND_AR,
+        )
+        self.compute_survival_likelihood(X, offsets=offsets)
+
+
+class TVLinearLVM_AR(TVLinearLVM):
+    def initialize_priors(self, *args, **kwargs) -> None:
+        super().initialize_priors(*args, **kwargs)
+        self.prior["rho_ar"]      = Uniform(-.5, .5)
+        self.prior["sigma_ar"]    = HalfNormal(0.3)
+        self.prior["beta_ar"]     = Normal(0, 1)
+        self.prior["ar_0"]        = Normal(0, 1)
+        self.prior["rho_year_ar"] = Uniform(0.0, 0.99)
+
+    def _compute_family_linear_predictor(self, family: str, mu, family_data: dict, **context):
+        k_indices = family_data["indices"]
+        ar = context["ar"]
+        trend_ar = context["trend_ar"]
+        return self._build_linear_predictor(mu, k_indices, ar[k_indices] + trend_ar[k_indices])
+
+    def _build_ar_process(self, sigma_ar=None, rho_ar=None, z=None, ar_0=None):
+        return self._compute_ar_process_from_parameters(sigma_ar, rho_ar, z, ar_0)
+
+    def _compute_player_ar(self):
+        """Per-player AR(1) process (k, n, j) — used by model_fn and prior_check's per-player draws."""
+        sigma_ar = self._resolve_prior("sigma_ar", sample_shape=(self.k, 1))
+        rho_ar   = self._resolve_prior("rho_ar",   sample_shape=(self.k, 1))
+        z        = self._resolve_prior("beta_ar",  sample_shape=(self.j, self.k, self.n))
+        ar_0     = self._resolve_prior("ar_0", sample_shape=(self.k, self.n), site_name="AR_0") \
+                   * (sigma_ar / jnp.sqrt(1 - rho_ar ** 2))
+        return self._build_ar_process(sigma_ar=sigma_ar, rho_ar=rho_ar, z=z, ar_0=ar_0)
+
+    def model_fn(self, data_set, hsgp_params, offsets={}, inference_method: str = "prior",
+                 sample_free_indices: jnp.ndarray = jnp.array([]),
+                 sample_fixed_indices: jnp.ndarray = jnp.array([]),
+                 ar_metric_indices: jnp.ndarray = jnp.array([]),
+                 year_indices: jnp.ndarray = jnp.array([]),
+                 num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0) -> None:
+        prior = getattr(self, "_prior_predictive", False)
+        # mu (aging curve) + calendar TREND_AR are the shared GPLVM forward (inherited from
+        # TVLinearLVM); this subclass adds the per-player AR(1), folded into the likelihood.
+        mu, TREND_AR, X = self._compute_mu(
+            hsgp_params, offsets, sample_free_indices, sample_fixed_indices,
+            ar_metric_indices, year_indices, num_years, num_de_trend, ref_year_idx,
+        )
+        num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
+        num_neg_bins = data_set["negative-binomial"]["Y"].shape[0] if "negative-binomial" in data_set else 0
+        num_beta = data_set["beta"]["Y"].shape[0] if "beta" in data_set else 0
+        num_beta_bins = data_set["beta-binomial"]["Y"].shape[0] if "beta-binomial" in data_set else 0
+        if num_gaussians > 0:
+            expanded_sigmas = self._sample_gaussian_sigmas(num_gaussians)
+        if num_beta > 0:
+            sigma_beta = self._resolve_prior("sigma_beta", sample_shape=(num_beta,))
+            expanded_sigma_beta = jnp.tile(sigma_beta[:, None, None], (1, self.n, self.j))
+        if num_neg_bins > 0:
+            sigma_negative_binomial = self._resolve_prior("sigma_negative_binomial", sample_shape=(num_neg_bins,))
+            expanded_sigma_neg_bin = jnp.tile(sigma_negative_binomial[:, None, None], (1, self.n, self.j))
+        if num_beta_bins > 0:
+            sigma_beta_binomial = self._resolve_prior("sigma_beta_binomial", sample_shape=(num_beta_bins,))
+            expanded_sigma_beta_bin = jnp.tile(sigma_beta_binomial[:, None, None], (1, self.n, self.j))
+
+        AR = self._compute_player_ar()
+
+        self._sample_family_likelihoods(
+            data_set,
+            mu,
+            prior=prior,
+            expanded_sigmas=expanded_sigmas if num_gaussians > 0 else None,
+            expanded_sigma_beta=expanded_sigma_beta if num_beta > 0 else None,
+            expanded_taus=None,
+            expanded_sigma_beta_bin=expanded_sigma_beta_bin if num_beta_bins > 0 else None,
+            expanded_sigma_neg_bin=expanded_sigma_neg_bin if num_neg_bins > 0 else None,
+            ar=AR,
+            trend_ar=TREND_AR,
+        )
+        self.compute_survival_likelihood(X, offsets=offsets)
+
+
+class LKJTVLinearLVM(TVLinearLVM):
+    """TVLinearLVM (non-convex GPLVM) + LKJ correlation across the metric axis of the GP curve
+    weights. beta_raw[k] = Σ_j L_corr[k,j] z[j] with z[j] ~ MVN(0, kernel_base): each metric's
+    marginal stays MVN(0, kernel_base) (amplitude/lengthscale calibration unchanged) while metrics
+    share curvature structure. eta via the attribute knob lkj_concentration."""
+
+    def initialize_priors(self, *args, **kwargs) -> None:
+        super().initialize_priors(*args, **kwargs)
+        eta = float(getattr(self, "lkj_concentration", 2.0))
+        self.prior["beta_corr_chol"] = LKJCholesky(self.k, concentration=eta)
+
+    def _build_tv_beta(self, alpha_time, kernel_base):
+        L_corr = self._resolve_prior("beta_corr_chol")   # (k, k) lower-tri Cholesky of correlation
+        z = self._resolve_prior(
+            "beta", site_name="beta",
+            dist_override=MultivariateNormal(loc=jnp.zeros_like(self.basis), covariance_matrix=kernel_base),
+            sample_shape=(self.k, self.r),
+        )   # (k, r, T) i.i.d. across metrics
+        beta_raw = jnp.einsum("kj,jrt->krt", L_corr, z)   # correlate metric axis; MVN marginal preserved
+        return jnp.reshape(alpha_time, (self.k, 1, 1)) * beta_raw
+
+
+class LKJTVLinearLVM_AR(TVLinearLVM_AR, LKJTVLinearLVM):
+    """TVLinearLVM_AR + LKJ metric-correlated curve weights: AR forward from TVLinearLVM_AR, LKJ
+    beta + beta_corr_chol prior from LKJTVLinearLVM (cooperative super()). No new body needed."""
+    pass
+
+
 class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
     def __init__(self, latent_rank: int, output_shape: tuple, basis, injury_rank: int, num_injury_types: int, player_covariates=None) -> None:
         super().__init__(latent_rank, output_shape, basis, player_covariates)
@@ -3408,11 +3979,6 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
         self.prior["injury_exit_global_offset"] = Normal(0, 1)
         self.prior["sigma_injury_exit"] = HalfNormal()
         self.prior["injury_exit_raw"] = Normal()
-        self.prior["injury_scale_loading"] = Normal(0, 1)
-        self.prior["injury_scale_global_offset"] = Normal(0, 1)
-        self.prior["sigma_injury_scale"] = HalfNormal()
-        self.prior["injury_scale_raw"] = Normal()
-        self.prior["scale_global_log"] = Normal(jnp.log(11.5), 0.5)
         self.prior["injury_time_raw"] = Normal()
         self.prior["sigma_injury"] = HalfNormal()
 
@@ -3422,20 +3988,26 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
             return
 
         entrance_times = jnp.ravel(jnp.asarray(offsets["entrance_times"]))
-        # Entrance is always observed — use directly as truncation point
         entrance_latent = jnp.maximum(entrance_times, 1e-6)
 
         effective_r = X.shape[-1]
+        psi_x = self._project_X(X)   # kernel feature map (cosine bounds the hazard; identity for linear)
         exit = self._resolve_prior("exit", sample_shape=(effective_r,))
         sigma_exit_scale = self._resolve_prior("sigma_exit_scale")
         exit_rate = self._resolve_prior("exit_rate", sample_shape=(effective_r,))
-        exit_raw = make_psi_gamma(X, exit) / jnp.sqrt(effective_r) * sigma_exit_scale
+        exit_raw = make_psi_gamma(psi_x, exit) / jnp.sqrt(effective_r) * sigma_exit_scale
+
+        # Baseline hazard η — from latent X only, injury does not elevate it
+        eta_global_log = self._resolve_prior("eta_global_log")
+        eta = jnp.exp(eta_global_log + exit_raw)[:, None]   # (n, 1)
+
+        # Injury effect on aging rate γ
         injury_exit_loading = self._resolve_prior("injury_exit_loading", sample_shape=(self.p,))
         injury_exit_global_offset = self._resolve_prior("injury_exit_global_offset")
         injury_exit_raw = (
             injury_exit_global_offset
             + jnp.einsum("ip,p->i", injury_factor, injury_exit_loading)[None, None, :]
-        )
+        )  # (1, 1, i)
 
         injury_indicator = offsets["injury_indicator"]
         injury_type = offsets["injury_type"]
@@ -3451,60 +4023,36 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
         )  # (1, 1, i+1) — take_along_axis broadcasts over (n, t)
         injury_effect_exit = jnp.take_along_axis(
             injury_exit_padded, injury_type[..., None], -1
-        ).squeeze(-1)
+        ).squeeze(-1)  # (n, t)
 
-        # ---- Injury effect on Weibull scale (career-length shift) ---- #
-        injury_scale_loading = self._resolve_prior("injury_scale_loading", sample_shape=(self.p,))
-        injury_scale_global_offset = self._resolve_prior("injury_scale_global_offset")
-        sigma_injury_scale = self._resolve_prior("sigma_injury_scale")
-        injury_scale_raw = (
-            injury_scale_global_offset
-            + jnp.einsum("ip,p->i", injury_factor, injury_scale_loading)[None, :]   # (1, i)
-            + self._resolve_prior("injury_scale_raw", sample_shape=(self.n, self.i)) * sigma_injury_scale
-        )  # (n, i)
-        # Use the player's final injury-type code (0 = uninjured → zero effect)
-        injury_type_scalar = injury_type[:, -1]  # (n,)
-        injury_scale_effect = jnp.take_along_axis(
-            jnp.concatenate([jnp.zeros((self.n, 1)), injury_scale_raw], axis=-1),
-            injury_type_scalar[:, None],
-            axis=-1,
-        ).squeeze(-1)  # (n,)
+        # Aging rate γ — time-varying due to injury type at each interval
+        gamma_base = make_psi_gamma(psi_x, exit_rate)[:, None] / jnp.sqrt(effective_r)  # (n, 1): 1/sqrt(r) scaled-dot-product, matching exit_raw/eta
+        gamma_global_log = self._resolve_prior("gamma_global_log")
+        gamma = jnp.exp(gamma_global_log + gamma_base + injury_effect_exit)  # (n, t)
 
-        exit_rate_base = make_psi_gamma(X, exit_rate)[:, None]
-        exit_global_offset = self._resolve_prior("exit_global_offset")
-        exit_rate_raw = exit_rate_base + exit_global_offset + injury_effect_exit
-        concentration = 1.0 + 2.0 * jax.nn.sigmoid(exit_rate_raw)
-        scale_global_log = self._resolve_prior("scale_global_log")
-        scale = jnp.exp(scale_global_log + exit_raw + injury_scale_effect)[:, None]
         rc = jnp.ravel(offsets["right_censor"].astype(bool))
         exit_times = jnp.ravel(jnp.asarray(offsets["exit_times"]))
 
-        interval_starts = jnp.arange(self.t, dtype=exit_times.dtype)[None, :]
+        interval_starts = jnp.arange(self.t, dtype=exit_times.dtype)[None, :]  # (1, t)
         interval_ends = interval_starts + 1.0
-        entry = entrance_latent[:, None]
-        stop = exit_times[:, None]
+        entry = entrance_latent[:, None]   # (n, 1)
+        stop = exit_times[:, None]         # (n, 1)
         seg_start = jnp.maximum(interval_starts, entry)
         seg_end = jnp.minimum(interval_ends, stop)
         valid_seg = seg_end > seg_start
-        seg_start_safe = jnp.where(valid_seg, seg_start, 1.0)
-        seg_end_safe = jnp.where(valid_seg, seg_end, 1.0)
-        log_scale = jnp.log(scale)
-        seg_start_exp = concentration * (jnp.log(seg_start_safe) - log_scale)
-        seg_end_exp = concentration * (jnp.log(seg_end_safe) - log_scale)
+        seg_start_safe = jnp.where(valid_seg, seg_start, 0.0)
+        seg_end_safe = jnp.where(valid_seg, seg_end, 0.0)
         valid_seg_float = valid_seg.astype(exit_times.dtype)
-        delta_H = valid_seg_float * (jnp.exp(seg_end_exp) - jnp.exp(seg_start_exp))
-        cumulative_H = delta_H.sum(axis=-1)
+        ratio = eta / gamma  # (n, t) — time-varying
+        delta_H = valid_seg_float * ratio * (
+            jnp.exp(gamma * seg_end_safe) - jnp.exp(gamma * seg_start_safe)
+        )
+        cumulative_H = delta_H.sum(axis=-1)  # (n,)
 
         event_time = exit_times
         event_interval = jnp.clip(jnp.floor(event_time).astype(jnp.int32), 0, self.t - 1)
-        concentration_event = jnp.take_along_axis(concentration, event_interval[:, None], axis=1).squeeze(-1)
-        scale_event = scale.squeeze(-1)
-
-        log_h_event = (
-            jnp.log(concentration_event)
-            - concentration_event * jnp.log(scale_event)
-            + (concentration_event - 1.0) * jnp.log(event_time)
-        )
+        gamma_event = jnp.take_along_axis(gamma, event_interval[:, None], axis=1).squeeze(-1)
+        log_h_event = jnp.log(eta.squeeze(-1)) + gamma_event * event_time
 
         log_lik_exit_event = log_h_event - cumulative_H
         log_lik_exit_censored = -cumulative_H
@@ -3520,7 +4068,7 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
 
 
     def model_fn(self, data_set, hsgp_params, offsets = {}, inference_method:str = "prior", sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0) -> None:
-        prior = (inference_method == "prior")
+        prior = getattr(self, "_prior_predictive", False)
         num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
         num_neg_bins = data_set["negative-binomial"]["Y"].shape[0] if "negative-binomial" in data_set else 0
         num_beta = data_set["beta"]["Y"].shape[0] if "beta" in data_set else 0
@@ -3530,7 +4078,7 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
         M_time = hsgp_params["M_time"]
         shifted_x_time = hsgp_params["shifted_x_time"]
         alpha_time = self._resolve_prior("alpha", sample_shape=(self.k, 1))
-        ls_deriv = 3 +  self._resolve_prior("lengthscale_deriv", sample_shape=(self.k, 1))
+        ls_deriv = self._resolve_prior("lengthscale_deriv", sample_shape=(self.k, 1))
         spd_time = jnp.squeeze(jnp.sqrt(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(alpha_time, ls_deriv)))
         sigma_c_unit = self._resolve_prior("sigma_c", sample_shape=(self.k,))
         _c_max_var = offsets.get("c_max_var", None)
@@ -3564,12 +4112,8 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
         t_max_raw, c_max_raw = self._sample_max_raw_parameters(effective_r)
 
         psi_x = self._project_X(X)
-        t_offset = self._resolve_prior("t_offset", sample_shape=(self.n, self.k))
-        if t_offset is None:
-            t_offset = offsets["t_max"]
-        c_offset = self._resolve_prior("c_offset", sample_shape=(self.n, self.k))
-        if c_offset is None:
-            c_offset = offsets["c_max"]
+        t_offset = self._resolve_t_offset(offsets)
+        c_offset = self._resolve_c_offset(offsets)
         t_max, c_max = self._build_max_curves(
             psi_x,
             t_max_raw,
@@ -3731,16 +4275,20 @@ class ConvexMaxDecayInjuryTVLinearLVM(ConvexMaxInjuryTVLinearLVM):
             return
 
         entrance_times = jnp.ravel(jnp.asarray(offsets["entrance_times"]))
-        # Entrance is always observed — use directly as truncation point
         entrance_latent = jnp.maximum(entrance_times, 1e-6)
 
-        # ---- Exit hazard: decayed injury effect ---- #
         effective_r = X.shape[-1]
+        psi_x = self._project_X(X)   # kernel feature map (cosine bounds the hazard; identity for linear)
         exit = self._resolve_prior("exit", sample_shape=(effective_r,))
         sigma_exit_scale = self._resolve_prior("sigma_exit_scale")
         exit_rate = self._resolve_prior("exit_rate", sample_shape=(effective_r,))
-        exit_raw = make_psi_gamma(X, exit) / jnp.sqrt(effective_r) * sigma_exit_scale
+        exit_raw = make_psi_gamma(psi_x, exit) / jnp.sqrt(effective_r) * sigma_exit_scale
 
+        # Baseline hazard η — from latent X only, injury does not elevate it
+        eta_global_log = self._resolve_prior("eta_global_log")
+        eta = jnp.exp(eta_global_log + exit_raw)[:, None]   # (n, 1)
+
+        # ---- Decayed injury effect on aging rate γ ---- #
         injury_exit_loading = self._resolve_prior("injury_exit_loading", sample_shape=(self.p,))
         injury_exit_global_offset = self._resolve_prior("injury_exit_global_offset")
         sigma_injury_exit = self._resolve_prior("sigma_injury_exit")
@@ -3752,8 +4300,7 @@ class ConvexMaxDecayInjuryTVLinearLVM(ConvexMaxInjuryTVLinearLVM):
         if injury_type.ndim == 3:
             injury_type = injury_type[0]
 
-        # beta0_exit: initial exit-hazard shock — (n, i)
-        # Reuses "injury_exit_raw" site at shape (n, i) instead of parent's (n, t, i)
+        # beta0_exit: initial aging-rate shock — (n, i)
         injury_exit_raw_beta0 = self._resolve_prior("injury_exit_raw", sample_shape=(self.n, self.i))
         beta0_exit = (
             injury_exit_global_offset
@@ -3761,78 +4308,53 @@ class ConvexMaxDecayInjuryTVLinearLVM(ConvexMaxInjuryTVLinearLVM):
             + injury_exit_raw_beta0 * sigma_injury_exit
         )  # (n, i)
 
-        # lambda_exit: exit-hazard decay rate — (i,), constrained > 0 via softplus
+        # lambda_exit: decay rate of the aging-rate shock — (i,), strictly > 0
         lambda_exit_global_offset = self._resolve_prior("lambda_exit_global_offset", sample_shape=(self.i,))
-        lambda_exit = jax.nn.softplus(lambda_exit_global_offset)  # (i,), strictly > 0
+        lambda_exit = jax.nn.softplus(lambda_exit_global_offset)  # (i,)
 
         # Time since injury: delta_t[n, t] = max(t - T0_n, 0)
         t0_index = jnp.argmax(injury_indicator, axis=-1).astype(jnp.float32)  # (n,)
         t_grid = jnp.arange(self.t, dtype=jnp.float32)                        # (t,)
         delta_t = jnp.maximum(t_grid[None, :] - t0_index[:, None], 0.0)       # (n, t)
 
-        # Decayed exit effect: beta0 * exp(-lambda * delta_t) -> (n, t, i)
-        exit_decay_factor = jnp.exp(-lambda_exit[None, None, :] * delta_t[:, :, None])  # (n, t, i)
-        injury_exit_raw_decayed = beta0_exit[:, None, :] * exit_decay_factor             # (n, t, i)
+        # Decayed effect on log(γ): beta0 * exp(-lambda * delta_t) → (n, t, i)
+        exit_decay_factor = jnp.exp(-lambda_exit[None, None, :] * delta_t[:, :, None])
+        injury_exit_raw_decayed = beta0_exit[:, None, :] * exit_decay_factor   # (n, t, i)
 
-        # Select active injury type; zeros at index 0 handle uninjured players
         injury_effect_exit = jnp.take_along_axis(
             jnp.concatenate([jnp.zeros_like(injury_indicator)[..., None], injury_exit_raw_decayed], -1),
             injury_type[..., None],
             -1,
         ).squeeze(-1)  # (n, t)
 
-        # ---- Injury effect on Weibull scale (career-length shift) ---- #
-        injury_scale_loading = self._resolve_prior("injury_scale_loading", sample_shape=(self.p,))
-        injury_scale_global_offset = self._resolve_prior("injury_scale_global_offset")
-        sigma_injury_scale = self._resolve_prior("sigma_injury_scale")
-        injury_scale_raw_val = (
-            injury_scale_global_offset
-            + jnp.einsum("ip,p->i", injury_factor, injury_scale_loading)[None, :]  # (1, i)
-            + self._resolve_prior("injury_scale_raw", sample_shape=(self.n, self.i)) * sigma_injury_scale
-        )  # (n, i)
-        injury_type_scalar = injury_type[:, -1]  # (n,)
-        injury_scale_effect = jnp.take_along_axis(
-            jnp.concatenate([jnp.zeros((self.n, 1)), injury_scale_raw_val], axis=-1),
-            injury_type_scalar[:, None],
-            axis=-1,
-        ).squeeze(-1)  # (n,)
+        # Aging rate γ — time-varying via decayed injury effect
+        gamma_base = make_psi_gamma(psi_x, exit_rate)[:, None] / jnp.sqrt(effective_r)  # (n, 1): 1/sqrt(r) scaled-dot-product, matching exit_raw/eta
+        gamma_global_log = self._resolve_prior("gamma_global_log")
+        gamma = jnp.exp(gamma_global_log + gamma_base + injury_effect_exit)  # (n, t)
 
-        # ---- Weibull hazard ---- #
-        exit_rate_base = make_psi_gamma(X, exit_rate)[:, None]
-        exit_global_offset = self._resolve_prior("exit_global_offset")
-        exit_rate_raw = exit_rate_base + exit_global_offset + injury_effect_exit
-        concentration = 1.0 + 2.0 * jax.nn.sigmoid(exit_rate_raw)
-        scale_global_log = self._resolve_prior("scale_global_log")
-        scale = jnp.exp(scale_global_log + exit_raw + injury_scale_effect)[:, None]
         rc = jnp.ravel(offsets["right_censor"].astype(bool))
         exit_times = jnp.ravel(jnp.asarray(offsets["exit_times"]))
 
-        interval_starts = jnp.arange(self.t, dtype=exit_times.dtype)[None, :]
+        interval_starts = jnp.arange(self.t, dtype=exit_times.dtype)[None, :]  # (1, t)
         interval_ends = interval_starts + 1.0
-        entry = entrance_latent[:, None]
-        stop = exit_times[:, None]
+        entry = entrance_latent[:, None]   # (n, 1)
+        stop = exit_times[:, None]         # (n, 1)
         seg_start = jnp.maximum(interval_starts, entry)
         seg_end = jnp.minimum(interval_ends, stop)
         valid_seg = seg_end > seg_start
-        seg_start_safe = jnp.where(valid_seg, seg_start, 1.0)
-        seg_end_safe = jnp.where(valid_seg, seg_end, 1.0)
-        log_scale = jnp.log(scale)
-        seg_start_exp = concentration * (jnp.log(seg_start_safe) - log_scale)
-        seg_end_exp = concentration * (jnp.log(seg_end_safe) - log_scale)
+        seg_start_safe = jnp.where(valid_seg, seg_start, 0.0)
+        seg_end_safe = jnp.where(valid_seg, seg_end, 0.0)
         valid_seg_float = valid_seg.astype(exit_times.dtype)
-        delta_H = valid_seg_float * (jnp.exp(seg_end_exp) - jnp.exp(seg_start_exp))
-        cumulative_H = delta_H.sum(axis=-1)
+        ratio = eta / gamma  # (n, t)
+        delta_H = valid_seg_float * ratio * (
+            jnp.exp(gamma * seg_end_safe) - jnp.exp(gamma * seg_start_safe)
+        )
+        cumulative_H = delta_H.sum(axis=-1)  # (n,)
 
         event_time = exit_times
         event_interval = jnp.clip(jnp.floor(event_time).astype(jnp.int32), 0, self.t - 1)
-        concentration_event = jnp.take_along_axis(concentration, event_interval[:, None], axis=1).squeeze(-1)
-        scale_event = scale.squeeze(-1)
-
-        log_h_event = (
-            jnp.log(concentration_event)
-            - concentration_event * jnp.log(scale_event)
-            + (concentration_event - 1.0) * jnp.log(event_time)
-        )
+        gamma_event = jnp.take_along_axis(gamma, event_interval[:, None], axis=1).squeeze(-1)
+        log_h_event = jnp.log(eta.squeeze(-1)) + gamma_event * event_time
 
         log_lik_exit_event = log_h_event - cumulative_H
         log_lik_exit_censored = -cumulative_H
@@ -3855,7 +4377,7 @@ class ConvexMaxDecayInjuryTVLinearLVM(ConvexMaxInjuryTVLinearLVM):
         num_de_trend: int = 0,
         ref_year_idx: int = 0,
     ) -> None:
-        prior = inference_method == "prior"
+        prior = getattr(self, "_prior_predictive", False)
         num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
         num_neg_bins = data_set["negative-binomial"]["Y"].shape[0] if "negative-binomial" in data_set else 0
         num_beta = data_set["beta"]["Y"].shape[0] if "beta" in data_set else 0
@@ -3867,7 +4389,7 @@ class ConvexMaxDecayInjuryTVLinearLVM(ConvexMaxInjuryTVLinearLVM):
         shifted_x_time = hsgp_params["shifted_x_time"]
 
         alpha_time = self._resolve_prior("alpha", sample_shape=(self.k, 1))
-        ls_deriv = 3 + self._resolve_prior("lengthscale_deriv", sample_shape=(self.k, 1))
+        ls_deriv = self._resolve_prior("lengthscale_deriv", sample_shape=(self.k, 1))
         spd_time = jnp.squeeze(
             jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(
                 alpha_time, ls_deriv
@@ -3908,9 +4430,7 @@ class ConvexMaxDecayInjuryTVLinearLVM(ConvexMaxInjuryTVLinearLVM):
         t_offset = self._resolve_prior("t_offset", sample_shape=(self.n, self.k))
         if t_offset is None:
             t_offset = offsets["t_max"]
-        c_offset = self._resolve_prior("c_offset", sample_shape=(self.n, self.k))
-        if c_offset is None:
-            c_offset = offsets["c_max"]
+        c_offset = self._resolve_c_offset(offsets)
 
         t_max, c_max = self._build_max_curves(
             psi_x, t_max_raw, c_max_raw, sigma_t_max, sigma_c_max, t_offset, c_offset, prior,

@@ -237,7 +237,7 @@ To account for the evolution of performance over time, we construct an aging fun
 y_{p t k} &\sim \mathcal{F}_k\left(g_k^{-1}\left(\mu_{p t k}\right), \phi_k, \omega_{p t k}\right)
 \end{align}
 %
-where $\mathcal{F}_k$ denotes the conditional distribution family corresponding to metric $k$,  $g_k(\cdot)$ is a metric-specific link function mapping the conditional expectation to the linear predictor space.  $\phi_k$ represents optional metric-level dispersion or variance scale parameters and $\omega_{ptk}$ represents time-varying, observation-specific exposure weights or trial totals, such as minutes played or total field goal attempts. $f^k(X_p,t)$ captures aspects of performance that are predictable given the performance of similar players over time, where similarity is induced by $X_p$, a low-dimensional latent player embedding (Section \ref{}). Whereas $r_p^k(t)$ reflects aspects of the player's true skill that are not predictable (e.g.\ due to injury, change of strategy or role).  These components are distinct from the sampling variability due to finite observations.
+where $\mathcal{F}_k$ denotes the conditional distribution family corresponding to metric $k$,  $g_k(\cdot)$ is a metric-specific link function mapping the conditional expectation to the linear predictor space.  $\phi_k$ represents optional metric-level dispersion or variance scale parameters and $\omega_{ptk}$ represents time-varying, observation-specific exposure weights or trial totals, such as minutes played or total field goal attempts. $f^k(X_p,t)$ captures aspects of performance that are predictable given the performance of similar players over time, where similarity is induced by $X_p$, a low-dimensional latent player embedding (Section~\ref{sec:player_similarity}). Whereas $r_p^k(t)$ reflects aspects of the player's true skill that are not predictable (e.g.\ due to injury, change of strategy or role).  These components are distinct from the sampling variability due to finite observations.
 
 For a given player-metric, we model the natural parameter $\mu_{ptk}$  as the sum of a concave function $f^k(X_p,t)$, which captures aging-related changes in performance, and $r^k_p(t) \sim \mathrm{AR}(1)$, which reflects idiosyncratic deviations from the underlying aging trend. We model similarity in expected performance across players and metrics using player-specific latent variable, $X_p$.
 
@@ -592,7 +592,7 @@ Many metrics are conditional on each other through the exposure structure: count
 
 \section{Results}
 \label{sec:results}
-In this Section, we highlight a select number of ways in which our model can be used.  First in Section \ref{} 
+In this Section, we highlight a select number of ways in which our model can be used.
 
 \subsection{Model Validation}
 \label{sec:validation}
@@ -629,7 +629,7 @@ Per-metric breakdowns of RMSE, log-loss, coverage, bias intervals, and ELPPD acr
 
 Stephen Curry is known for his shooting and passing ability, relying on superior shot-making ability to create for himself and his teammates. He has a later peak across a variety of metrics. Figure~\ref{fig:posterior_curves} shows the joint model posterior for Curry; a direct comparison with the Naive AR baseline for both Curry and Joki\'{c} is provided in Appendix~\ref{sec:ar_comparison}.
 
-\begin{figure}[htbp]
+\begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/player_plots/mcmc/Jokic_Curry_comparison.png}
   \caption{Posterior mean production curves (joint model) for Nikola Joki\'{c} (top row) and Stephen Curry (bottom row), with the four representative metrics (OBPM, FG2\%, FG2A, FTA) as columns. Posterior mean of $f_k(X_p, t)$ (green) with 95\% credible band on the mean (gray) and observed values (black points).}
@@ -640,7 +640,7 @@ Stephen Curry is known for his shooting and passing ability, relying on superior
 
 
 
-The left panels of Figure~\ref{fig:posterior_curves} show the joint model posterior for Nikola Joki\'{c}, producing narrow, smooth credible bands that respect the concave aging structure.
+The top row of Figure~\ref{fig:posterior_curves} shows the joint model posterior for Nikola Joki\'{c}, producing narrow, smooth credible bands that respect the concave aging structure.
 
 The latent embedding further enables principled similarity retrieval.
 Figure \ref{fig:jokic_neighbor_curves} overlays Nikola Joki\'{c}'s neighbors curves over his own, illustrating the ability to retrieve similar career arcs.
@@ -648,7 +648,7 @@ This kind of multi-dimensional similarity retrieval is only possible because the
 
 % \input{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/tables/Nikola_Jokic_neighbors.tex}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
   \centering
   \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/map/latent_neighbors_curves_Nikola_Jokic.png}
   \caption{Posterior mean trajectories for Nikola Joki\'{c} (solid line) and his five nearest latent-space neighbors. Neighbors are identified from Procrustes-aligned posterior mean coordinates; rank labels indicate distance ordering.}
@@ -686,10 +686,10 @@ In order to understand how metrics are correlated, we compute the posterior mean
 
 The first two principal components capture 68\% of the variance in metric peak ages (PC1 44\%, PC2 24\%): the athleticism--skill contrast of Figure~\ref{fig:metric_loadings} accounts for most of the cross-metric peak-timing structure.
 
-What emerges is a natural grouping of metrics by "skill" or "athleticism" or a composition of both. The athleticism group (green) --- offensive rebounding, steals, blocked shots, free-throw attempts, and games played --- consists of metrics which rely predominantly on quickness, vertical jump ability, and strength. The skill group (red) collects the pure shooting metrics: free-throw percentage, three-point percentage, and three-point attempt rate. The remaining metrics form the "both" group (blue), which lies at the intersection of learned ability and athleticism: assists, turnovers, offensive and defensive box plus/minus, minutes per game, usage, defensive rebounding, and two-point shooting volume and efficiency. Generating an assist, for example, requires the anticipatory court vision accrued over time coupled with the athletic ability required to deliver it.
+This grouping is fixed \emph{a priori} from basketball knowledge --- it is not learned from the data --- and Figure~\ref{fig:peaks} colours every metric by its assigned group (PCA loadings in the right panel, per-metric peak ages in the left). The athleticism group (green) --- offensive rebounding (OREB), steals (STL), blocked shots (BLK), free-throw attempts (FTA), and games played (GP\%) --- consists of metrics which rely predominantly on quickness, vertical jump ability, and strength. The skill group (red) collects the pure shooting metrics: free-throw percentage (FT\%), three-point percentage (FG3\%), and three-point attempt rate (FG3A). The remaining metrics form the "both" group (blue), which lies at the intersection of learned ability and athleticism: assists (AST), turnovers (TOV), offensive and defensive box plus/minus (OBPM, DBPM), minutes per game (MPG), usage (USG), defensive rebounding (DREB), and two-point shooting volume and efficiency (FG2A, FG2\%). Generating an assist, for example, requires the anticipatory court vision accrued over time coupled with the athletic ability required to deliver it.
 
 
-To see how various metrics peak, we compute the 95 \% CI of samples, averaged over all players by metric. There is some pattern which reflects that metrics assigned by our previously mentioned grouping to be reliant on "athleticism"  tend to peak earlier, while those categorized as "skill" based metrics tend to peak later. This is showcased in \ref{fig:peaks}. All metrics seem to peak between the ages of 20 and 30, with the athleticism metrics peaking before 25. Most importantly, it appears as if skill based metrics seem to peak around 26-28; this suggests to NBA decision makers that if young players do not show significant improvement in these metrics by age 23-24, it is likely that they are already close to their peak value. 
+To see how various metrics peak, we compute the 95 \% CI of samples, averaged over all players by metric. There is some pattern which reflects that metrics assigned by our previously mentioned grouping to be reliant on "athleticism"  tend to peak earlier, while those categorized as "skill" based metrics tend to peak later. This is showcased in Figure~\ref{fig:peaks}. All metrics seem to peak between the ages of 20 and 30, with the athleticism metrics peaking before 25. Most importantly, it appears as if skill based metrics seem to peak around 26-28; this suggests to NBA decision makers that if young players do not show significant improvement in these metrics by age 23-24, it is likely that they are already close to their peak value. 
 
 
 

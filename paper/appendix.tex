@@ -323,15 +323,17 @@ The complete generative structure is summarised in Figure~\ref{fig:graphical_mod
 \node[latent] (F)        at (-6.0, 4)   {$F_m$};
 \node[latent] (L)        at (-4.5, 2.5) {$L_k$};
 
-%% ── Player embedding ──────────────────────────────────────────────────────
+%% ── Player embedding and its feature-map projection ───────────────────────
 \node[latent] (X)        at (-3.5, 4)   {$X_p$};
+\node[latent] (proj)     at (-2.5, 5.4) {$\theta_\phi$};
+\node[latent] (phi)      at (-3.1, 2.6) {$\phi(X_p)$};
 
 %% ── Peak parameters ───────────────────────────────────────────────────────
 \node[latent] (t_star)   at (-2.0, 2.5) {$t^*_{pk}$};
 \node[latent] (f_star)   at (-0.5, 2.5) {$f^*_{pk}$};
 
 %% ── Curve and residual ────────────────────────────────────────────────────
-\node[latent] (f)        at (-1.0, 1.0) {$f^k(X_p,t)$};
+\node[latent] (f)        at (-1.0, 1.0) {$f^k(\phi(X_p),t)$};
 \node[latent] (ar)       at ( 1.5, 1.0) {$r^k_{pt}$};
 
 %% ── Injury offset ─────────────────────────────────────────────────────────
@@ -347,9 +349,11 @@ The complete generative structure is summarised in Figure~\ref{fig:graphical_mod
 \draw[arr] (peak_w)  -- (f_star);
 \draw[arr] (beta_gp) -- (f);
 \draw[arr] (ar_par)  -- (ar);
+\draw[arr] (X)       -- (phi);
+\draw[arr] (proj)    -- (phi);
+\draw[arr] (phi)     -- (f);
 \draw[arr] (X)       -- (t_star);
 \draw[arr] (X)       -- (f_star);
-\draw[arr] (X)       -- (f);
 \draw[arr] (X)       -- (tau);
 \draw[arr] (t_star)  -- (f);
 \draw[arr] (f_star)  -- (f);
@@ -362,7 +366,7 @@ The complete generative structure is summarised in Figure~\ref{fig:graphical_mod
 
 %% ── Plates ────────────────────────────────────────────────────────────────
 \begin{scope}[on background layer]
-  \node[plate, fit=(X)(t_star)(f_star)(f)(ar)(tau)(mu)(Y),
+  \node[plate, fit=(X)(phi)(t_star)(f_star)(f)(ar)(tau)(mu)(Y),
         label={[lbl]below right:$p = 1\ldots N$ players}] {};
 \end{scope}
 \begin{scope}[on background layer]
@@ -371,7 +375,7 @@ The complete generative structure is summarised in Figure~\ref{fig:graphical_mod
 
 \end{tikzpicture}
 }
-\caption{Directed acyclic graph of the complete generative model. Shaded nodes are observed; unshaded nodes are latent. $Z_p, W$: structured prior mean $Z_p^\top W$ anchoring $X_p$ to draft position, height, and positional role. $\nu^k, w^k$: weight vectors for peak age $t^*_{pk}$ and peak value $f^*_{pk}$. $\beta$: HSGP spectral weights for the concave trajectory $f^k(X_p,t)$. $\rho^k, \sigma^k_{AR}$: AR(1) parameters for the player-metric residual $r^k_{pt}$. $F_m, L_k$: injury-type factors and metric loadings for the injury offset $\tau^k_{ptm}$. $Y^k_{pt}$: observed statistic (Gaussian, Negative-Binomial, Beta, or Beta-Binomial, per Table~\ref{tab:metric_description}).}
+\caption{Directed acyclic graph of the complete generative model. Shaded nodes are observed; unshaded nodes are latent. $Z_p, W$: structured prior mean $Z_p^\top W$ anchoring $X_p$ to draft position, height, and positional role. $\phi(\cdot)$: feature-map projection applied to the embedding before it enters the concave process, chosen so that $\phi(X_p)^\top\phi(X_{p'})\approx\mathcal{K}(X_p,X_{p'})$ --- the identity map $\phi(X_p)=X_p$ recovers the linear GPLVM, while random Fourier features (or another feature map) approximate a nonlinear kernel; $\theta_\phi$ collects its hyperparameters (kernel lengthscale and, for random features, the sampled frequencies). $\nu^k, w^k$: weight vectors reading peak age $t^*_{pk}$ and peak value $f^*_{pk}$ from the embedding. $\beta$: HSGP spectral weights for the concave trajectory $f^k(\phi(X_p),t)$. $\rho^k, \sigma^k_{AR}$: AR(1) parameters for the player-metric residual $r^k_{pt}$. $F_m, L_k$: injury-type factors and metric loadings for the injury offset $\tau^k_{ptm}$. $Y^k_{pt}$: observed statistic (Gaussian, Negative-Binomial, Beta, or Beta-Binomial, per Table~\ref{tab:metric_description}).}
 \label{fig:graphical_model}
 \end{figure}
 

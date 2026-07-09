@@ -721,293 +721,6 @@ def summarize_metric_error_injury_splits(
     return pd.concat(split_frames, ignore_index=True)
 
 
-def make_mu_mcmc(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, shifted_x_time, offset_dict, phi_time):
-    # spd = jax.vmap(jax.vmap(lambda a, l: jnp.sqrt(diag_spectral_density(1, a, l, L_time, M_time))))(alpha_time, ls_deriv)
-    spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
-    # weights = weights * spd[..., None, :, :]
-    weights *= spd
-    wTx = jnp.einsum("...nr, ...mr -> ...nm", X, W * jnp.sqrt(ls[..., None, None]))  
-    psi_x = jnp.concatenate([np.cos(wTx), np.sin(wTx)],-1) * (1/ jnp.sqrt(W.shape[0]))
-    t_max = jnp.tanh(jnp.einsum("...nm, mk -> ...nk", psi_x, t_max_raw, optimize = True) * sigma_t_max) * 5  + offset_dict["t_max"]  
-    c_max = (jnp.einsum("...nm, mk -> ...nk", psi_x, c_max, optimize = True)) * sigma_c_max + offset_dict["c_max"]
-    phi_prime_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))))(t_max)
-    phi_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))))(t_max)
-    phi_double_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))))(t_max)
-    phi_triple_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))))(t_max)
-    phi_prime_t =  vmap_make_convex_phi_prime(np.squeeze(shifted_x_time), np.squeeze(L_time), M_time)
-
-    intercept = jnp.swapaxes(c_max, -2, -1)[..., None]
-    second_deriv = -1 * jnp.einsum("...nm, mdk, ...nkdz, jzk, ...nj -> ...nk", psi_x, weights, phi_double_prime_tmax, weights, psi_x)
-    third_deriv = -1 * jnp.einsum("...nm, mdk, ...nkdz, jzk, ...nj -> ...nk", psi_x, weights, phi_triple_prime_tmax, weights, psi_x)
-    first_deriv = jnp.einsum("...nm, mdk, ...nktdz, jzk, ...nj -> ...knt", psi_x, weights, phi_prime_t_max[:, :,:,:, None, ...] - phi_prime_t[None, None, None, None], weights, psi_x)
-    gamma_phi_gamma_x = jnp.einsum("...nm, mdk, ...nktdz, jzk, ...nj -> ...knt", psi_x, weights, phi_t_max[:,:,:,:,None,...] - phi_time[None, None, None, None] +  phi_prime_t_max[:, :,:,:, None, ...] * (((shifted_x_time - L_time)[None, None, None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
-    mu = gamma_phi_gamma_x + intercept
-    return wTx, mu, t_max, c_max, 0, second_deriv, third_deriv, first_deriv
-
-
-def make_mu_mcmc_fixed_X(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, shifted_x_time, offset_dict,beta_ar, sigma_ar, rho_ar, AR_0_raw, phi_time):
-    spd = jax.vmap(jax.vmap(lambda a, l: jnp.sqrt(diag_spectral_density(1, a, l, L_time, M_time))))(alpha_time, ls_deriv)
-    # spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
-    weights = weights * spd[..., None, :, :]
-    # weights *= spd
-    wTx = jnp.einsum("nr, mr -> nm", X, W * jnp.sqrt(ls))  
-    psi_x = jnp.concatenate([np.cos(wTx), np.sin(wTx)],-1) * (1/ jnp.sqrt(W.shape[0]))
-    t_max = jnp.tanh(jnp.einsum("nm, mk -> nk", psi_x, t_max_raw, optimize = True) * sigma_t_max) * 5  + offset_dict["t_max"]  
-    c_max = (jnp.einsum("nm, mk -> nk", psi_x, c_max, optimize = True)) * sigma_c_max + offset_dict["c_max"]
-    intercept = jnp.transpose(c_max)[..., None]
-    phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
-    phi_double_prime_tmax = jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))(t_max)
-    phi_triple_prime_tmax = jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))(t_max)
-    phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
-    phi_prime_t =  vmap_make_convex_phi_prime(np.squeeze(shifted_x_time), np.squeeze(L_time), M_time)
-
-    second_deriv = -1 * jnp.einsum("nm, ...mdk, nkdz, ...jzk, nj -> ...nk", psi_x, weights, phi_double_prime_tmax, weights, psi_x)
-    third_deriv = -1 * jnp.einsum("nm, ...mdk, nkdz, ...jzk, nj -> ...nk", psi_x, weights, phi_triple_prime_tmax, weights, psi_x)
-    first_deriv = jnp.einsum("nm, ...mdk, nktdz, ...jzk, nj -> ...knt", psi_x, weights, phi_prime_t_max[:,:, None, ...] - phi_prime_t[ None, None], weights, psi_x)
-    gamma_phi_gamma_x = jnp.einsum("nm, ...mdk, nktdz, ...jzk, nj -> ...knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
-    mu = gamma_phi_gamma_x + intercept
-
-    AR_0 = AR_0_raw * (sigma_ar / jnp.sqrt((1 - jnp.square(rho_ar))))
-    def transition_fn(prev, z_t):
-            next = prev * rho_ar + z_t * sigma_ar
-            return next, next
-        
-    _, AR = jax.lax.scan(f = transition_fn, init = AR_0, xs = jnp.transpose(beta_ar, (2, 0, 1, 3, 4)))
-    AR = jnp.transpose(AR, (1,2,3,4,0))
-
-    return wTx, mu, t_max, c_max, AR, second_deriv, third_deriv, first_deriv
-
-def make_mu_rflvm_mcmc_AR(X, ls_deriv, alpha_time, weights, W, W_t_max, W_c_max, ls, ls_t_max, ls_c_max, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, shifted_x_time, offset_dict, rank, beta_ar, sigma_ar, rho_ar, AR_0_raw, phi_time, orthogonalize = False):
-    spd = jnp.squeeze(jnp.sqrt(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(alpha_time, ls_deriv)))
-    # weights = weights * spd[..., None, :, :]
-    weights *= spd.T[None]
-    wTx = jnp.einsum("...nr, mr -> ...nm", X, W * jnp.sqrt(ls))   
-    psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], -1) * (1/ jnp.sqrt(rank ) )
-    wTx_t_max = jnp.einsum("...nr, mr -> ...nm", X, W_t_max * jnp.sqrt(ls_t_max))
-    psi_x_t_max = jnp.concatenate([jnp.cos(wTx_t_max), jnp.sin(wTx_t_max)], axis = -1) * (1/ jnp.sqrt(rank)) 
-    wTx_c_max = jnp.einsum("...nr, mr -> ...nm", X, W_c_max * jnp.sqrt(ls_c_max))
-    psi_x_c_max = jnp.concatenate([jnp.cos(wTx_c_max), jnp.sin(wTx_c_max)], axis = -1) * (1/ jnp.sqrt(rank))
-    t_max =  jnp.tanh(jnp.einsum("ijnm, m... -> ijn...", psi_x_t_max, t_max_raw * sigma_t_max)  + jnp.arctanh(jnp.clip(offset_dict["t_max"] / (float(jnp.squeeze(L_time)) / 2), -1.0 + 1e-6, 1.0 - 1e-6))) * (float(jnp.squeeze(L_time)) / 2) 
-    c_max = jnp.einsum("ijnm, m... -> ijn...",psi_x_c_max, c_max * sigma_c_max)  + offset_dict["c_max"]
-    # intercept = jnp.transpose(c_max)[..., None]
-    phi_prime_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))))(t_max)
-    phi_double_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))))(t_max)
-    phi_triple_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))))(t_max)
-    phi_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))))(t_max)
-    phi_prime_t =  vmap_make_convex_phi_prime(np.squeeze(shifted_x_time), np.squeeze(L_time), M_time)
-    intercept = jnp.swapaxes(c_max, -2, -1)[..., None]
-    AR_0 = AR_0_raw * (sigma_ar / jnp.sqrt((1 - jnp.square(rho_ar))))
-    def transition_fn(prev, z_t):
-            next = prev * rho_ar + z_t * sigma_ar
-            return next, next
-        
-    _, AR = jax.lax.scan(f = transition_fn, init = AR_0, xs = jnp.transpose(beta_ar, (2, 0, 1, 3, 4)))
-    AR = jnp.transpose(AR, (1,2,3,4,0))
-    AR = AR - jnp.mean(AR, axis=-1, keepdims=True)
-    second_deriv = -1 * jnp.einsum("...nm, mdk, ...nkdz, jzk, ...nj -> ...nk", psi_x, weights, phi_double_prime_tmax, weights, psi_x)
-    third_deriv = -1 * jnp.einsum("...nm, mdk, ...nkdz, jzk, ...nj -> ...nk", psi_x, weights, phi_triple_prime_tmax, weights, psi_x)
-    first_deriv = jnp.einsum("...nm, mdk, ...nktdz, jzk, ...nj -> ...knt", psi_x, weights, phi_prime_t_max[:, :,:,:, None, ...] - phi_prime_t[None, None, None, None], weights, psi_x)
-    gamma_phi_gamma_x = jnp.einsum("...nm, mdk, ...nktdz, jzk, ...nj -> ...knt", psi_x, weights, phi_t_max[:,:,:,:,None,...] - phi_time[None, None, None, None] +  phi_prime_t_max[:, :,:,:, None, ...] * (((shifted_x_time - L_time)[None, None, None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
-    mu = (gamma_phi_gamma_x + intercept)
-    if orthogonalize:
-        Q = jnp.stack([mu, jnp.ones_like(mu)], axis = -1)
-        AR = orthogonalize_ar(AR, Q)
-    return wTx, mu, t_max, c_max, AR, second_deriv, third_deriv, first_deriv
-
-def make_mu_mcmc_AR_fixed_X(X, ls_deriv, alpha_time, weights, W, ls, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, shifted_x_time, offset_dict, beta_ar, sigma_ar, rho_ar, phi_time):
-    # spd = jax.vmap(jax.vmap(lambda a, l: jnp.sqrt(diag_spectral_density(1, a, l, L_time, M_time))))(alpha_time, ls_deriv)
-    spd = jnp.sqrt(diag_spectral_density(1, alpha_time, ls_deriv, L_time, M_time))
-    # weights = weights * spd[..., None, :, :]
-    weights *= spd
-    wTx = jnp.einsum("nr, mr -> nm", X, W * jnp.sqrt(ls))  
-    psi_x = jnp.concatenate([np.cos(wTx), np.sin(wTx)],-1) * (1/ jnp.sqrt(W.shape[0]))
-    t_max = jnp.tanh(jnp.einsum("nm, mk -> nk", psi_x, t_max_raw, optimize = True) * sigma_t_max) * 5  + offset_dict["t_max"]  
-    c_max = (jnp.einsum("nm, mk -> nk", psi_x, c_max, optimize = True)) * sigma_c_max + offset_dict["c_max"]
-    intercept = jnp.transpose(c_max)[..., None]
-    phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
-    phi_double_prime_tmax = jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))(t_max)
-    phi_triple_prime_tmax = jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))(t_max)
-    phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
-    phi_prime_t =  vmap_make_convex_phi_prime(np.squeeze(shifted_x_time), np.squeeze(L_time), M_time)
-
-    # intercept = jnp.swapaxes(c_max, -2, -1)[..., None]
-    time_delta = (shifted_x_time[None] - shifted_x_time[..., None])[None, None]
-    kernel = (1 / (1 - jnp.square(rho_ar[..., None]))) * (rho_ar[..., None] ** jnp.abs(time_delta[None])) * sigma_ar[..., None] 
-    L = jnp.linalg.cholesky(kernel)  # (K, T, T)
-    # Apply Cholesky: result (K, N, T)
-    second_deriv = -1 * jnp.einsum("nm, mdk, nkdz, jzk, nj -> nk", psi_x, weights, phi_double_prime_tmax, weights, psi_x)
-    third_deriv = -1 * jnp.einsum("nm, mdk, nkdz, jzk, nj -> nk", psi_x, weights, phi_triple_prime_tmax, weights, psi_x)
-    first_deriv = jnp.einsum("...nm, mdk, ...nktdz, jzk, ...nj -> ...nk", psi_x, weights, phi_prime_t_max[:,:, None, ...] - phi_prime_t[ None, None], weights, psi_x)
-    AR = jnp.einsum('...ktd,...knd->...knt', L, beta_ar)
-    gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
-    mu = (gamma_phi_gamma_x + intercept)[None, None] 
-    return wTx, mu, t_max, c_max, AR, second_deriv, third_deriv, first_deriv
-
-def make_mu_rflvm(X, ls_deriv, alpha_time, weights, W, W_t_max, W_c_max, ls,ls_t_max, ls_c_max, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, phi_time, shifted_x_time, offset_dict):
-    spd = jnp.squeeze(jnp.sqrt(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(alpha_time, ls_deriv)))
-    weights = weights * spd.T[None] 
-    wTx = jnp.einsum("nr, mr -> nm", X, W * jnp.sqrt(ls))   
-    psi_x = jnp.hstack([jnp.cos(wTx), jnp.sin(wTx)]) * (1/ jnp.sqrt(W.shape[0])) 
-    wTx_t_max = jnp.einsum("nr, mr -> nm", X, W_t_max * jnp.sqrt(ls_t_max))
-    psi_x_t_max = jnp.concatenate([jnp.cos(wTx_t_max), jnp.sin(wTx_t_max)], axis = -1) * (1/ jnp.sqrt(W_t_max.shape[0]))   
-    wTx_c_max = jnp.einsum("nr, mr -> nm", X, W_c_max * jnp.sqrt(ls_c_max))
-    psi_x_c_max = jnp.concatenate([jnp.cos(wTx_c_max), jnp.sin(wTx_c_max)], axis = -1) * (1/ W_c_max.shape[0])
-    t_max =  jnp.tanh(make_psi_gamma(psi_x_t_max, t_max_raw * sigma_t_max)  + jnp.arctanh(jnp.clip(offset_dict["t_max"] / (float(jnp.squeeze(L_time)) / 2), -1.0 + 1e-6, 1.0 - 1e-6))) * (float(jnp.squeeze(L_time)) / 2) 
-    c_max = make_psi_gamma(psi_x_c_max, c_max * sigma_c_max)  + offset_dict["c_max"]
-    phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
-    phi_double_prime_tmax = jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))(t_max)
-    phi_triple_prime_tmax = jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))(t_max)
-    phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
-    phi_prime_t =  vmap_make_convex_phi_prime(jnp.squeeze(shifted_x_time), np.squeeze(L_time), M_time)
-    intercept = jnp.transpose(c_max)[..., None]
-    gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
-    mu = intercept + gamma_phi_gamma_x
-    second_deriv = -1 * jnp.einsum("nm, mdk, nkdz, jzk, nj -> kn", psi_x, weights, phi_double_prime_tmax, weights, psi_x)
-    third_deriv = -1 * jnp.einsum("nm, mdk, nkdz, jzk, nj -> kn", psi_x, weights, phi_triple_prime_tmax, weights, psi_x)
-    first_deriv = jnp.einsum("nm, mdk, nktdz, jzk, nj -> nk", psi_x, weights, phi_prime_t_max[:,:, None, ...] - phi_prime_t[ None, None], weights, psi_x)
-    
-    return mu, t_max, c_max, 0, second_deriv, third_deriv, first_deriv
-
-def make_mu_hsgp(X, ls_deriv, alpha_time, alpha_X, weights, ls, ls_c_max, ls_t_max, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, phi_time, shifted_x_time, offset_dict, rank, L_X, M_X ):
-    spd_time = jnp.squeeze(jnp.sqrt(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(alpha_time, ls_deriv)))
-    spd_X = jax.vmap(lambda alpha: jnp.sqrt(diag_spectral_density(rank, alpha, ls, L_X, M_X)))(alpha_X)
-    spd = jnp.einsum("tk, km -> mtk", spd_time, spd_X)
-    spd_c_max = jax.vmap(lambda alpha: jnp.sqrt(diag_spectral_density(rank, alpha, ls_c_max, L_X, M_X)))(sigma_c_max)
-    spd_t_max = jax.vmap(lambda alpha: jnp.sqrt(diag_spectral_density(rank, alpha, ls_t_max, L_X, M_X)))(sigma_t_max)
-    weights = weights * spd  
-    psi_x = eigenfunctions_multivariate(X, L_X, M_X)
-    t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw * spd_t_max.T)   + jnp.arctanh(jnp.clip(offset_dict["t_max"] / (float(jnp.squeeze(L_time)) / 2), -1.0 + 1e-6, 1.0 - 1e-6))) * (float(jnp.squeeze(L_time)) / 2) 
-    c_max = make_psi_gamma(psi_x, c_max * spd_c_max.T)  + offset_dict["c_max"]
-    phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
-    phi_double_prime_tmax = jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))(t_max)
-    phi_triple_prime_tmax = jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))(t_max)
-    phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
-    phi_prime_t =  vmap_make_convex_phi_prime(np.squeeze(shifted_x_time), np.squeeze(L_time), M_time)
-    intercept = jnp.transpose(c_max)[..., None]
-    gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
-    mu = intercept + gamma_phi_gamma_x
-    second_deriv = -1 * jnp.einsum("nm, mdk, nkdz, jzk, nj -> kn", psi_x, weights, phi_double_prime_tmax, weights, psi_x)
-    third_deriv = -1 * jnp.einsum("nm, mdk, nkdz, jzk, nj -> kn", psi_x, weights, phi_triple_prime_tmax, weights, psi_x)
-    first_deriv = jnp.einsum("nm, mdk, nktdz, jzk, nj -> nk", psi_x, weights, phi_prime_t_max[:,:, None, ...] - phi_prime_t[ None, None], weights, psi_x)
-    
-    return mu, t_max, c_max, 0, second_deriv, third_deriv, first_deriv
-
-def make_mu_linear(X, ls_deriv, alpha_time, weights, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, phi_time, shifted_x_time, rank, offset_dict):
-    spd_time = jnp.squeeze(jnp.sqrt(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(alpha_time, ls_deriv)))
-
-    weights = weights * spd_time.T[None] 
-    psi_x = X
-    r = psi_x.shape[-1]
-    t_amp = float(jnp.squeeze(L_time)) / 2
-    eps_t = 1e-6
-    t_offset_scaled = jnp.clip(offset_dict["t_max"] / t_amp, -1.0 + eps_t, 1.0 - eps_t)
-    t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw * sigma_t_max) + jnp.arctanh(t_offset_scaled)) * t_amp
-    c_max = make_psi_gamma(psi_x, c_max * sigma_c_max) / jnp.sqrt(r) + offset_dict["c_max"]
-    phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
-    phi_double_prime_tmax = jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))(t_max)
-    phi_triple_prime_tmax = jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))(t_max)
-    phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
-    phi_prime_t =  vmap_make_convex_phi_prime(jnp.squeeze(shifted_x_time), jnp.squeeze(L_time), M_time)
-    intercept = jnp.transpose(c_max)[..., None]
-    gamma_phi_gamma_x = jnp.einsum("nm, mdk, nktdz, jzk, nj -> knt", psi_x, weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), weights, psi_x) / r
-    mu = intercept + gamma_phi_gamma_x
-    second_deriv = -1 * jnp.einsum("nm, mdk, nkdz, jzk, nj -> kn", psi_x, weights, phi_double_prime_tmax, weights, psi_x) / r
-    third_deriv = -1 * jnp.einsum("nm, mdk, nkdz, jzk, nj -> kn", psi_x, weights, phi_triple_prime_tmax, weights, psi_x) / r
-    first_deriv = jnp.einsum("nm, mdk, nktdz, jzk, nj -> nk", psi_x, weights, phi_prime_t_max[:,:, None, ...] - phi_prime_t[ None, None], weights, psi_x) / r
-    return mu, t_max, c_max, 0, second_deriv, third_deriv, first_deriv
-
-
-def make_mu_linear_mcmc(X, ls_deriv, alpha_time, weights, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, phi_time, shifted_x_time,rank,  offset_dict):
-    spd_time = jnp.squeeze(jnp.sqrt(jax.vmap(jax.vmap(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))))(alpha_time, ls_deriv)))
-    # spd_time: (chains, draws, k, M_time)
-    weights = weights * jnp.swapaxes(spd_time, -1, -2)[..., None, :, :]
-    psi_x = X
-    r = X.shape[-1]
-    t_max = jnp.tanh(jnp.einsum("ijnm, ijm... -> ijn...", X, t_max_raw * sigma_t_max[..., None, :])  + jnp.arctanh(jnp.clip(offset_dict["t_max"] / (float(jnp.squeeze(L_time)) / 2), -1.0 + 1e-6, 1.0 - 1e-6))) * (float(jnp.squeeze(L_time)) / 2)
-    c_max = jnp.einsum("ijnm, ijm... -> ijn...", X, c_max * sigma_c_max[..., None, :]) / jnp.sqrt(r) + offset_dict["c_max"]
-
-    phi_prime_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))))(t_max)
-    phi_double_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))))(t_max)
-    phi_triple_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))))(t_max)
-    phi_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))))(t_max)
-    phi_prime_t =  vmap_make_convex_phi_prime(jnp.squeeze(shifted_x_time), jnp.squeeze(L_time), M_time)
-    intercept = jnp.swapaxes(c_max, -2, -1)[..., None]
-
-    gamma_phi_gamma_x = jnp.einsum("...nm, ...mdk, ...nktdz, ...jzk, ...nj -> ...knt", psi_x, weights, phi_t_max[:,:,:,:,None,...] - phi_time[None, None, None, None] +  phi_prime_t_max[:, :,:,:, None, ...] * (((shifted_x_time - L_time)[None, None, None, None] - t_max[...,None])[..., None, None]), weights, psi_x) / r
-    mu = intercept + gamma_phi_gamma_x
-    second_deriv = -1 * jnp.einsum("...nm, ...mdk, ...nkdz, ...jzk, ...nj -> ...nk", psi_x, weights, phi_double_prime_tmax, weights, psi_x) / r
-    third_deriv = -1 * jnp.einsum("...nm, ...mdk, ...nkdz, ...jzk, ...nj -> ...nk", psi_x, weights, phi_triple_prime_tmax, weights, psi_x) / r
-    first_deriv = jnp.einsum("...nm, ...mdk, ...nktdz, ...jzk, ...nj -> ...knt", psi_x, weights, phi_prime_t_max[:, :,:,:, None, ...] - phi_prime_t[None, None, None, None], weights, psi_x) / r
-
-    return None, mu, t_max, c_max, 0, second_deriv, third_deriv, first_deriv
-
-def make_mu_linear_mcmc_AR(X, ls_deriv, alpha_time, weights, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, phi_time, shifted_x_time,rank,  offset_dict, beta_ar, sigma_ar, rho_ar, AR_0_raw, orthogonalize = False):
-    spd_time = jnp.squeeze(jnp.sqrt(jax.vmap(jax.vmap(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))))(alpha_time, ls_deriv)))
-    # spd_time: (chains, draws, k, M_time)
-    weights = weights * jnp.swapaxes(spd_time, -1, -2)[..., None, :, :]
-    psi_x = X
-    r = X.shape[-1]
-    t_max = jnp.tanh(jnp.einsum("ijnm, ijm... -> ijn...", X, t_max_raw * sigma_t_max[..., None, :])  + jnp.arctanh(jnp.clip(offset_dict["t_max"] / (float(jnp.squeeze(L_time)) / 2), -1.0 + 1e-6, 1.0 - 1e-6))) * (float(jnp.squeeze(L_time)) / 2)
-    c_max = jnp.einsum("ijnm, ijm... -> ijn...", X, c_max * sigma_c_max[..., None, :]) / jnp.sqrt(r) + offset_dict["c_max"]
-    phi_prime_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))))(t_max)
-    phi_double_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))))(t_max)
-    phi_triple_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))))(t_max)
-    phi_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))))(t_max)
-    phi_prime_t =  vmap_make_convex_phi_prime(jnp.squeeze(shifted_x_time), jnp.squeeze(L_time), M_time)
-    intercept = jnp.swapaxes(c_max, -2, -1)[..., None]
-    gamma_phi_gamma_x = jnp.einsum("...nm, ...mdk, ...nktdz, ...jzk, ...nj -> ...knt", psi_x, weights, phi_t_max[:,:,:,:,None,...] - phi_time[None, None, None, None] +  phi_prime_t_max[:, :,:,:, None, ...] * (((shifted_x_time - L_time)[None, None, None, None] - t_max[...,None])[..., None, None]), weights, psi_x) / r
-    mu = intercept + gamma_phi_gamma_x
-    second_deriv = -1 * jnp.einsum("...nm, ...mdk, ...nkdz, ...jzk, ...nj -> ...nk", psi_x, weights, phi_double_prime_tmax, weights, psi_x) / r
-    third_deriv = -1 * jnp.einsum("...nm, ...mdk, ...nkdz, ...jzk, ...nj -> ...nk", psi_x, weights, phi_triple_prime_tmax, weights, psi_x) / r
-    first_deriv = jnp.einsum("...nm, ...mdk, ...nktdz, ...jzk, ...nj -> ...knt", psi_x, weights, phi_prime_t_max[:, :,:,:, None, ...] - phi_prime_t[None, None, None, None], weights, psi_x) / r
-    AR_0 = AR_0_raw * (sigma_ar / jnp.sqrt((1 - jnp.square(rho_ar))))
-    def transition_fn(prev, z_t):
-            next = prev * rho_ar + z_t * sigma_ar
-            return next, next
-        
-    _, AR = jax.lax.scan(f = transition_fn, init = AR_0, xs = jnp.transpose(beta_ar, (2, 0, 1, 3, 4)))
-    AR = jnp.transpose(AR, (1,2,3,4,0))
-    AR = AR - jnp.mean(AR, axis=-1, keepdims=True)
-
-    return None, mu, t_max, c_max, AR, second_deriv, third_deriv, first_deriv
-
-def make_mu_hsgp_mcmc_AR(X, ls_deriv, alpha_time, alpha_X, weights, ls, ls_c_max, ls_t_max, c_max, t_max_raw, sigma_t_max, sigma_c_max, L_time, M_time, phi_time, shifted_x_time, offset_dict, rank, L_X, M_X , beta_ar, sigma_ar, rho_ar, AR_0_raw, orthogonalize = False):
-
-    spd_time = jnp.squeeze(jnp.sqrt(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(alpha_time, ls_deriv)))
-    spd_X = jax.vmap(lambda alpha: jnp.sqrt(diag_spectral_density(rank, alpha, ls, L_X, M_X)))(alpha_X)
-    spd = jnp.einsum("tk, km -> mtk", spd_time, spd_X)
-    spd_c_max = jax.vmap(lambda alpha: jnp.sqrt(diag_spectral_density(rank, alpha, ls_c_max, L_X, M_X)))(sigma_c_max)
-    spd_t_max = jax.vmap(lambda alpha: jnp.sqrt(diag_spectral_density(rank, alpha, ls_t_max, L_X, M_X)))(sigma_t_max)
-    weights *= spd
-    psi_x = jax.vmap(jax.vmap(lambda z: eigenfunctions_multivariate(z, L_X, M_X)))(X)
-
-    t_max = jnp.tanh(jnp.einsum("ijnm, m... -> ijn...", psi_x, t_max_raw * spd_t_max.T)   + jnp.arctanh(jnp.clip(offset_dict["t_max"] / (float(jnp.squeeze(L_time)) / 2), -1.0 + 1e-6, 1.0 - 1e-6))) * (float(jnp.squeeze(L_time)) / 2) 
-    c_max = jnp.einsum("ijnm, m... -> ijn...",psi_x, c_max * spd_c_max.T)  + offset_dict["c_max"]
-    # intercept = jnp.transpose(c_max)[..., None]
-    phi_prime_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))))(t_max)
-    phi_double_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_double_prime(t, L_time, M_time))))(t_max)
-    phi_triple_prime_tmax = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi_triple_prime(t, L_time, M_time))))(t_max)
-    phi_t_max = jax.vmap(jax.vmap(jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))))(t_max)
-    phi_prime_t =  vmap_make_convex_phi_prime(np.squeeze(shifted_x_time), np.squeeze(L_time), M_time)
-    intercept = jnp.swapaxes(c_max, -2, -1)[..., None]
-    AR_0 = AR_0_raw * (sigma_ar / jnp.sqrt((1 - jnp.square(rho_ar))))
-    def transition_fn(prev, z_t):
-            next = prev * rho_ar + z_t * sigma_ar
-            return next, next
-        
-    _, AR = jax.lax.scan(f = transition_fn, init = AR_0, xs = jnp.transpose(beta_ar, (2, 0, 1, 3, 4)))
-    AR = jnp.transpose(AR, (1,2,3,4,0))
-    AR = AR - jnp.mean(AR, axis=-1, keepdims=True)
-    second_deriv = -1 * jnp.einsum("...nm, mdk, ...nkdz, jzk, ...nj -> ...nk", psi_x, weights, phi_double_prime_tmax, weights, psi_x)
-    third_deriv = -1 * jnp.einsum("...nm, mdk, ...nkdz, jzk, ...nj -> ...nk", psi_x, weights, phi_triple_prime_tmax, weights, psi_x)
-    first_deriv = jnp.einsum("...nm, mdk, ...nktdz, jzk, ...nj -> ...knt", psi_x, weights, phi_prime_t_max[:, :,:,:, None, ...] - phi_prime_t[None, None, None, None], weights, psi_x)
-    gamma_phi_gamma_x = jnp.einsum("...nm, mdk, ...nktdz, jzk, ...nj -> ...knt", psi_x, weights, phi_t_max[:,:,:,:,None,...] - phi_time[None, None, None, None] +  phi_prime_t_max[:, :,:,:, None, ...] * (((shifted_x_time - L_time)[None, None, None, None] - t_max[...,None])[..., None, None]), weights, psi_x)
-    mu = (gamma_phi_gamma_x + intercept)
-    if orthogonalize:
-        Q = jnp.stack([mu, jnp.ones_like(mu)], axis = -1)
-        AR = orthogonalize_ar(AR, Q)
-    return None, mu, t_max, c_max, AR, second_deriv, third_deriv, first_deriv
-
 def compute_residuals_map(map_values, obs_values, exposures, metric_output, metrics, gaussian_var = None, nb_variance = None, beta_binom_variance = None, beta_variance = None, ar_metric_indices = None):
     residuals = []
     rho = []
@@ -1274,17 +987,19 @@ def compute_priors(Y, exposures, metric_output, exposure_list=None):
         exposures: list or array of exposure weights, same shape as Y
         metric_output: list of families per metric ("gaussian", "poisson", "negative-binomial", "binomial", "beta", ...)
         exposure_list: optional list for special handling ("simple_exposure")
-    
+
     Returns:
         prior_max_mean: list of max value means on natural parameter scale
         prior_max_var: list of max value variances
         prior_peak_mean: list of peak indices
         prior_peak_var: list of peak variances
+        prior_mean_natural: list of overall weighted means on natural parameter scale (5th return)
     """
     prior_max_mean = []
     prior_max_var = []
     prior_peak_mean = []
     prior_peak_var = []
+    prior_mean_natural = []
     
     def _safe_nanmax_last_axis(x):
         valid = jnp.isfinite(x)
@@ -1324,8 +1039,12 @@ def compute_priors(Y, exposures, metric_output, exposure_list=None):
         if family in ["poisson", "negative-binomial"]:
             Y_scaled = Y[idx] / jnp.exp(exposures[idx])
             individual_weight = jnp.nansum(jnp.exp(exposures[idx]), axis = -1)
-        elif family in ["binomial", "beta-binomial", "bernoulli", "beta"]:
+        elif family in ["binomial", "beta-binomial", "bernoulli"]:
             Y_scaled = Y[idx] / exposures[idx]
+        # NOTE: "beta" intentionally excluded — beta metrics (usg, pct_minutes) are ALREADY
+        # proportions; their exposure (minutes, games) is the precision weight, not a denominator.
+        # Dividing here mis-scaled the logit offset by ~3 units (usg center -> expit(-4.4)=0.013 vs
+        # observed 0.20), collapsing the beta prior predictive to ~0. Keep Y_scaled = raw proportion.
 
         valid_scaled = jnp.isfinite(Y_scaled)
         Y_scaled = jnp.where(valid_scaled, Y_scaled, jnp.nan)
@@ -1370,39 +1089,59 @@ def compute_priors(Y, exposures, metric_output, exposure_list=None):
         peak = jnp.nan_to_num(peak, nan=default_peak, posinf=default_peak, neginf=default_peak)
         peak_var = jnp.nan_to_num(peak_var, nan=1.0, posinf=1.0, neginf=1.0)
 
+        # Per-metric weighted overall mean in natural parameter space (used for TVLinearLVM intercept).
+        # Compute per-player mean of Y_scaled, then aggregate with playing-time weights.
+        y_scaled_per_player = jnp.where(
+            jnp.any(jnp.isfinite(Y_scaled), axis=-1),
+            jnp.nanmean(jnp.where(jnp.isfinite(Y_scaled), Y_scaled, jnp.nan), axis=-1),
+            jnp.nan,
+        )  # (n,)
+        valid_player = jnp.isfinite(y_scaled_per_player) & (individual_weight > 0)
+        valid_ind_w = jnp.where(valid_player, individual_weight, 0.0)
+        weight_sum_ind = jnp.maximum(jnp.sum(valid_ind_w), 1e-8)
+        p_mean_scaled = jnp.sum(jnp.where(valid_player, y_scaled_per_player, 0.0) * valid_ind_w) / weight_sum_ind
+
+        if family == "gaussian":
+            mu_eta_mean = p_mean_scaled
+        elif family in ["poisson", "negative-binomial"]:
+            mu_eta_mean = jnp.log(jnp.maximum(p_mean_scaled, 1e-12))
+        elif family in ["binomial", "bernoulli", "beta", "beta-binomial"]:
+            p_mean_clip = jnp.clip(p_mean_scaled, 1e-6, 1 - 1e-6)
+            mu_eta_mean = jnp.log(p_mean_clip / (1 - p_mean_clip)) if exposure_list[idx] != "simple_exposure" else 0.0
+        else:
+            mu_eta_mean = 0.0
+        mu_eta_mean = jnp.nan_to_num(mu_eta_mean, nan=0.0, posinf=0.0, neginf=0.0)
+
         prior_max_mean.append(mu_eta)
         prior_max_var.append(tau2)
         prior_peak_mean.append(peak)
         prior_peak_var.append(peak_var)
-    return jnp.array(prior_max_mean), jnp.array(prior_max_var), jnp.array(prior_peak_mean), jnp.array(prior_peak_var)
+        prior_mean_natural.append(mu_eta_mean)
+    return jnp.array(prior_max_mean), jnp.array(prior_max_var), jnp.array(prior_peak_mean), jnp.array(prior_peak_var), jnp.array(prior_mean_natural)
 
 
 def make_survival_linear_injury_mcmc(
     X,
-    exit_global_offset,
+    gamma_global_log,
     exit,
     exit_rate,
     injury_factor,
     injury_exit_loading,
     injury_exit_global_offset,
-    injury_scale_loading,
-    injury_scale_global_offset,
-    sigma_injury_scale,
-    injury_scale_raw,
     injury_indicator,
     injury_type,
     entrance_times,
     basis,
     sigma_exit_scale=1.0,
-    scale_global_log=None,
+    eta_global_log=None,
     eps=1e-6,
     random_seed=0,
     age_min=18,
+    last_obs_times=None,
 ):
-    if scale_global_log is None:
-        scale_global_log = jnp.log(11.5)
+    if eta_global_log is None:
+        eta_global_log = jnp.log(0.04)
     entrance_times = jnp.maximum(jnp.nan_to_num(entrance_times, nan=eps, posinf=1e3, neginf=eps), eps)
-    # Entrance is always observed — use directly
     entrance_latent = entrance_times[None, None]
 
     if injury_indicator.ndim == 3:
@@ -1412,43 +1151,31 @@ def make_survival_linear_injury_mcmc(
 
     r = exit.shape[-1]
     exit_raw = jnp.einsum("...nr,...r->...n", X, exit) / jnp.sqrt(r) * sigma_exit_scale[..., None]
-    # ---- Injury effect on Weibull scale (additive in log-space = multiplicative on career length) ---- #
-    injury_scale_mean = jnp.einsum("...ip,...p->...i", injury_factor, injury_scale_loading)  # (..., i)
-    injury_scale_total = (
-        injury_scale_global_offset[..., None, None]                            # (..., 1, 1)
-        + injury_scale_mean[..., None, :]                                      # (..., 1, i)
-        + injury_scale_raw * sigma_injury_scale[..., None, None]               # (..., n, i)
-    )  # (..., n, i)
-    injury_type_scalar = injury_type[:, -1]  # (n,) — final injury-type code per player
-    _scale_lookup = jnp.concatenate([jnp.zeros_like(injury_scale_total[..., :1]), injury_scale_total], axis=-1)
-    injury_scale_effect = jnp.take_along_axis(
-        _scale_lookup,                                                         # (..., n, i+1)
-        injury_type_scalar[None, None, :, None],                               # (1, 1, n, 1)
-        axis=-1,
-    ).squeeze(-1)  # (..., n)
-    scale = jnp.exp(scale_global_log[..., None] + exit_raw + injury_scale_effect)[..., None]
-    injury_exit_mean = jnp.einsum("...ip,...p->...i", injury_factor, injury_exit_loading)
+
+    # Baseline hazard η — from latent X only, injury does not elevate it
+    eta = jnp.exp(jnp.asarray(eta_global_log)[..., None] + exit_raw)[..., None]  # (..., n, 1)
+
+    # Injury effect on aging rate γ
+    injury_exit_mean = jnp.einsum("...ip,...p->...i", injury_factor, injury_exit_loading)  # (..., i)
     injury_exit_total = (
         injury_exit_global_offset[..., None, None, None]
         + injury_exit_mean[..., None, None, :]
-    )
+    )  # (..., 1, 1, i)
     _exit_lookup = jnp.concatenate([jnp.zeros_like(injury_exit_total[..., :1]), injury_exit_total], axis=-1)
     injury_effect_exit = jnp.take_along_axis(
         _exit_lookup,
         injury_type[None, None, ..., None],
         axis=-1,
-    ).squeeze(-1)
-    exit_rate_base = jnp.einsum("...nr,...r->...n", X, exit_rate)[..., None]
-    exit_rate_raw = exit_rate_base + injury_effect_exit + exit_global_offset[..., None, None]
-    concentration = 1.0 + 2*jax.nn.sigmoid(exit_rate_raw)
-    concentration_is_time_varying = jnp.any(
-        jnp.abs(concentration - concentration[..., :1]) > 1e-6,
-        axis=-1,
-    )
+    ).squeeze(-1)  # (..., n, t)
+
+    exit_rate_base = jnp.einsum("...nr,...r->...n", X, exit_rate)[..., None]  # (..., n, 1)
+    gamma = jnp.exp(
+        jnp.asarray(gamma_global_log)[..., None, None] + exit_rate_base + injury_effect_exit
+    )  # (..., n, t) — time-varying aging rate
 
     basis_duration = jnp.maximum(jnp.asarray(basis) - float(age_min), 0.0)
-    num_intervals = concentration.shape[-1]
-    interval_starts = jnp.arange(num_intervals, dtype=concentration.dtype)[None, None, None, :]
+    num_intervals = gamma.shape[-1]
+    interval_starts = jnp.arange(num_intervals, dtype=gamma.dtype)[None, None, None, :]
     interval_ends = interval_starts + 1.0
     entry = entrance_latent[..., None]
 
@@ -1457,81 +1184,55 @@ def make_survival_linear_injury_mcmc(
         seg_start = jnp.maximum(interval_starts, entry)
         seg_end = jnp.minimum(interval_ends, stop[..., None])
         valid_seg = seg_end > seg_start
-        seg_start_safe = jnp.maximum(seg_start, eps)
-        seg_end_safe = jnp.maximum(seg_end, eps)
-        log_scale = jnp.log(scale)
-        seg_start_exp = jnp.clip(concentration * (jnp.log(seg_start_safe) - log_scale), a_min=-40.0, a_max=40.0)
-        seg_end_exp = jnp.clip(concentration * (jnp.log(seg_end_safe) - log_scale), a_min=-40.0, a_max=40.0)
-        delta_h = jnp.where(valid_seg, jnp.exp(seg_end_exp) - jnp.exp(seg_start_exp), 0.0)
-        return delta_h.sum(axis=-1)
-
-    cumulative_h_interval = jax.vmap(cumulative_h_at_stop, in_axes=0, out_axes=-1)(basis_duration)
-
-    concentration_const = concentration[..., 0]
-
-    def cumulative_h_closed_at_stop(stop_t):
-        stop = jnp.broadcast_to(stop_t, entrance_latent.shape)
-        entry_effective = jnp.maximum(entrance_latent, 0.0)
-        stop_effective = jnp.maximum(stop, 0.0)
-        has_window = stop_effective > entry_effective
-        scale_base = scale.squeeze(-1)
-        return jnp.where(
-            has_window,
-            jnp.power(stop_effective / scale_base, concentration_const)
-            - jnp.power(entry_effective / scale_base, concentration_const),
+        seg_start_safe = jnp.where(valid_seg, seg_start, 0.0)
+        seg_end_safe = jnp.where(valid_seg, seg_end, 0.0)
+        ratio = eta / gamma  # (..., n, t) — time-varying
+        delta_h = jnp.where(
+            valid_seg,
+            ratio * (jnp.exp(gamma * seg_end_safe) - jnp.exp(gamma * seg_start_safe)),
             0.0,
         )
+        return delta_h.sum(axis=-1)
 
-    cumulative_h_closed = jax.vmap(cumulative_h_closed_at_stop, in_axes=0, out_axes=-1)(basis_duration)
-    cumulative_h = jnp.where(
-        concentration_is_time_varying[..., None],
-        cumulative_h_interval,
-        cumulative_h_closed,
-    )
+    cumulative_h = jax.vmap(cumulative_h_at_stop, in_axes=0, out_axes=-1)(basis_duration)
     at_risk = basis_duration[None, None, None, :] >= entrance_latent[..., None]
     exit_survival = jnp.where(at_risk, jnp.exp(-cumulative_h), jnp.nan)
 
     stop_grid = basis_duration[None, None, None, :]
     interval_idx = jnp.clip(jnp.floor(stop_grid).astype(jnp.int32), 0, num_intervals - 1)
-    concentration_grid_interval = jnp.take_along_axis(concentration, interval_idx, axis=-1)
-    concentration_grid_closed = concentration_const[..., None]
-    concentration_grid = jnp.where(
-        concentration_is_time_varying[..., None],
-        concentration_grid_interval,
-        concentration_grid_closed,
-    )
+    gamma_grid = jnp.take_along_axis(gamma, interval_idx, axis=-1)
     duration_grid = jnp.maximum(stop_grid, eps)
-    exit_hazard = (concentration_grid / scale) * jnp.power(duration_grid / scale, concentration_grid - 1.0)
+    exit_hazard = eta * jnp.exp(gamma_grid * duration_grid)
     exit_hazard = jnp.where(at_risk, exit_hazard, jnp.nan)
 
-    scale_base = scale.squeeze(-1)  # [..., n] — full MCMC shape
+    eta_base = eta.squeeze(-1)   # (..., n)
+    entrance_latent_bc = jnp.broadcast_to(entrance_latent, eta_base.shape)
+    _last_obs_latent = jnp.asarray(last_obs_times)[None, None] if last_obs_times is not None else entrance_latent
+    last_obs_latent_bc = jnp.broadcast_to(_last_obs_latent, eta_base.shape)
 
     key = random.PRNGKey(random_seed)
-    u = jnp.clip(random.uniform(key, shape=scale_base.shape), eps, 1.0 - eps)
+    u = jnp.clip(random.uniform(key, shape=eta_base.shape), eps, 1.0 - eps)
     target = -jnp.log(u)
-
-    # Broadcast entrance_latent to the full MCMC shape so carry dtypes are stable
-    entrance_latent_bc = jnp.broadcast_to(entrance_latent, scale_base.shape)
 
     def sample_step(interval_idx, state):
         sampled_so_far, cumulative_h_so_far, active_so_far = state
-        k_i = concentration[..., interval_idx]
-        start_i = jnp.maximum(jnp.asarray(interval_idx, dtype=entrance_latent_bc.dtype), entrance_latent_bc)
+        gamma_i = gamma[..., interval_idx]   # (..., n) — aging rate for this interval
+        start_i = jnp.maximum(jnp.asarray(interval_idx, dtype=last_obs_latent_bc.dtype), last_obs_latent_bc)
         end_i = jnp.asarray(interval_idx + 1.0, dtype=entrance_latent_bc.dtype)
         valid_i = end_i > start_i
+        # Gompertz ΔH for interval: (η/γ_i) * (exp(γ_i * end) - exp(γ_i * start))
         delta_h_i = jnp.where(
             valid_i,
-            jnp.power(end_i / scale_base, k_i) - jnp.power(start_i / scale_base, k_i),
+            (eta_base / gamma_i) * (jnp.exp(gamma_i * end_i) - jnp.exp(gamma_i * start_i)),
             0.0,
         )
 
         hit_i = active_so_far & valid_i & (cumulative_h_so_far + delta_h_i >= target)
         rem_i = target - cumulative_h_so_far
-        start_term_i = jnp.power(start_i / scale_base, k_i)
-        sampled_i = scale_base * jnp.power(
-            jnp.maximum(rem_i + start_term_i, eps),
-            1.0 / jnp.maximum(k_i, eps),
-        )
+        # Gompertz inverse within interval: t = (1/γ_i) * log(exp(γ_i * start) + rem * γ_i / η)
+        sampled_i = jnp.log(
+            jnp.exp(gamma_i * start_i) + jnp.maximum(rem_i, 0.0) * gamma_i / eta_base
+        ) / gamma_i
         sampled_i = jnp.clip(sampled_i, start_i, end_i)
 
         sampled_next = jnp.where(hit_i, sampled_i, sampled_so_far)
@@ -1539,23 +1240,27 @@ def make_survival_linear_injury_mcmc(
         active_next = active_so_far & (~hit_i)
         return sampled_next, cumulative_h_next, active_next
 
-    sampled_init = jnp.full_like(scale_base, jnp.nan)
-    cumulative_h_init = jnp.zeros_like(scale_base)
-    active_init = jnp.ones_like(scale_base, dtype=bool)
+    sampled_init = jnp.full_like(eta_base, jnp.nan)
+    cumulative_h_init = jnp.zeros_like(eta_base)
+    active_init = jnp.ones_like(eta_base, dtype=bool)
     sampled_exit_duration, _, active_final = jax.lax.fori_loop(
         0,
         num_intervals,
         sample_step,
         (sampled_init, cumulative_h_init, active_init),
     )
-    sampled_exit_duration = jnp.where(active_final, jnp.asarray(float(num_intervals), dtype=sampled_exit_duration.dtype), sampled_exit_duration)
+    sampled_exit_duration = jnp.where(
+        active_final,
+        jnp.asarray(float(num_intervals), dtype=sampled_exit_duration.dtype),
+        sampled_exit_duration,
+    )
     sampled_exit_age = float(age_min) + sampled_exit_duration
 
     return {
         "exit_survival": exit_survival,
         "exit_hazard": exit_hazard,
-        "exit_concentration": concentration,
-        "exit_scale": scale,
+        "exit_gamma": gamma,
+        "exit_eta": eta,
         "exit_duration_sample": sampled_exit_duration,
         "exit_age_sample": sampled_exit_age,
     }
@@ -1565,38 +1270,37 @@ def make_survival_linear_injury_mcmc(
 
 def make_survival_linear_mcmc(
     X,
-    exit_global_offset,
+    gamma_global_log,
     exit,
     exit_rate,
     entrance_times,
     basis,
     sigma_exit_scale=1.0,
-    scale_global_log=None,
+    eta_global_log=None,
     eps=1e-6,
     random_seed=0,
     age_min=18,
+    last_obs_times=None,
+    kernel_self_cov=None,
 ):
-    if scale_global_log is None:
-        scale_global_log = jnp.log(11.5)
+    if eta_global_log is None:
+        eta_global_log = jnp.log(0.04)
     entrance_times = jnp.maximum(jnp.nan_to_num(entrance_times, nan=eps, posinf=1e3, neginf=eps), eps)
-    # Entrance is always observed — use directly
     entrance_latent = entrance_times[None, None]
+    last_obs_latent = jnp.asarray(last_obs_times)[None, None] if last_obs_times is not None else entrance_latent
 
-    r = exit.shape[-1]
+    # Normalizer for the exit projection. For linear/cosine the exit weights live in the r-dim
+    # latent, so the kernel self-cov is the feature width (exit.shape[-1]). For RFF the caller
+    # projects X to the 2m-dim norm-1 feature map (||phi||^2 = 1), so kernel_self_cov = 1 is passed.
+    r = exit.shape[-1] if kernel_self_cov is None else kernel_self_cov
     exit_raw = jnp.einsum("...nr,...r->...n", X, exit) / jnp.sqrt(r) * sigma_exit_scale[..., None]  # (..., n)
-    scale = jnp.exp(scale_global_log[..., None] + exit_raw)[..., None]  # (..., n, 1)
+    eta = jnp.exp(jnp.asarray(eta_global_log)[..., None] + exit_raw)[..., None]   # (..., n, 1)
     exit_rate_base = jnp.einsum("...nr,...r->...n", X, exit_rate)[..., None]
-    exit_rate_raw = exit_rate_base + jnp.asarray(exit_global_offset)[..., None, None]
-    concentration = 1.0 + 2*jax.nn.sigmoid(exit_rate_raw)
-    concentration_is_time_varying = jnp.any(
-        jnp.abs(concentration - concentration[..., :1]) > 1e-6,
-        axis=-1,
-    )
+    gamma = jnp.exp(jnp.asarray(gamma_global_log)[..., None, None] + exit_rate_base)  # (..., n, 1)
 
     basis_duration = jnp.maximum(jnp.asarray(basis) - float(age_min), 0.0)
-    # concentration has shape (..., n_players, 1) — use basis length for the survival grid
     num_intervals = len(basis_duration)
-    interval_starts = jnp.arange(num_intervals, dtype=concentration.dtype)[None, None, None, :]
+    interval_starts = jnp.arange(num_intervals, dtype=gamma.dtype)[None, None, None, :]
     interval_ends = interval_starts + 1.0
     entry = entrance_latent[..., None]
 
@@ -1605,76 +1309,45 @@ def make_survival_linear_mcmc(
         seg_start = jnp.maximum(interval_starts, entry)
         seg_end = jnp.minimum(interval_ends, stop[..., None])
         valid_seg = seg_end > seg_start
-        seg_start_safe = jnp.maximum(seg_start, eps)
-        seg_end_safe = jnp.maximum(seg_end, eps)
-        log_scale = jnp.log(scale)
-        seg_start_exp = jnp.clip(concentration * (jnp.log(seg_start_safe) - log_scale), a_min=-40.0, a_max=40.0)
-        seg_end_exp = jnp.clip(concentration * (jnp.log(seg_end_safe) - log_scale), a_min=-40.0, a_max=40.0)
-        delta_h = jnp.where(valid_seg, jnp.exp(seg_end_exp) - jnp.exp(seg_start_exp), 0.0)
-        return delta_h.sum(axis=-1)
-
-    cumulative_h_interval = jax.vmap(cumulative_h_at_stop, in_axes=0, out_axes=-1)(basis_duration)
-
-    concentration_const = concentration[..., 0]
-
-    def cumulative_h_closed_at_stop(stop_t):
-        stop = jnp.broadcast_to(stop_t, entrance_latent.shape)
-        entry_effective = jnp.maximum(entrance_latent, 0.0)
-        stop_effective = jnp.maximum(stop, 0.0)
-        has_window = stop_effective > entry_effective
-        scale_base = scale.squeeze(-1)
-        return jnp.where(
-            has_window,
-            jnp.power(stop_effective / scale_base, concentration_const)
-            - jnp.power(entry_effective / scale_base, concentration_const),
+        seg_start_safe = jnp.where(valid_seg, seg_start, 0.0)
+        seg_end_safe = jnp.where(valid_seg, seg_end, 0.0)
+        ratio = eta / gamma
+        delta_h = jnp.where(
+            valid_seg,
+            ratio * (jnp.exp(gamma * seg_end_safe) - jnp.exp(gamma * seg_start_safe)),
             0.0,
         )
+        return delta_h.sum(axis=-1)
 
-    cumulative_h_closed = jax.vmap(cumulative_h_closed_at_stop, in_axes=0, out_axes=-1)(basis_duration)
-    cumulative_h = jnp.where(
-        concentration_is_time_varying[..., None],
-        cumulative_h_interval,
-        cumulative_h_closed,
-    )
+    cumulative_h = jax.vmap(cumulative_h_at_stop, in_axes=0, out_axes=-1)(basis_duration)
     at_risk = basis_duration[None, None, None, :] >= entrance_latent[..., None]
     exit_survival = jnp.where(at_risk, jnp.exp(-cumulative_h), jnp.nan)
 
     stop_grid = basis_duration[None, None, None, :]
-    interval_idx = jnp.clip(jnp.floor(stop_grid).astype(jnp.int32), 0, num_intervals - 1)
-    concentration_grid_interval = jnp.take_along_axis(concentration, interval_idx, axis=-1)
-    concentration_grid_closed = concentration_const[..., None]
-    concentration_grid = jnp.where(
-        concentration_is_time_varying[..., None],
-        concentration_grid_interval,
-        concentration_grid_closed,
-    )
     duration_grid = jnp.maximum(stop_grid, eps)
-    exit_hazard = (concentration_grid / scale) * jnp.power(duration_grid / scale, concentration_grid - 1.0)
+    exit_hazard = eta * jnp.exp(gamma * duration_grid)
     exit_hazard = jnp.where(at_risk, exit_hazard, jnp.nan)
 
-    scale_base = scale.squeeze(-1)
+    eta_base = eta.squeeze(-1)   # (..., n)
+    gamma_scalar = gamma[..., 0] # (..., n) — constant across time for non-injury model
 
     key = random.PRNGKey(random_seed)
-    u = jnp.clip(random.uniform(key, shape=scale_base.shape), eps, 1.0 - eps)
+    u = jnp.clip(random.uniform(key, shape=eta_base.shape), eps, 1.0 - eps)
     target = -jnp.log(u)
-    # concentration has shape (..., n_players, 1) — constant hazard across time.
-    # Use Weibull inverse-CDF directly, conditioning on T > entrance_latent:
-    #   H(t) = (t / scale)^k  =>  t = scale * (target + (entrance/scale)^k)^(1/k)
-    k_const = concentration_const
-    entrance_term = jnp.power(jnp.maximum(entrance_latent, 0.0) / scale_base, k_const)
-    sampled_exit_duration = scale_base * jnp.power(
-        jnp.maximum(target + entrance_term, eps),
-        1.0 / jnp.maximum(k_const, eps),
-    )
+    # Gompertz inverse-CDF conditioned on T > last_obs_times:
+    #   H(t) - H(t_obs) = target  =>  t = (1/γ) * log(exp(γ*t_obs) + target * γ/η)
+    lam = gamma_scalar / eta_base  # γ/η
+    last_obs_exp = jnp.exp(gamma_scalar * jnp.maximum(last_obs_latent, 0.0))
+    sampled_exit_duration = jnp.log(last_obs_exp + target * lam) / gamma_scalar
     max_duration = float(basis_duration[-1])
-    sampled_exit_duration = jnp.clip(sampled_exit_duration, entrance_latent, max_duration)
+    sampled_exit_duration = jnp.clip(sampled_exit_duration, last_obs_latent, max_duration)
     sampled_exit_age = float(age_min) + sampled_exit_duration
 
     return {
         "exit_survival": exit_survival,
         "exit_hazard": exit_hazard,
-        "exit_concentration": concentration,
-        "exit_scale": scale,
+        "exit_gamma": gamma,
+        "exit_eta": eta,
         "exit_duration_sample": sampled_exit_duration,
         "exit_age_sample": sampled_exit_age,
     }

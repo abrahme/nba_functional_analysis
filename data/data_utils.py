@@ -171,7 +171,8 @@ def process_surv_data(df, output_metric, censor_type, input_metrics, validation_
 
     season_array = df[["id", "age", "year"]].pivot(columns="age", values="year", index="id").reindex(columns=_age_cols).to_numpy()
     if censor_type == "right":
-        max_year_in_data = np.nanmax(season_array)
+        _real_years = df.loc[df["id"] != 99999999, "year"].dropna()
+        max_year_in_data = int(_real_years.max()) if len(_real_years) > 0 else np.nanmax(season_array)
         max_age_per_player = df.groupby("id")["age"].max().reindex(metric_df.index)
         beyond_age_range = max_age_per_player.to_numpy() > age_max
         cens_array = (
@@ -191,13 +192,15 @@ def process_surv_data(df, output_metric, censor_type, input_metrics, validation_
 
 
 
-def create_validation_mask(metric_array, scheme=None, fraction=0.2, k=2, seed=42, year_matrix=None, validation_year=None):
+def create_validation_mask(metric_array, scheme=None, fraction=0.2, k=2, seed=42, year_matrix=None, validation_year=None, age_min=18):
     """
     Returns bool (n_players, n_ages) mask where True = held out from training.
-    Schemes: 'random_interior', 'holdout_last_k', 'holdout_first_k', 'holdout_peak', 'year'
+    Schemes: 'random_interior', 'holdout_last_k', 'holdout_first_k', 'holdout_peak',
+             'stratified_next_k', 'year'
 
     The 'year' scheme requires year_matrix (n_players, n_ages) and validation_year (int);
     it holds out all observations where year > validation_year.
+    'stratified_next_k' requires age_min to map column indices to real ages.
     """
     n_players, n_ages = metric_array.shape
     holdout_mask = np.zeros((n_players, n_ages), dtype=bool)
@@ -243,6 +246,44 @@ def create_validation_mask(metric_array, scheme=None, fraction=0.2, k=2, seed=42
             if not np.any(np.isfinite(row)):
                 continue
             holdout_mask[i, np.nanargmax(row)] = True
+
+    elif scheme == "stratified_next_k":
+        # Cohorts listed highest-threshold first so first match = highest qualifying cohort.
+        # Each entry is (min_max_age, holdout_start_age). The ENTIRE career tail from
+        # ho_start onward is held out of training (true next-k forecast, no future leakage);
+        # only the first k seasons of that tail are scored downstream — see the score_window
+        # flag written into holdout_indices.csv by main.py.
+        cohort_specs = [(35, 33), (33, 31), (31, 29), (29, 27), (27, 25), (25, 23)]
+        player_cohort = {}
+        for i in range(n_players):
+            finite_idx = np.where(np.isfinite(metric_array[i]))[0]
+            if len(finite_idx) == 0:
+                continue
+            max_age = age_min + int(finite_idx[-1])
+            for (thresh, ho_start) in cohort_specs:
+                if max_age >= thresh:
+                    player_cohort[i] = (thresh, ho_start)
+                    break
+
+        cohort_players: dict = {}
+        for i, c in player_cohort.items():
+            cohort_players.setdefault(c, []).append(i)
+
+        n_per_cohort = max(1, int(np.round(fraction * n_players)) // len(cohort_specs))
+        for (thresh, ho_start) in cohort_specs:
+            eligible = cohort_players.get((thresh, ho_start), [])
+            if not eligible:
+                continue
+            n_select = min(n_per_cohort, len(eligible))
+            chosen = rng.choice(eligible, size=n_select, replace=False)
+            ho_start_col = ho_start - age_min
+            for i in chosen:
+                # Hold out the full tail (age >= ho_start), not just the next k, so the
+                # model never sees post-window seasons. The next-k scoring window is
+                # recovered downstream as the first k held-out columns of each row.
+                for c in range(ho_start_col, n_ages):
+                    if 0 <= c < n_ages and np.isfinite(metric_array[i, c]):
+                        holdout_mask[i, c] = True
 
     else:
         raise ValueError(f"Unknown validation scheme: {scheme!r}")

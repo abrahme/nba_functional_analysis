@@ -90,6 +90,7 @@ define run_coverage_mcmc_job
 	$(call run_mcmc_job,$(1))
 	@echo "=== [$$(date '+%H:%M:%S')] START diagnostics/$(2) ==="
 	$(D_R) Rscript data_analysis/model_diagnostics.r $(2) $(VALIDATION_YEAR)
+	$(D_R) Rscript data_analysis/coverage.r $(2) $(VALIDATION_YEAR)
 	@echo "=== [$$(date '+%H:%M:%S')] DONE  diagnostics/$(2) ==="
 endef
 
@@ -98,11 +99,19 @@ define run_scheme_diagnostics
 	@echo "=== [$$(date '+%H:%M:%S')] START diagnostics/$(1) ==="
 	$(D_R) Rscript data_analysis/model_diagnostics.r \
 	    model_output/nba_convex_max_tvlinearlvm/$(1)/mcmc $(VALIDATION_YEAR)
+	$(D_R) Rscript data_analysis/coverage.r \
+	    model_output/nba_convex_max_tvlinearlvm/$(1)/mcmc $(VALIDATION_YEAR)
 	$(D_R) Rscript data_analysis/model_diagnostics.r \
+	    model_output/nba_convex_max_tvlinearlvm_AR/$(1)/mcmc $(VALIDATION_YEAR)
+	$(D_R) Rscript data_analysis/coverage.r \
 	    model_output/nba_convex_max_tvlinearlvm_AR/$(1)/mcmc $(VALIDATION_YEAR)
 	$(D_R) Rscript data_analysis/model_diagnostics.r \
 	    model_output/nba_convex_max_tvlinearlvm_injury/$(1)/mcmc $(VALIDATION_YEAR)
+	$(D_R) Rscript data_analysis/coverage.r \
+	    model_output/nba_convex_max_tvlinearlvm_injury/$(1)/mcmc $(VALIDATION_YEAR)
 	$(D_R) Rscript data_analysis/model_diagnostics.r \
+	    model_output/nba_naive/$(1)/mcmc $(VALIDATION_YEAR)
+	$(D_R) Rscript data_analysis/coverage.r \
 	    model_output/nba_naive/$(1)/mcmc $(VALIDATION_YEAR)
 	$(D_R) Rscript data_causal/injury_causal.r \
 	    model_output/nba_convex_max_tvlinearlvm_injury/$(1)/mcmc
@@ -346,11 +355,19 @@ mcmc: check-containers
 diagnostics: mcmc
 	$(D_R) Rscript data_analysis/model_diagnostics.r \
 	    model_output/nba_convex_max_tvlinearlvm/mcmc $(VALIDATION_YEAR)
+	$(D_R) Rscript data_analysis/coverage.r \
+	    model_output/nba_convex_max_tvlinearlvm/mcmc $(VALIDATION_YEAR)
 	$(D_R) Rscript data_analysis/model_diagnostics.r \
+	    model_output/nba_convex_max_tvlinearlvm_AR/mcmc $(VALIDATION_YEAR)
+	$(D_R) Rscript data_analysis/coverage.r \
 	    model_output/nba_convex_max_tvlinearlvm_AR/mcmc $(VALIDATION_YEAR)
 	$(D_R) Rscript data_analysis/model_diagnostics.r \
 	    model_output/nba_convex_max_tvlinearlvm_injury/mcmc $(VALIDATION_YEAR)
+	$(D_R) Rscript data_analysis/coverage.r \
+	    model_output/nba_convex_max_tvlinearlvm_injury/mcmc $(VALIDATION_YEAR)
 	$(D_R) Rscript data_analysis/model_diagnostics.r \
+	    model_output/nba_naive/mcmc $(VALIDATION_YEAR)
+	$(D_R) Rscript data_analysis/coverage.r \
 	    model_output/nba_naive/mcmc $(VALIDATION_YEAR)
 	$(D_R) Rscript data_causal/injury_causal.r \
 	    model_output/nba_convex_max_tvlinearlvm_injury/mcmc
