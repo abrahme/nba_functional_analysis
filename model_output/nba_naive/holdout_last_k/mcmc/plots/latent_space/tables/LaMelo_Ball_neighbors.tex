@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: LaMelo Ball} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Ja Morant & G & 3 & 1.00 & 1.19 & 46\% \\ 
-Gilbert Arenas & G & 3 & 2.00 & 1.34 & 43\% \\ 
-Desmond Bane & G & 3 & 3.00 & 1.51 & 22\% \\ 
-Cade Cunningham & G & 3 & 4.00 & 1.55 & 24\% \\ 
-Donovan Mitchell & G & 3 & 5.00 & 1.62 & 28\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Ja Morant & G & 2 \\
+    2 & Gilbert Arenas & G & 2 \\
+    3 & Kyrie Irving & G & 2 \\
+    4 & Desmond Bane & G & 2 \\
+    5 & Donovan Mitchell & G & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of LaMelo Ball in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

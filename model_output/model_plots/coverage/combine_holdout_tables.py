@@ -18,25 +18,34 @@ COVERAGE_DIR  = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_TEX    = os.path.join(COVERAGE_DIR, "combined_holdout_table.tex")
 OUTPUT_BODY   = os.path.join(COVERAGE_DIR, "combined_holdout_body.tex")
 
-SCHEME_ORDER = ["holdout_last_k", "holdout_first_k", "random_interior", "holdout_peak"]
+SCHEME_ORDER = ["holdout_last_k", "holdout_first_k", "random_interior", "holdout_peak", "stratified_next_k"]
 SCHEME_LABEL = {
     "holdout_last_k":   "Hold-out Last $k$",
     "holdout_first_k":  "Hold-out First $k$",
     "random_interior":  "Random Interior",
     "holdout_peak":     "Hold-out Peak",
+    "stratified_next_k": "Stratified Next $k$",
 }
 
 MODEL_ORDER = [
+    "nba_naive",
+    "nba_tvlinearlvm",
+    "nba_tvlinearlvm_AR",
     "nba_convex_max_tvlinearlvm",
     "nba_convex_max_tvlinearlvm_AR",
-    "nba_convex_max_tvlinearlvm_injury",
-    "nba_naive",
+    "nba_convex_max_tvrflvm",
+    "nba_convex_max_tvrflvm_AR",
+    # "nba_convex_max_tvlinearlvm_injury"
 ]
 MODEL_LABEL = {
-    "nba_convex_max_tvlinearlvm":         "Base",
-    "nba_convex_max_tvlinearlvm_AR":      "AR",
-    "nba_convex_max_tvlinearlvm_injury":  "Injury",
-    "nba_naive":                          "Naive AR",
+    "nba_convex_max_tvlinearlvm":         "Concave",
+    "nba_convex_max_tvlinearlvm_AR":      "Concave + AR",
+    "nba_convex_max_tvlinearlvm_injury":  "Concave + AR + Injury",
+    "nba_convex_max_tvrflvm":             "Concave RFF",
+    "nba_convex_max_tvrflvm_AR":          "Concave RFF + AR",
+    "nba_naive":                          "AR",
+    "nba_tvlinearlvm":                    "GP",
+    "nba_tvlinearlvm_AR":                 "GP + AR",
 }
 
 METRIC_ORDER = [
@@ -57,7 +66,7 @@ METRIC_LABEL = {
 
 # ── Load all CSVs ─────────────────────────────────────────────────────────────
 
-_SCHEME_SUFFIXES = ("_holdout_last_k", "_holdout_first_k", "_random_interior", "_holdout_peak")
+_SCHEME_SUFFIXES = ("_holdout_last_k", "_holdout_first_k", "_random_interior", "_holdout_peak", "_stratified_next_k")
 
 records = []
 pattern = re.compile(r"^(.+)_vs_(.+?)_f\d+_k\d+_s\d+\.csv$")
@@ -112,6 +121,15 @@ def _fmt_signed(val, decimals=3):
     return f"{val:+.{decimals}f}"
 
 
+def _fmt_elppd(val):
+    """Format an ELPPD delta to 2 significant figures with a leading sign."""
+    if pd.isna(val) or val == 0:
+        return "+0.00"
+    exp = int(math.floor(math.log10(abs(val))))
+    decimals = max(0, 1 - exp)
+    return f"{val:+.{decimals}f}"
+
+
 def fmt_cell(rmse, bias, bold=False):
     """Format as  RMSE (bias)  using scientific notation for large values."""
     if pd.isna(rmse) and pd.isna(bias):
@@ -154,7 +172,7 @@ for scheme in present_schemes:
     if sub.empty:
         continue
 
-    lines.append(r"\begin{table}[ht]")
+    lines.append(r"\begin{table}[H]")
     lines.append(r"\centering")
     lines.append(r"\small")
     lines.append(r"\resizebox{\linewidth}{!}{")
@@ -210,7 +228,7 @@ for scheme in present_schemes:
     if sub.empty:
         continue
 
-    lines.append(r"\begin{table}[ht]")
+    lines.append(r"\begin{table}[H]")
     lines.append(r"\centering")
     lines.append(r"\small")
     lines.append(r"\resizebox{\linewidth}{!}{")
@@ -300,13 +318,15 @@ if cov_data:
         # Order: METRIC_LABEL display values in METRIC_ORDER, then extras, EXIT_AGE last
         ordered_labels = [METRIC_LABEL[k] for k in METRIC_ORDER if METRIC_LABEL[k] in all_labels]
         exit_labels    = [l for l in all_labels if "EXIT" in l]
-        extra_labels   = sorted(all_labels - set(ordered_labels) - set(exit_labels))
+        extra_labels   = sorted(all_labels - set(ordered_labels) - set(exit_labels) - {"All"})
         ordered_labels += extra_labels + exit_labels
+        if "All" in all_labels:
+            ordered_labels.append("All")
 
         n_cov   = len(present_cov_models)
         col_cov = "l" + "r" * n_cov
 
-        lines.append(r"\begin{table}[ht]")
+        lines.append(r"\begin{table}[H]")
         lines.append(r"\centering")
         lines.append(r"\small")
         lines.append(r"\resizebox{\linewidth}{!}{")
@@ -318,6 +338,8 @@ if cov_data:
         lines.append(r"\midrule")
 
         for label in ordered_labels:
+            if label == "All":
+                lines.append(r"\midrule")
             # Best model = highest validation coverage for this metric
             best, best_val = None, -1.0
             for mk in present_cov_models:
@@ -348,6 +370,289 @@ if cov_data:
         lines.append(r"\end{table}")
         lines.append("")
 
+# ── Posterior interval tables (bias and MSE) ──────────────────────────────────
+# Reads coverage_bias_intervals.csv and coverage_mse_intervals.csv from
+# <model_output_root>/<model>/<scheme>/mcmc/plots/coverage/
+
+def load_interval_csv(model_key, scheme, filename):
+    """Return DataFrame with columns metric, mean, lower, upper, split; or None."""
+    path = os.path.join(
+        MODEL_OUTPUT_ROOT, model_key, scheme, "mcmc", "plots", "coverage", filename
+    )
+    if not os.path.exists(path):
+        return None
+    return pd.read_csv(path)
+
+
+def fmt_interval(mean, lower, upper, decimals=3):
+    """Format as  mean [lower, upper]."""
+    if pd.isna(mean):
+        return "---"
+    fmt = f"{{:+.{decimals}f}}"
+    fmtu = f"{{:.{decimals}f}}"
+    if abs(mean) >= 1e4:
+        return _sci(mean)
+    return f"{fmt.format(mean)} [{fmtu.format(lower)}, {fmtu.format(upper)}]"
+
+
+def _build_interval_tables(csv_filename, section_title, caption_template,
+                           label_prefix, best_by="abs_mean"):
+    """
+    Emit LaTeX table blocks for a given interval CSV file.
+
+    best_by: "abs_mean" (bias — best = closest to 0),
+             "mean"     (MSE/log-loss — best = smallest mean)
+    """
+    # {scheme: {model_key: DataFrame(metric, mean, lower, upper, split)}}
+    iv_data = {}
+    for mk in MODEL_ORDER:
+        for sc in SCHEME_ORDER:
+            df = load_interval_csv(mk, sc, csv_filename)
+            if df is None:
+                continue
+            iv_data.setdefault(sc, {})[mk] = df
+
+    if not iv_data:
+        return
+
+    lines.append(r"\bigskip")
+    lines.append(f"{{\\centering\\large\\textbf{{{section_title}}}\\\\[4pt]}}")
+    lines.append("")
+
+    for scheme in SCHEME_ORDER:
+        if scheme not in iv_data:
+            continue
+        scheme_iv = iv_data[scheme]
+        present_iv_models = [m for m in MODEL_ORDER if m in scheme_iv]
+        if not present_iv_models:
+            continue
+
+        n_iv = len(present_iv_models)
+        col_iv = "l" + "r" * n_iv
+
+        lines.append(r"\begin{table}[H]")
+        lines.append(r"\centering")
+        lines.append(r"\small")
+        lines.append(r"\resizebox{\linewidth}{!}{")
+        lines.append(f"\\begin{{tabular}}{{{col_iv}}}")
+        lines.append(r"\toprule")
+        header_cols = ["Metric"] + [MODEL_LABEL.get(m, m) for m in present_iv_models]
+        lines.append(" & ".join(header_cols) + r" \\")
+        subhdr = r"\small Val [95\% HDI] / (In-Samp [95\% HDI])"
+        lines.append(r"  & " + " & ".join([subhdr] * n_iv) + r" \\")
+        lines.append(r"\midrule")
+
+        # Collect all metric labels across models
+        all_metrics_raw = set()
+        for df in scheme_iv.values():
+            all_metrics_raw.update(df["metric"].unique())
+        # Order by METRIC_LABEL display values; extras appended
+        metric_label_inv = {v: k for k, v in METRIC_LABEL.items()}
+        ordered_ms = [METRIC_LABEL[k] for k in METRIC_ORDER if METRIC_LABEL[k] in all_metrics_raw]
+        _special_last = {"SURVIVAL", "All"}
+        extra_ms   = sorted(all_metrics_raw - set(ordered_ms) - _special_last)
+        ordered_ms += extra_ms
+        if "SURVIVAL" in all_metrics_raw:
+            ordered_ms.append("SURVIVAL")
+        if "All" in all_metrics_raw:
+            ordered_ms.append("All")
+
+        for label in ordered_ms:
+            if label in _special_last:
+                lines.append(r"\midrule")
+            # Identify best model for this metric on validation mean
+            best = None
+            best_score = float("inf")
+            for mk in present_iv_models:
+                df = scheme_iv[mk]
+                row = df[(df["metric"] == label) & (df["split"] == "holdout")]
+                if row.empty or pd.isna(row["mean"].iloc[0]):
+                    continue
+                score = abs(row["mean"].iloc[0]) if best_by == "abs_mean" else row["mean"].iloc[0]
+                if score < best_score:
+                    best_score, best = score, mk
+
+            row_cells = [label]
+            for mk in present_iv_models:
+                df = scheme_iv[mk]
+                val_row = df[(df["metric"] == label) & (df["split"] == "holdout")]
+                is_row  = df[(df["metric"] == label) & (df["split"] == "in_sample")]
+                if val_row.empty and is_row.empty:
+                    row_cells.append("---")
+                    continue
+                val_str = fmt_interval(
+                    val_row["mean"].iloc[0]  if not val_row.empty else float("nan"),
+                    val_row["lower"].iloc[0] if not val_row.empty else float("nan"),
+                    val_row["upper"].iloc[0] if not val_row.empty else float("nan"),
+                ) if not val_row.empty else "---"
+                is_str = fmt_interval(
+                    is_row["mean"].iloc[0]  if not is_row.empty else float("nan"),
+                    is_row["lower"].iloc[0] if not is_row.empty else float("nan"),
+                    is_row["upper"].iloc[0] if not is_row.empty else float("nan"),
+                ) if not is_row.empty else "---"
+                cell = f"\\shortstack{{{val_str} \\\\\\\\ ({is_str})}}"
+                row_cells.append(f"\\textbf{{{cell}}}" if mk == best else cell)
+            lines.append(" & ".join(row_cells) + r" \\[2pt]")
+
+        lines.append(r"\bottomrule")
+        lines.append(r"\end{tabular}")
+        lines.append(r"}")
+        scheme_label = SCHEME_LABEL.get(scheme, scheme)
+        lines.append(f"\\caption{{{caption_template.format(scheme=scheme_label)}}}")
+        lines.append(f"\\label{{tab:{label_prefix}_{scheme}}}")
+        lines.append(r"\end{table}")
+        lines.append("")
+
+
+_build_interval_tables(
+    csv_filename="coverage_bias_intervals.csv",
+    section_title="Posterior Bias Interval Tables (Mean [95\\% HDI])",
+    caption_template="Posterior bias (mean [95\\% HDI]) by metric --- {scheme} scheme. "
+                     "Validation interval shown; in-sample in parentheses. "
+                     "Best-calibrated model (smallest $|$bias$|$) per metric in bold.",
+    label_prefix="bias_interval",
+    best_by="abs_mean",
+)
+
+_build_interval_tables(
+    csv_filename="coverage_log_loss_intervals.csv",
+    section_title="Posterior Log-Loss Interval Tables (Avg NLL [95\\% HDI])",
+    caption_template="Posterior average negative log-likelihood (mean [95\\% HDI]) by metric "
+                     "--- {scheme} scheme. Per-family NLL: Gaussian NLL for OBPM/DBPM/USG/MPG, "
+                     "Poisson NLL for count metrics, Binomial NLL for FT\\%/FG2\\%/FG3\\%, "
+                     "NB NLL for FTA/FG2A/FG3A, Beta-Binomial NLL for GP\\%. "
+                     "Validation interval shown; in-sample in parentheses. "
+                     "Best model (lowest validation NLL) per metric in bold.",
+    label_prefix="log_loss_interval",
+    best_by="mean",
+)
+
+# ── ELPPD tables ──────────────────────────────────────────────────────────────
+# Reads posterior_elppd.parquet from <model_output_root>/<model>/<scheme>/mcmc/
+# Displays ΔELPPD per observation vs. best model per metric row.
+# † marks pairs where |ΔELPPD| > 1.96 × SE (significantly different at 95%).
+
+elppd_data = {}
+for _mk in MODEL_ORDER:
+    for _sc in SCHEME_ORDER:
+        _ep = os.path.join(MODEL_OUTPUT_ROOT, _mk, _sc, "mcmc", "posterior_elppd.parquet")
+        if not os.path.exists(_ep):
+            continue
+        elppd_data.setdefault(_sc, {})[_mk] = pd.read_parquet(_ep)
+
+if elppd_data:
+    lines.append(r"\bigskip")
+    lines.append(r"{\centering\large\textbf{ELPPD Tables (Holdout --- $\Delta$ from best)}\\[4pt]}")
+    lines.append("")
+
+    for _sc in SCHEME_ORDER:
+        if _sc not in elppd_data:
+            continue
+        _sc_ep = elppd_data[_sc]
+        _ep_models = [_m for _m in MODEL_ORDER if _m in _sc_ep]
+        if not _ep_models:
+            continue
+
+        _n_ep = len(_ep_models)
+        lines.append(r"\begin{table}[H]")
+        lines.append(r"\centering")
+        lines.append(r"\small")
+        lines.append(r"\resizebox{\linewidth}{!}{")
+        lines.append(f"\\begin{{tabular}}{{l{'r' * _n_ep}}}")
+        lines.append(r"\toprule")
+        lines.append(" & ".join(["Metric"] + [MODEL_LABEL.get(_m, _m) for _m in _ep_models]) + r" \\")
+        lines.append(r"  & " + " & ".join([r"\small $\Delta$ELPPD/obs"] * _n_ep) + r" \\")
+        lines.append(r"\midrule")
+
+        def _elppd_row_cells(ep_vals, ep_models):
+            _finite = [(_m, v[0]) for _m, v in ep_vals.items() if not pd.isna(v[0])]
+            if not _finite:
+                return ["---"] * len(ep_models)
+            _best_m, _best_val = max(_finite, key=lambda x: x[1])
+            _best_se, _best_n  = ep_vals[_best_m][1], ep_vals[_best_m][2]
+            cells = []
+            for _m in ep_models:
+                _h_val, _h_se, _h_n = ep_vals.get(_m, (float("nan"), float("nan"), 1))
+                if pd.isna(_h_val):
+                    cells.append("---")
+                    continue
+                _delta = _h_val - _best_val
+                _se_diff = (
+                    ((_h_se / _h_n) ** 2 + (_best_se / _best_n) ** 2) ** 0.5
+                    if not (pd.isna(_h_se) or pd.isna(_best_se) or _h_n <= 0 or _best_n <= 0)
+                    else float("nan")
+                )
+                _sig = (not pd.isna(_se_diff)) and (abs(_delta) > 1.96 * _se_diff) and (_m != _best_m)
+                if _m == _best_m:
+                    cells.append("---")
+                else:
+                    cells.append(_fmt_elppd(_delta) + (r"$\dagger$" if _sig else ""))
+            return cells
+
+        for _mkey in METRIC_ORDER:
+            _mlabel = METRIC_LABEL.get(_mkey, _mkey)
+            _ep_vals = {}
+            for _m in _ep_models:
+                _df = _sc_ep[_m]
+                _hr = _df[(_df["metric"] == _mkey) & (_df["split"] == "holdout")]
+                _ep_vals[_m] = (
+                    _hr["elppd_per_obs"].iloc[0] if not _hr.empty else float("nan"),
+                    _hr["elppd_se"].iloc[0]      if not _hr.empty else float("nan"),
+                    int(_hr["n_obs"].iloc[0])    if not _hr.empty else 1,
+                )
+            _finite_vals = [(_m, v[0]) for _m, v in _ep_vals.items() if not pd.isna(v[0])]
+            if not _finite_vals:
+                lines.append(_mlabel + " & " + " & ".join(["---"] * _n_ep) + r" \\")
+                continue
+            lines.append(" & ".join([_mlabel] + _elppd_row_cells(_ep_vals, _ep_models)) + r" \\[2pt]")
+
+        # "survival" row
+        _surv_ep_vals = {}
+        for _m in _ep_models:
+            _df = _sc_ep[_m]
+            _sr = _df[(_df["metric"] == "survival") & (_df["split"] == "holdout")]
+            if not _sr.empty:
+                _surv_ep_vals[_m] = (
+                    _sr["elppd_per_obs"].iloc[0],
+                    _sr["elppd_se"].iloc[0],
+                    int(_sr["n_obs"].iloc[0]),
+                )
+        if _surv_ep_vals:
+            lines.append(r"\midrule")
+            lines.append(
+                " & ".join([r"\textbf{Survival}"] + _elppd_row_cells(_surv_ep_vals, _ep_models)) + r" \\"
+            )
+
+        # "all" row: pooled across all metrics
+        _all_ep_vals = {}
+        for _m in _ep_models:
+            _df = _sc_ep[_m]
+            _ar = _df[(_df["metric"] == "all") & (_df["split"] == "holdout")]
+            if not _ar.empty:
+                _all_ep_vals[_m] = (
+                    _ar["elppd_per_obs"].iloc[0],
+                    _ar["elppd_se"].iloc[0],
+                    int(_ar["n_obs"].iloc[0]),
+                )
+        if _all_ep_vals:
+            lines.append(r"\midrule")
+            lines.append(
+                " & ".join([r"\textbf{All}"] + _elppd_row_cells(_all_ep_vals, _ep_models)) + r" \\"
+            )
+
+        lines.append(r"\bottomrule")
+        lines.append(r"\end{tabular}")
+        lines.append(r"}")
+        _sc_label = SCHEME_LABEL.get(_sc, _sc)
+        lines.append(
+            f"\\caption{{ELPPD per observation difference vs.\\ best model (holdout) --- "
+            f"{_sc_label} scheme. Higher is better; 0 = best model. "
+            f"$\\dagger$ = significantly different at 95\\% ($|\\Delta|>1.96\\times\\mathrm{{SE}}$).}}"
+        )
+        lines.append(f"\\label{{tab:elppd_{_sc}}}")
+        lines.append(r"\end{table}")
+        lines.append("")
+
 lines.append(r"\end{document}")
 
 with open(OUTPUT_TEX, "w") as f:
@@ -365,3 +670,195 @@ print(f"Written: {OUTPUT_BODY}")
 print(f"  Schemes:           {present_schemes}")
 print(f"  Models:            {present_models}")
 print(f"  Coverage schemes:  {list(cov_data.keys())}")
+
+# ── Standalone 4-model holdout coverage comparison table ─────────────────────
+# Written to coverage_comparison_table.tex for \input in paper/main.tex.
+# Shows ONLY holdout validation coverage for the holdout_last_k scheme,
+# one column per model variant.  Values >= 95% are bolded.
+
+OUTPUT_COV_COMPARISON = os.path.join(COVERAGE_DIR, "coverage_comparison_table.tex")
+_PRIMARY_SCHEME = "holdout_last_k"
+
+if _PRIMARY_SCHEME in cov_data:
+    _scheme_cov = cov_data[_PRIMARY_SCHEME]
+    _present_cov_models = [m for m in MODEL_ORDER if m in _scheme_cov]
+
+    # Collect and order metric display labels
+    _all_labels: set = set()
+    for _mc in _scheme_cov.values():
+        _all_labels.update(_mc.keys())
+    _ordered_labels = [METRIC_LABEL[k] for k in METRIC_ORDER if METRIC_LABEL[k] in _all_labels]
+    _exit_labels    = [l for l in _all_labels if "EXIT" in l]
+    _extra_labels   = sorted(_all_labels - set(_ordered_labels) - set(_exit_labels) - {"All"})
+    _ordered_labels += _extra_labels + _exit_labels
+    if "All" in _all_labels:
+        _ordered_labels.append("All")
+
+    _n_cov   = len(_present_cov_models)
+    _col_cov = "l" + "r" * _n_cov
+
+    ctab = []
+    ctab.append(r"\begin{table}[htbp]")
+    ctab.append(r"\centering")
+    ctab.append(
+        r"\caption{95\% HDI holdout validation coverage by metric across model variants "
+        r"(Hold-out Last $k$ scheme, 727 player-seasons). "
+        r"\textbf{Bold} indicates the model closest to the nominal 95\% level per metric.}"
+    )
+    ctab.append(r"\label{tab:coverage_basic}")
+    ctab.append(r"\resizebox{\linewidth}{!}{\begin{tabular}{" + _col_cov + "}")
+    ctab.append(r"\toprule")
+    _header_cols = ["Metric"] + [MODEL_LABEL.get(m, m) for m in _present_cov_models]
+    ctab.append(" & ".join(_header_cols) + r" \\")
+    ctab.append(r"\midrule\addlinespace[2.5pt]")
+
+    for _label in _ordered_labels:
+        if _label == "All":
+            ctab.append(r"\midrule")
+        # Best model = closest to nominal 95% coverage (minimise |coverage - 95|)
+        _best_mk, _best_dist = None, float("inf")
+        for _mk in _present_cov_models:
+            _pcts = _scheme_cov[_mk].get(_label)
+            if _pcts is not None:
+                _dist = abs(_pcts[0] - 95.0)
+                if _dist < _best_dist:
+                    _best_dist, _best_mk = _dist, _mk
+
+        _row_cells = [_label]
+        for _mk in _present_cov_models:
+            _pcts = _scheme_cov[_mk].get(_label)
+            if _pcts is None:
+                _row_cells.append("---")
+            else:
+                _v = _pcts[0]
+                _text = f"{_v:.1f}\\%"
+                _row_cells.append(f"\\textbf{{{_text}}}" if _mk == _best_mk else _text)
+        ctab.append(" & ".join(_row_cells) + r" \\")
+
+    ctab.append(r"\bottomrule")
+    ctab.append(r"\end{tabular}}")
+    ctab.append(r"\end{table}")
+
+    with open(OUTPUT_COV_COMPARISON, "w") as f:
+        f.write("\n".join(ctab) + "\n")
+    print(f"Written: {OUTPUT_COV_COMPARISON}")
+else:
+    print(f"No coverage data for {_PRIMARY_SCHEME} — skipping {OUTPUT_COV_COMPARISON}")
+
+# ── Joint "All" summary table ─────────────────────────────────────────────────
+# Rows = holdout schemes × {Coverage, ELPPD}.  Columns = 3 models (no injury).
+# Written to combined_all_summary.tex for \input in paper/main.tex.
+
+OUTPUT_ALL_SUMMARY = os.path.join(COVERAGE_DIR, "combined_all_summary.tex")
+
+_SUM_MODELS = [m for m in MODEL_ORDER if m != "nba_convex_max_tvlinearlvm_injury"]
+_sum_models = [m for m in _SUM_MODELS if m in data["model"].unique() or m in (cov_data.get(_PRIMARY_SCHEME, {}))]
+
+# Collect Coverage "All" for every scheme × model
+_cov_all = {}   # {scheme: {model: val_pct}}
+for _sc in SCHEME_ORDER:
+    if _sc not in cov_data:
+        continue
+    for _mk in _SUM_MODELS:
+        _pcts = cov_data[_sc].get(_mk, {}).get("All")
+        if _pcts is not None:
+            _cov_all.setdefault(_sc, {})[_mk] = _pcts[0]  # validation %
+
+# Collect ELPPD "All" for every scheme × model
+_ep_all = {}    # {scheme: {model: (elppd_per_obs, se, n)}}
+for _mk in _SUM_MODELS:
+    for _sc in SCHEME_ORDER:
+        _ep = os.path.join(MODEL_OUTPUT_ROOT, _mk, _sc, "mcmc", "posterior_elppd.parquet")
+        if not os.path.exists(_ep):
+            continue
+        _df = pd.read_parquet(_ep)
+        _ar = _df[(_df["metric"] == "all") & (_df["split"] == "holdout")]
+        if not _ar.empty:
+            _ep_all.setdefault(_sc, {})[_mk] = (
+                _ar["elppd_per_obs"].iloc[0],
+                _ar["elppd_se"].iloc[0],
+                int(_ar["n_obs"].iloc[0]),
+            )
+
+_sum_schemes = [s for s in SCHEME_ORDER if s in _cov_all or s in _ep_all]
+
+if _sum_schemes and _SUM_MODELS:
+    _n_sm = len(_SUM_MODELS)
+    _col_sm = "ll" + "r" * _n_sm
+
+    stab = []
+    stab.append(r"\begin{table}[htbp]")
+    stab.append(r"\centering")
+    stab.append(
+        r"\caption{Overall predictive performance (all metrics pooled) across holdout schemes "
+        r"and model variants. \textbf{Coverage}: holdout 95\% HDI coverage. "
+        r"\textbf{ELPPD}: $\Delta$ELPPD per observation vs.\ best model; "
+        r"$\dagger$ = significantly different at 95\%.}"
+    )
+    stab.append(r"\label{tab:all_summary}")
+    stab.append(r"\resizebox{\linewidth}{!}{\begin{tabular}{" + _col_sm + "}")
+    stab.append(r"\toprule")
+    _hdr = ["Holdout Scheme", "Metric"] + [MODEL_LABEL.get(m, m) for m in _SUM_MODELS]
+    stab.append(" & ".join(_hdr) + r" \\")
+    stab.append(r"\midrule")
+
+    for _sc in _sum_schemes:
+        _sc_label = SCHEME_LABEL.get(_sc, _sc)
+
+        # --- Coverage row ---
+        _cov_row = _cov_all.get(_sc, {})
+        _cov_best, _cov_best_dist = None, float("inf")
+        for _mk in _SUM_MODELS:
+            _v = _cov_row.get(_mk)
+            if _v is not None and abs(_v - 95.0) < _cov_best_dist:
+                _cov_best_dist, _cov_best = abs(_v - 95.0), _mk
+        _cov_cells = [_sc_label, "Coverage"]
+        for _mk in _SUM_MODELS:
+            _v = _cov_row.get(_mk)
+            if _v is None:
+                _cov_cells.append("---")
+            else:
+                _txt = f"{_v:.1f}\\%"
+                _cov_cells.append(f"\\textbf{{{_txt}}}" if _mk == _cov_best else _txt)
+        stab.append(" & ".join(_cov_cells) + r" \\")
+
+        # --- ELPPD row ---
+        _ep_row = _ep_all.get(_sc, {})
+        _ep_finite = [(_mk, v[0]) for _mk, v in _ep_row.items()]
+        _ep_best_m = max(_ep_finite, key=lambda x: x[1])[0] if _ep_finite else None
+        _ep_cells = ["", r"$\Delta$ELPPD/obs"]
+        for _mk in _SUM_MODELS:
+            if _mk not in _ep_row:
+                _ep_cells.append("---")
+                continue
+            _val, _se, _n = _ep_row[_mk]
+            _best_val, _best_se, _best_n = _ep_row.get(_ep_best_m, (_val, _se, _n))
+            _delta = _val - _best_val
+            _se_diff = (
+                ((_se / _n) ** 2 + (_best_se / _best_n) ** 2) ** 0.5
+                if not (pd.isna(_se) or pd.isna(_best_se) or _n <= 0 or _best_n <= 0)
+                else float("nan")
+            )
+            _sig = (not pd.isna(_se_diff)) and (abs(_delta) > 1.96 * _se_diff) and (_mk != _ep_best_m)
+            if _mk == _ep_best_m:
+                _ep_cells.append("---")
+            else:
+                _ep_cells.append(_fmt_elppd(_delta) + (r"$\dagger$" if _sig else ""))
+        stab.append(" & ".join(_ep_cells) + r" \\")
+
+        stab.append(r"\midrule")
+
+    # remove trailing \midrule
+    if stab and stab[-1] == r"\midrule":
+        stab[-1] = r"\bottomrule"
+    else:
+        stab.append(r"\bottomrule")
+
+    stab.append(r"\end{tabular}}")
+    stab.append(r"\end{table}")
+
+    with open(OUTPUT_ALL_SUMMARY, "w") as f:
+        f.write("\n".join(stab) + "\n")
+    print(f"Written: {OUTPUT_ALL_SUMMARY}")
+else:
+    print(f"Skipping combined_all_summary.tex — no data")

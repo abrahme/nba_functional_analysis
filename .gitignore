@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class 
 
+#prompt files
+*.github
+
 # model files
 *.pkl
 *.parquet

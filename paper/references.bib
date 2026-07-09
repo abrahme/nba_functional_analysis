@@ -9,8 +9,7 @@
 %convex
 @misc{convexityconstraints,
 title = { A non-parametric probabilistic model for monotonic functions},
-author = {
-Michael Riis Andersen, Eero Siivola, Gabriel Riutort-Mayol, and Aki Vehtari},
+author = {Michael Riis Andersen and Eero Siivola and Gabriel Riutort-Mayol and Aki Vehtari},
 year = {2018},
 url = {https://drive.google.com/file/d/19kHhfuYC22ymNt3a3BlYgW0vWexOmbNy/view}}
 
@@ -62,6 +61,18 @@ url = {https://drive.google.com/file/d/19kHhfuYC22ymNt3a3BlYgW0vWexOmbNy/view}}
   url     = {http://jmlr.org/papers/v6/lawrence05a.html}
 }
 
+@InProceedings{Lawrence:backconstraints06,
+  title     = {Local Distance Preservation in the {GP-LVM} through Back Constraints},
+  author    = {Lawrence, Neil D. and Qui{\~n}onero Candela, Joaquin},
+  booktitle = {Proceedings of the International Conference in Machine Learning},
+  pages     = {513--520},
+  year      = {2006},
+  editor    = {Cohen, William and Moore, Andrew},
+  volume    = {23},
+  publisher = {Omnipress},
+  doi       = {10.1145/1143844.1143909}
+}
+
 
 @article{snoek2015scalable,
   title={Scalable Bayesian optimization using deep neural networks},
@@ -85,6 +96,15 @@ url = {https://drive.google.com/file/d/19kHhfuYC22ymNt3a3BlYgW0vWexOmbNy/view}}
   journal={arXiv preprint arXiv:2002.10118},
   year={2020}
 }
+@misc{poworoznek2024efficientlyresolvingrotationalambiguity,
+      title={Efficiently resolving rotational ambiguity in Bayesian matrix sampling with matching}, 
+      author={Evan Poworoznek and Niccolo Anceschi and Federico Ferrari and David Dunson},
+      year={2024},
+      eprint={2107.13783},
+      archivePrefix={arXiv},
+      primaryClass={stat.CO},
+      url={https://arxiv.org/abs/2107.13783}, 
+}
 
 %MTGP
 @inproceedings{NIPS2007_66368270,
@@ -97,6 +117,22 @@ url = {https://drive.google.com/file/d/19kHhfuYC22ymNt3a3BlYgW0vWexOmbNy/view}}
  url = {https://proceedings.neurips.cc/paper/2007/file/66368270ffd51418ec58bd793f2d9b1b-Paper.pdf},
  volume = {20},
  year = {2008}
+}
+
+
+@article{procrustes,
+title = {Bayesian analysis of static and dynamic factor models: An ex-post approach towards the rotation problem},
+journal = {Journal of Econometrics},
+volume = {192},
+number = {1},
+pages = {190-206},
+year = {2016},
+issn = {0304-4076},
+doi = {https://doi.org/10.1016/j.jeconom.2015.10.010},
+url = {https://www.sciencedirect.com/science/article/pii/S0304407615002626},
+author = {Christian Aßmann and Jens Boysen-Hogrefe and Markus Pape},
+keywords = {Bayesian estimation, Factor models, Multimodality, Rotation problem, Ordering problem, Orthogonal transformation},
+abstract = {Due to their indeterminacies, static and dynamic factor models require identifying assumptions to guarantee uniqueness of the parameter estimator. The indeterminacy of the parameter estimator with respect to an orthogonal transformation is known as the rotation problem. The typical strategy in Bayesian factor analysis to solve the rotation problem is to introduce ex-ante constraints on certain model parameters via degenerate and truncated prior distributions. This strategy, however, results in posterior distributions whose shapes depend on the ordering of the variables in the data set. We propose an alternative approach where the rotation problem is solved ex-post using Procrustean postprocessing. The resulting order invariance of the posterior estimator is illustrated in a simulation study and an empirical application using an established data set containing 120 macroeconomic time series. Favorable properties of the ex-post approach with respect to convergence, statistical and numerical accuracy are revealed.}
 }
 
 @article{numpyro,

@@ -1,19 +1,17 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Klay Thompson} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Kendrick Nunn & G & 4 & 1.00 & 2.27 & 17\% \\ 
-Gerald Green & G & 4 & 2.00 & 2.36 & 27\% \\ 
-Kelan Martin & F & 1 & 3.00 & 2.47 & 4\% \\ 
-Jason Smith & F & 4 & 4.00 & 2.50 & 12\% \\ 
-Bogdan Bogdanovic & G & 4 & 5.00 & 2.55 & 21\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Tyrese Maxey & G & 1 \\
+    2 & Lonnie Walker IV & G & 2 \\
+    3 & Jalen Rose & G & 1 \\
+    4 & Cuttino Mobley & G & 1 \\
+    5 & Jerami Grant & F & 1 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Klay Thompson in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
+  \label{tab:Klay_Thompson_neighbors}
 \end{table}
 

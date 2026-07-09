@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Paul Pierce} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Vince Carter & G & 3 & 1.00 & 0.98 & 97\% \\ 
-James Harden & G & 3 & 2.00 & 1.11 & 85\% \\ 
-Dirk Nowitzki & F & 3 & 3.00 & 1.19 & 71\% \\ 
-Kobe Bryant & G & 3 & 4.00 & 1.40 & 75\% \\ 
-Russell Westbrook & G & 3 & 5.00 & 1.56 & 45\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Vince Carter & G & 2 \\
+    2 & Dirk Nowitzki & F & 2 \\
+    3 & James Harden & G & 2 \\
+    4 & Kobe Bryant & G & 2 \\
+    5 & Russell Westbrook & G & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Paul Pierce in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

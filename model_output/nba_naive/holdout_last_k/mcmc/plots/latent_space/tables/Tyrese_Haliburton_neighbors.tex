@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Tyrese Haliburton} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Donovan Mitchell & G & 3 & 1.00 & 1.24 & 25\% \\ 
-Kemba Walker & G & 3 & 2.00 & 1.33 & 45\% \\ 
-Desmond Bane & G & 3 & 3.00 & 1.37 & 23\% \\ 
-Jalen Brunson & G & 3 & 4.00 & 1.46 & 2\% \\ 
-Kyrie Irving & G & 3 & 5.00 & 1.46 & 22\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Kemba Walker & G & 2 \\
+    2 & Kyrie Irving & G & 2 \\
+    3 & Donovan Mitchell & G & 2 \\
+    4 & Desmond Bane & G & 2 \\
+    5 & Bradley Beal & G & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Tyrese Haliburton in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

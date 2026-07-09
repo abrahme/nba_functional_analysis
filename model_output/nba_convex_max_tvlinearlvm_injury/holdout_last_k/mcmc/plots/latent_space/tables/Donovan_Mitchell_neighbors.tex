@@ -1,19 +1,17 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Donovan Mitchell} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Jalen Williams & G & 3 & 1.00 & 1.92 & 10\% \\ 
-Larry Robinson & G & 1 & 2.00 & 1.99 & 0\% \\ 
-Joel Embiid & C & 3 & 3.00 & 2.00 & 0\% \\ 
-Naz Reid & F & 3 & 4.00 & 2.02 & 18\% \\ 
-Cedric Ceballos & F & 1 & 5.00 & 2.04 & 15\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Desmond Bane & G & 4 \\
+    2 & Kyrie Irving & G & 2 \\
+    3 & Stephen Curry & G & 2 \\
+    4 & Khris Middleton & G & 2 \\
+    5 & Jalen Williams & G & 4 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Donovan Mitchell in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
+  \label{tab:Donovan_Mitchell_neighbors}
 \end{table}
 

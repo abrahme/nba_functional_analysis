@@ -263,6 +263,50 @@ make recompute_coverage
 make recompute_coverage_naive
 ```
 
+### Interactive per-scheme pipeline (`run_pipeline.sh`)
+
+For a fully guided run over a single holdout scheme and a chosen subset of model families, use the interactive pipeline script. It prompts for scheme and models, then executes all phases in the correct order:
+
+| Phase | Parallelism | Container |
+|-------|-------------|-----------|
+| 1. MAP | 2 GPU chains in parallel | `mcmc` |
+| 2. MCMC | Sequential (avoids GPU memory contention) | `mcmc` |
+| 3. Export | All selected models in parallel | `mcmc-analysis` |
+| 4. R diagnostics | All selected models in parallel (+ `injury_causal.r` if injury selected) | `r-new` |
+| 5. Combine | Single combine script | `mcmc-analysis` |
+
+```bash
+# Interactive — prompts for scheme then models
+./run_pipeline.sh
+
+# Non-interactive — pass scheme and model numbers as args (required for nohup)
+# Model numbers: 1=tvlvm  2=ar  3=injury  4=naive
+./run_pipeline.sh holdout_last_k "1 2 4"
+
+# Run in background, keep a log
+nohup ./run_pipeline.sh holdout_last_k "1 2 4" > pipeline.log 2>&1 & echo $! > pipeline.pid
+```
+
+The interactive prompts look like:
+
+```
+Select holdout scheme:
+1) holdout_last_k
+2) holdout_first_k
+3) random_interior
+4) holdout_peak
+#? 1
+
+Select models to include (space-separated numbers):
+  1) tvlvm
+  2) ar
+  3) injury
+  4) naive
+? 1 2 4
+```
+
+MAP models are split evenly across the two GPUs (even-indexed selections → GPU 0, odd-indexed → GPU 1), each GPU running its chain sequentially to avoid memory contention.
+
 To monitor a long background run:
 
 ```bash

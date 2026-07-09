@@ -14,13 +14,26 @@ config.update("jax_enable_x64", True)
 from data.data_utils import create_fda_data, average_peak_differences, average_range_differences, create_surv_data
 import numpyro
 import jax.numpy as jnp
-from model.model_utils import make_mu_rflvm, make_mu_hsgp, make_mu_linear, make_mu_rflvm_mcmc_AR, make_mu_hsgp_mcmc_AR, make_mu_linear_mcmc_AR, make_mu_linear_mcmc, compute_residuals_map, compute_priors, make_survival_linear_injury_mcmc, apply_detrend_for_offsets, make_survival_linear_mcmc
+from model.model_utils import compute_residuals_map, compute_priors, make_survival_linear_injury_mcmc, apply_detrend_for_offsets, make_survival_linear_mcmc
 from model.inference_utils import posterior_peaks_to_df, posterior_to_df, posterior_X_to_df, posterior_injury_to_df, posterior_injury_prior_mean_to_df, posterior_survival_to_df, posterior_player_scalar_to_df
 from model.hsgp import vmap_make_convex_phi, eigenfunctions_multivariate, make_spectral_mixture_density, diag_spectral_density, sqrt_eigenvalues
 from visualization.visualization import make_diagnostic_heatmap, make_rhat_summary_barchart, plot_calendar_year_trends
 from model.models import ConvexMaxARTVLinearLVM as _ARLinearLVM
-from model.models import ConvexMaxTVLinearLVM, ConvexMaxInjuryTVLinearLVM, NaiveLinearLVM
+from model.models import ConvexMaxTVLinearLVM, ConvexMaxInjuryTVLinearLVM, NaiveLinearLVM, TVLinearLVM, TVLinearLVM_AR
+from model.inference_inputs import dispatch_model, apply_prior_knobs, _ATTRIBUTE_KNOBS, _build_knob_value
 from model.inference_utils import create_metric_trajectory_all, create_metric_trajectory_map
+
+
+def _c_max_re_from(res, c_max_var):
+    """Scaled player x metric c_max random effect from a results dict, or None if the
+    model did not fit it. Returns shape broadcastable to c_max: sigma_c_offset is put on
+    each metric's natural scale via sqrt(c_max_var), then multiplied by the unit residual."""
+    if "c_offset_re" not in res or "sigma_c_offset" not in res:
+        return None
+    sco = res["sigma_c_offset"]
+    if c_max_var is not None:
+        sco = sco * jnp.sqrt(jnp.asarray(c_max_var))
+    return sco[..., None, :] * res["c_offset_re"]
 
 
 if __name__ == "__main__":
@@ -41,6 +54,7 @@ if __name__ == "__main__":
     basis_dims      = cfg["basis_dims"]
     approx_x_dim    = cfg["approx_x_dim"]
     injury          = cfg["injury"]
+    censor_survival_at_injury = cfg.get("censor_survival_at_injury", False)
     position_group  = cfg["position_group"]
     players         = cfg["player_names"]
     de_trend_metrics = cfg["de_trend_metrics"]
@@ -110,6 +124,43 @@ if __name__ == "__main__":
     id_df = data[["id", "name", "position_group", "minutes"]].groupby("id").max().reset_index()
     id_df["id"] = id_df["id"].astype(str)
 
+    holdout_indices_path = os.path.join(model_dir, "holdout_indices.csv")
+    _stratum_mat = None
+    _score_mask = None   # cells actually SCORED as holdout (== validation_mask unless a score_window flag narrows it, e.g. stratified_next_k)
+    if os.path.exists(holdout_indices_path):
+        holdout_df = pd.read_csv(holdout_indices_path)
+        _age_cols_list = list(_age_cols)
+        _age_to_idx = {age: idx for idx, age in enumerate(_age_cols_list)}
+        _id_to_idx = {pid: idx for idx, pid in enumerate(id_df["id"].tolist())}
+        _mask = np.zeros((len(id_df), len(_age_cols_list)), dtype=bool)
+        _has_score_col = "score_window" in holdout_df.columns
+        _score_mask = np.zeros((len(id_df), len(_age_cols_list)), dtype=bool)
+        if "stratum" in holdout_df.columns:
+            _stratum_mat = np.zeros((len(id_df), len(_age_cols_list)), dtype=int)
+        for row in holdout_df.itertuples(index=False):
+            pid = str(row.player)
+            age = int(row.age)
+            if pid in _id_to_idx and age in _age_to_idx:
+                _r, _c = _id_to_idx[pid], _age_to_idx[age]
+                _mask[_r, _c] = True
+                if _has_score_col:
+                    _sw = getattr(row, "score_window", 0)
+                    if _sw is not None and not (isinstance(_sw, float) and np.isnan(_sw)) and int(_sw) == 1:
+                        _score_mask[_r, _c] = True
+                else:
+                    _score_mask[_r, _c] = True   # no flag → every held-out cell is scored
+                if _stratum_mat is not None:
+                    _sv = getattr(row, "stratum", None)
+                    if _sv is not None and not (isinstance(_sv, float) and np.isnan(_sv)):
+                        _stratum_mat[_r, _c] = int(_sv)
+        validation_mask = _mask
+        print(f"Using holdout_indices.csv for validation_mask "
+              f"({_mask.sum()} held-out cells; {_score_mask.sum()} scored).")
+    # Cells scored as holdout (numpy bool). Defaults to the full held-out mask when no
+    # score_window flag is present, so non-stratified schemes are unaffected.
+    _score_mask_np = (np.asarray(_score_mask, dtype=bool)
+                      if _score_mask is not None else np.asarray(validation_mask, dtype=bool))
+
     for metric, metric_type, exposure in zip(metrics, metric_output, exposure_list):
         if metric_type in ["gaussian", "beta"]:
             league_avg_broadcasted = data.groupby(["year"]).apply(
@@ -151,15 +202,15 @@ if __name__ == "__main__":
 
     # Observed covariates: -log(draft_position_adj) and standardized height_inches
     # Player order matches create_fda_data groupby sort on id
-    _player_obs = data.groupby("id")[["draft_position_adj", "height_inches"]].first()
+    _player_obs = data.groupby("id")[["draft_position_adj", "height_inches", "position_group"]].first()
     _neg_log_draft = -np.log(_player_obs["draft_position_adj"].values.astype(float))
     _height_vals   = _player_obs["height_inches"].values.astype(float)
-    _obs_raw = np.stack([_neg_log_draft, _height_vals], axis=1)
-    _obs_mean = np.nanmean(_obs_raw, axis=0)
-    _obs_std  = np.nanstd(_obs_raw, axis=0) + 1e-8
-    obs_covariates = jnp.array(
-        np.nan_to_num((_obs_raw - _obs_mean) / _obs_std, nan=0.0)
-    )  # (n, 2), standardized; NaN (fake player, undrafted) → 0 = population mean
+    _obs_numeric = np.stack([_neg_log_draft, _height_vals], axis=1)
+    _obs_mean = np.nanmean(_obs_numeric, axis=0)
+    _obs_std  = np.nanstd(_obs_numeric, axis=0) + 1e-8
+    _obs_numeric_std = np.nan_to_num((_obs_numeric - _obs_mean) / _obs_std, nan=0.0)
+    _pos_dummies = pd.get_dummies(_player_obs["position_group"], drop_first=True).astype(float).values  # (n, 2): F, G vs C baseline
+    obs_covariates = jnp.array(np.concatenate([_obs_numeric_std, _pos_dummies], axis=1))  # (n, 4)
 
     surv_masks = None
     Y_surv = None
@@ -190,7 +241,7 @@ if __name__ == "__main__":
         de_trend_values=de_trend,
         de_trend_mask=jnp.array(de_trend_indices),
     )
-    offset_max, offset_max_var, offset_peak, offset_peak_var =  compute_priors(Y_for_offsets, exposures, metric_output, exposure_list)
+    offset_max, offset_max_var, offset_peak, offset_peak_var, offset_mean = compute_priors(Y_for_offsets, exposures, metric_output, exposure_list)
     offset_peak = offset_peak + age_min - basis.mean()
 
     offset_boundary_r = jnp.log(jnp.exp(2) - 1)
@@ -235,7 +286,7 @@ if __name__ == "__main__":
                                     "Giannis Antetokounmpo", "Jrue Holiday", "No Name"]
     all_player_labels = id_df["name"].tolist()
     print("setup data")
-    offset_dict = {"t_max": offset_peak, "c_max": offset_max, "boundary_r": offset_boundary_r, "boundary_l": offset_boundary_l, "t_max_var": offset_peak_var, "c_max_var": offset_max_var}
+    offset_dict = {"t_max": offset_peak, "c_max": offset_max, "c_mean": offset_mean, "boundary_r": offset_boundary_r, "boundary_l": offset_boundary_l, "t_max_var": offset_peak_var, "c_max_var": offset_max_var}
 
     with open(svi_path, "rb") as f:
         results_map = pickle.load(f)
@@ -246,6 +297,7 @@ if __name__ == "__main__":
         if thin > 0:
             results_mcmc = {key: val[:, ::thin, ...] for key, val in results_mcmc.items()}
     f.close()
+    _mcmc_sampled_keys = set(results_mcmc.keys())
     results_mcmc = {**results_map, **results_mcmc}
 
     # Fixed MAP params (alpha, sigma_t, sigma_c, …) were not sampled by MCMC so
@@ -253,9 +305,10 @@ if __name__ == "__main__":
     # known MCMC-sampled param and broadcast any fixed param to match, so
     # vmap calls inside make_mu_*_mcmc don't fail with shape mismatches.
     _mcmc_leading = None
-    for _k in ("beta", "c_max", "t_max_raw", "beta_ar", "X"):
-        if _k in results_mcmc and hasattr(results_mcmc[_k], "ndim") and results_mcmc[_k].ndim >= 2:
-            _mcmc_leading = results_mcmc[_k].shape[:2]  # (chains, draws)
+    for _k in sorted(_mcmc_sampled_keys):
+        _v = results_mcmc.get(_k)
+        if _v is not None and hasattr(_v, "ndim") and _v.ndim >= 2:
+            _mcmc_leading = _v.shape[:2]  # (chains, draws)
             break
     if _mcmc_leading is not None:
         _fixed = {k for k, v in results_map.items()
@@ -271,25 +324,159 @@ if __name__ == "__main__":
         _c_off_posterior = jnp.transpose(results_mcmc["c_offset"].squeeze(-1), (0, 1, 3, 2))  # (chains, draws, n, k)
         df = posterior_X_to_df(_c_off_posterior, id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], [])
         df.to_parquet(os.path.join(model_dir, "posterior_latent_X.parquet"), index=False)
-    else:
-        df = posterior_X_to_df(results_mcmc["X"], id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], [])
-        df.to_parquet(os.path.join(model_dir, "posterior_latent_X.parquet"), index=False)
+    # Non-naive X export is deferred until after the X_free assembly loop below.
+
+    def _safe_sd(arr, axis=-1):
+        sd = jnp.std(arr, axis=axis)
+        return jnp.nan_to_num(sd, nan=0.0, posinf=0.0, neginf=0.0)
+
+    def _scale_X_samples(X_samples, scale_vec):
+        return X_samples * scale_vec[..., None, :]
+
+    def _latent_weight_sd(weight_arr, latent_dim):
+        weight_latent = weight_arr[..., :latent_dim, :]
+        return _safe_sd(weight_latent, axis=-1)
+
+    def _latent_beta_sd(beta_arr, latent_dim):
+        beta_latent = beta_arr[..., :latent_dim, :, :]
+        return _safe_sd(beta_latent, axis=-1)
+
+    # Capability gate (was `"linear" in model_name`): the structured-prior models (linear, cosine,
+    # RFF) all sample W_proj, so key off its presence rather than the name.
+    _is_rff = "rflvm" in model_name
+    _supports_modal_exports = (not _is_naive) and ("W_proj" in results_mcmc)
+    if _supports_modal_exports and _is_rff:
+        # The RFF model has a SINGLE shared kernel — there is no separate peak-age/peak-value/curvature
+        # latent representation to decompose (those modalities differ only via per-metric weights in the
+        # shared 2m-dim feature space, not via the latent geometry). To stay faithful to the model, emit
+        # ONE latent rescaled by the per-dimension ARD relevance sqrt(lengthscale): in the kernel the
+        # effective input is sqrt(l) ⊙ X (scaled_W = W·sqrt(l)), so sqrt(l_j) is dim j's relevance.
+        # The per-modality files are intentionally omitted; latent_space.r skips the per-modality
+        # clusterings when they are absent.
+        _ell_sqrt = jnp.sqrt(results_mcmc["lengthscale"])                 # (chains, draws, r)
+        _X_rescaled = _scale_X_samples(results_mcmc["X"], _ell_sqrt)
+        posterior_X_to_df(
+            _X_rescaled, id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], []
+        ).to_parquet(os.path.join(model_dir, "posterior_latent_X_rescaled.parquet"), index=False)
+        _ell_sqrt_map = np.sqrt(np.array(results_map["lengthscale"]))     # (r,)
+        _phi_rescaled = np.array(results_map["X"]) * _ell_sqrt_map[None, :]
+        _phi_rescaled_df = pd.concat(
+            [pd.DataFrame(_phi_rescaled, columns=[f"Dim {i+1}" for i in range(_phi_rescaled.shape[1])]), id_df],
+            axis=1,
+        )
+        _phi_rescaled_df.to_parquet(os.path.join(model_dir, "phi_X_rescaled.parquet"), index=False)
+    elif _supports_modal_exports:
+        latent_dim = results_map["X"].shape[1]
+        if "t_max_raw" in results_mcmc and "c_max" in results_mcmc and "beta" in results_mcmc:
+            # Peak age modality (t_max_raw)
+            _t_sd = _latent_weight_sd(results_mcmc["t_max_raw"], latent_dim)
+            _X_peak_age = _scale_X_samples(results_mcmc["X"], _t_sd)
+            _df_peak_age = posterior_X_to_df(
+                _X_peak_age, id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], []
+            )
+            _df_peak_age.to_parquet(
+                os.path.join(model_dir, "posterior_latent_X_peak_age.parquet"), index=False
+            )
+            _t_map_sd = np.std(np.array(results_map["t_max_raw"][:latent_dim, :]), axis=-1)
+            _phi_peak_age = results_map["X"] * _t_map_sd[None, :]
+            _phi_peak_age_df = pd.DataFrame(
+                _phi_peak_age, columns=[f"Dim {i+1}" for i in range(_phi_peak_age.shape[1])]
+            )
+            _phi_peak_age_df = pd.concat([_phi_peak_age_df, id_df], axis=1)
+            _phi_peak_age_df.to_parquet(
+                os.path.join(model_dir, "phi_X_peak_age.parquet"), index=False
+            )
+
+            # Peak value modality (c_max)
+            _c_sd = _latent_weight_sd(results_mcmc["c_max"], latent_dim)
+            _X_peak_value = _scale_X_samples(results_mcmc["X"], _c_sd)
+            _df_peak_value = posterior_X_to_df(
+                _X_peak_value, id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], []
+            )
+            _df_peak_value.to_parquet(
+                os.path.join(model_dir, "posterior_latent_X_peak_value.parquet"), index=False
+            )
+            _c_map_sd = np.std(np.array(results_map["c_max"][:latent_dim, :]), axis=-1)
+            _phi_peak_value = results_map["X"] * _c_map_sd[None, :]
+            _phi_peak_value_df = pd.DataFrame(
+                _phi_peak_value, columns=[f"Dim {i+1}" for i in range(_phi_peak_value.shape[1])]
+            )
+            _phi_peak_value_df = pd.concat([_phi_peak_value_df, id_df], axis=1)
+            _phi_peak_value_df.to_parquet(
+                os.path.join(model_dir, "phi_X_peak_value.parquet"), index=False
+            )
+
+            # Curvature modalities (beta basis functions)
+            _beta_sd = _latent_beta_sd(results_mcmc["beta"], latent_dim)  # (chains, draws, latent_dim, M)
+            _beta_map_sd = np.std(np.array(results_map["beta"][:latent_dim, :, :]), axis=-1)  # (latent_dim, M)
+            _num_basis = _beta_sd.shape[-1]
+            for _m in range(_num_basis):
+                _m_tag = _m + 1
+                _m_sd = _beta_sd[..., _m]
+                _X_curv = _scale_X_samples(results_mcmc["X"], _m_sd)
+                _df_curv = posterior_X_to_df(
+                    _X_curv, id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], []
+                )
+                _df_curv.to_parquet(
+                    os.path.join(model_dir, f"posterior_latent_X_curvature_m{_m_tag}.parquet"),
+                    index=False,
+                )
+                _phi_curv = results_map["X"] * _beta_map_sd[:, _m][None, :]
+                _phi_curv_df = pd.DataFrame(
+                    _phi_curv, columns=[f"Dim {i+1}" for i in range(_phi_curv.shape[1])]
+                )
+                _phi_curv_df = pd.concat([_phi_curv_df, id_df], axis=1)
+                _phi_curv_df.to_parquet(
+                    os.path.join(model_dir, f"phi_X_curvature_m{_m_tag}.parquet"), index=False
+                )
     _summary_vars = ["sigma_beta", "sigma_beta_binomial", "sigma", "sigma_ar", "sigma_negative_binomial"]
     _summary_subset = {k: results_mcmc[k] for k in _summary_vars if k in results_mcmc}
     summary = az.summary(_summary_subset)
     print(summary)
     summary.to_parquet(os.path.join(model_dir, "posterior_variance_summary.parquet"), index=False)
+
+    # Export per-sample dispersion parameters labelled by metric so model_diagnostics.r
+    # can compute posterior log-loss intervals without needing to know index order.
+    _disp_rows = []
+    _g_i = _beta_i = _nb_i = _bb_i = 0
+    _disp_map = {
+        "gaussian":       ("sigma",                  lambda i: _g_i),
+        "beta":           ("sigma_beta",             lambda i: _beta_i),
+        "negative-binomial": ("sigma_negative_binomial", lambda i: _nb_i),
+        "beta-binomial":  ("sigma_beta_binomial",    lambda i: _bb_i),
+    }
+    for _mn, _fam in zip(metrics, metric_output):
+        if _fam not in _disp_map:
+            continue
+        _param_key, _ = _disp_map[_fam]
+        if _param_key not in results_mcmc:
+            continue
+        if _fam == "gaussian":
+            _s = np.array(results_mcmc[_param_key])[..., _g_i];  _g_i  += 1
+        elif _fam == "beta":
+            _s = np.array(results_mcmc[_param_key])[..., _beta_i]; _beta_i += 1
+        elif _fam == "negative-binomial":
+            _s = np.array(results_mcmc[_param_key])[..., _nb_i];  _nb_i += 1
+        elif _fam == "beta-binomial":
+            _s = np.array(results_mcmc[_param_key])[..., _bb_i];  _bb_i += 1
+        _nc, _nd = _s.shape[:2]
+        _ci, _di = np.meshgrid(np.arange(_nc), np.arange(_nd), indexing="ij")
+        _disp_rows.append(pd.DataFrame({
+            "chain": _ci.ravel(), "draw": _di.ravel(),
+            "metric": _mn, "family": _fam,
+            "value": _s.ravel(),
+        }))
+    if _disp_rows:
+        pd.concat(_disp_rows, ignore_index=True).to_parquet(
+            os.path.join(model_dir, "posterior_dispersion.parquet"), index=False
+        )
     survival_injury_keys = {
-        "exit_global_offset",
+        "gamma_global_log",
         "exit",
         "exit_rate",
         "injury_factor",
         "injury_exit_loading",
         "injury_exit_global_offset",
-        "sigma_injury_exit",
-        "injury_exit_raw",
-        "injury_player_x",
-        "injury_player_exit"
     }
     has_survival_injury = all(key in results_mcmc for key in survival_injury_keys)
 
@@ -297,45 +484,95 @@ if __name__ == "__main__":
     surv_masks = jnp.stack([data_entity["censored"] for data_entity in surv_data_set], -1)
     Y_surv = jnp.stack([data_entity["observations"] for data_entity in surv_data_set], -1)
 
+    if censor_survival_at_injury:
+        _onset = (
+            data[data["injury_period"] != "pre-injury"]
+            .groupby("id")["age"].min()
+        )
+        _player_ids = data.groupby("id").apply(lambda g: g["id"].iloc[0]).index.tolist()
+        _Y_surv_np = np.array(Y_surv)
+        _surv_masks_np = np.array(surv_masks)
+        for _i, _pid in enumerate(_player_ids):
+            if _pid in _onset.index:
+                _onset_age = float(_onset[_pid])
+                if _onset_age < _Y_surv_np[_i, 1]:
+                    _Y_surv_np[_i, 1] = _onset_age
+                    _surv_masks_np[_i, 1] = True
+        Y_surv = jnp.array(_Y_surv_np)
+        surv_masks = jnp.array(_surv_masks_np)
+
+    # Preserve pre-holdout survival observations for evaluation; then censor
+    # holdout players at their last in-sample age so the survival model does
+    # not observe exit ages that fall inside the held-out window.
+    Y_surv_eval     = Y_surv
+    surv_masks_eval = surv_masks
+    if os.path.exists(holdout_indices_path):
+        _holdout_df_surv = pd.read_csv(holdout_indices_path)
+        _Y_surv_h    = np.array(Y_surv)
+        _smasks_h    = np.array(surv_masks)
+        _id_map_surv = {str(pid): idx for idx, pid in enumerate(id_df["id"].tolist())}
+        for _hpid, _hgrp in _holdout_df_surv.groupby("player"):
+            _hpi = _id_map_surv.get(str(_hpid))
+            if _hpi is None:
+                continue
+            # Censor at last in-sample age (one year before the first held-out season),
+            # but never before the player's entrance age.
+            _last_in = max(float(_hgrp["age"].min()) - 1.0, float(_Y_surv_h[_hpi, 0]))
+            if _last_in < float(_Y_surv_h[_hpi, 1]):
+                _Y_surv_h[_hpi, 1] = _last_in
+                _smasks_h[_hpi, 1] = True
+        Y_surv     = jnp.array(_Y_surv_h)
+        surv_masks = jnp.array(_smasks_h)
+
+    # ── Model instance + curve args: SINGLE source for log-posterior AND MAP/MCMC curves ─────
+    # Built via the shared dispatch (same as build_inference_inputs / main.py) — fixes the prior
+    # silent fallthrough that built plain-linear for lkj/cosine, and sets the RE flags. Curves are
+    # reconstructed by running lp_model.compute_curves under numpyro.handlers.substitute (single
+    # source of truth) instead of the retired make_mu_* duplicates.
+    _n_players = covariate_X.shape[0]
+    _output_shape = (_n_players, len(basis), len(metrics))
+    _pk = cfg.get("prior_knobs") or {}
+    lp_model = dispatch_model(
+        model_name, latent_rank=basis_dims, output_shape=_output_shape, basis=basis,
+        player_covariates=obs_covariates, injury=injury,
+        num_injury_types=int(data["injury_code"].max()), prior_knobs=_pk,
+        rff_dim=approx_x_dim)   # RFF leaves need rff_dim to size W / projected features
+    for _ak in _ATTRIBUTE_KNOBS:
+        if _ak in _pk:
+            setattr(lp_model, _ak, _build_knob_value(_pk[_ak]))
+    lp_model.initialize_priors(scale_values=scale_values)
+    apply_prior_knobs(lp_model, _pk, metrics=metrics)
+
+    _first_obs_year = int(data.query("id != 99999999")["year"].min())
+    _ref_year_idx = _first_obs_year - min_year
+    _all_idx = jnp.arange(_n_players)
+    _lp_offsets = {
+        **offset_dict,
+        "exit_times": Y_surv[:, 1] - age_min + 1e-6,
+        "entrance_times": Y_surv[:, 0] - age_min + 1e-6,
+        "right_censor": surv_masks[:, 1],
+        "injury_indicator": injury_masks,
+        "injury_type": injury_types,
+    }
+    # Positional args for compute_curves / _compute_mu (shared by MAP + MCMC reconstruction).
+    _sample_free = jnp.array(player_indices)
+    _sample_fixed = jnp.setdiff1d(_all_idx, _sample_free, assume_unique=True)
+    _ar_metric_idx = jnp.where(jnp.array(de_trend_indices))[0]
+    _curve_args = (hsgp_params, _lp_offsets, _sample_free, _sample_fixed,
+                   _ar_metric_idx, year_indices, num_years, len(de_trend_metrics), _ref_year_idx)
 
     # ── Log posterior via numpyro.infer.util.log_density ─────────────────────
     _lp_path = os.path.join(model_dir, "log_posterior.parquet")
     try:
-        _n_players = covariate_X.shape[0]
-        _output_shape = (_n_players, len(basis), len(metrics))
-        if _is_naive:
-            _lp_model = NaiveLinearLVM(latent_rank=basis_dims, output_shape=_output_shape, basis=basis)
-        elif injury and "injury" in model_name:
-            _lp_model = ConvexMaxInjuryTVLinearLVM(
-                latent_rank=basis_dims, output_shape=_output_shape, basis=basis,
-                injury_rank=5, num_injury_types=int(data["injury_code"].max()),
-            )
-        elif "AR" in model_name:
-            _lp_model = _ARLinearLVM(latent_rank=basis_dims, output_shape=_output_shape, basis=basis)
-        else:
-            _lp_model = ConvexMaxTVLinearLVM(latent_rank=basis_dims, output_shape=_output_shape, basis=basis)
-        _lp_model.initialize_priors(scale_values=scale_values)
-
-        _first_obs_year = int(data.query("id != 99999999")["year"].min())
-        _ref_year_idx = _first_obs_year - min_year
-        _all_idx = jnp.arange(_n_players)
-        _lp_offsets = {
-            **offset_dict,
-            "exit_times": Y_surv[:, 1] - age_min + 1e-6,
-            "entrance_times": Y_surv[:, 0] - age_min + 1e-6,
-            "right_censor": surv_masks[:, 1],
-            "injury_indicator": injury_masks,
-            "injury_type": injury_types,
-        }
+        _lp_model = lp_model
         _lp_kwargs = {
             "data_set": data_dict,
             "inference_method": "mcmc",
-            "sample_free_indices": jnp.array(player_indices),
-            "sample_fixed_indices": jnp.setdiff1d(_all_idx, jnp.array(player_indices), assume_unique=True),
-            "observed_covariates": obs_covariates,
+            "sample_free_indices": _sample_free,
+            "sample_fixed_indices": _sample_fixed,
             "hsgp_params": hsgp_params,
             "offsets": _lp_offsets,
-            "ar_metric_indices": jnp.where(jnp.array(de_trend_indices))[0],
+            "ar_metric_indices": _ar_metric_idx,
             "year_indices": year_indices,
             "num_years": num_years,
             "num_de_trend": len(de_trend_metrics),
@@ -362,9 +599,15 @@ if __name__ == "__main__":
             # Merging here ensures log_density uses the actual trained values for
             # those sites rather than default init values, while MCMC samples in
             # p override for any overlapping sample-site keys.
-            _lj = jax.vmap(
-                lambda p: _log_density(_lp_model.model_fn, (), _lp_kwargs, {**results_map, **p})[0]
-            )(_flat_s)
+            _lp_batch = 10
+            _n_flat = next(iter(_flat_s.values())).shape[0]
+            _lj_parts = []
+            for _bi in range(0, _n_flat, _lp_batch):
+                _bs = {k: v[_bi:_bi + _lp_batch] for k, v in _flat_s.items()}
+                _lj_parts.append(jax.vmap(
+                    lambda p: _log_density(_lp_model.model_fn, (), _lp_kwargs, {**results_map, **p})[0]
+                )(_bs))
+            _lj = jnp.concatenate(_lj_parts)
             _lp_arr = np.array(_lj).reshape(_nc, _nd)
             pd.DataFrame(
                 [{"chain": c, "draw": d, "log_joint": float(_lp_arr[c, d])}
@@ -380,7 +623,7 @@ if __name__ == "__main__":
     # ─────────────────────────────────────────────────────────────────────────
 
     for item in results_mcmc:
-        print(item, results_mcmc[item].shape)
+        print(item, getattr(results_mcmc[item], "shape", "(scalar)"))
         if item == "X":
             if "X_free" in results_mcmc:
                 X_new = jnp.tile(results_mcmc["X"][None, None], (1, 50, 1, 1))
@@ -389,20 +632,70 @@ if __name__ == "__main__":
             if "hsgp" in model_name:
                 results_mcmc["X"] = jnp.tanh(results_mcmc["X"]) * 1.9
 
-    # Augment MAP and MCMC X with fixed observed covariates for trajectory/survival computations.
-    # posterior_X_to_df above uses the raw latent X (already saved); augmentation only affects
-    # the make_mu_* and survival utility calls below.
+    # For linear models: reconstruct total X = Z @ W_proj + sigma_X * X_raw (non-centered).
+    # X_loc (prior mean from covariates) is also exported for interpretability.
     # Naive model has no latent X; X_map_aug / X_mcmc_aug are left as None.
     if not _is_naive:
-        X_map_aug = jnp.concatenate([results_map["X"], obs_covariates], axis=-1)
-        _obs_bc = jnp.broadcast_to(
-            obs_covariates[None, None],
-            results_mcmc["X"].shape[:-1] + (obs_covariates.shape[-1],),
-        )
-        X_mcmc_aug = jnp.concatenate([results_mcmc["X"], _obs_bc], axis=-1)
+        _x_was_sampled = "X" in _mcmc_sampled_keys or "X_free" in _mcmc_sampled_keys
+        # Capability gate (was `"linear" in model_name and ...`): any structured-prior model with a
+        # sampled W_proj (linear, cosine, RFF leaves) gets the total-X + X_loc reconstruction path.
+        if "W_proj" in results_mcmc:
+            _Z = obs_covariates                                      # (n, 2)
+            # MAP total X
+            _W_map   = results_map["W_proj"]                         # (2, r)
+            _sX_map  = results_map["sigma_X"]                        # scalar
+            _X_loc_map = _Z @ _W_map                                 # (n, r)
+            _X_raw_map = jnp.zeros((_Z.shape[0], basis_dims))
+            _free_raw_map = results_map.get("X_free", results_map.get("X"))
+            if _free_raw_map is not None:
+                if len(player_indices) > 0:
+                    _X_raw_map = _X_raw_map.at[jnp.array(player_indices, dtype=jnp.int32)].set(_free_raw_map)
+                else:
+                    _X_raw_map = _free_raw_map
+            X_map_aug = _X_loc_map + _sX_map * _X_raw_map            # (n, r)
+
+            # MCMC total X — results_mcmc["X"] now contains assembled X_raw (chains, draws, n, r)
+            _W_mc  = results_mcmc["W_proj"]                          # (chains, draws, 2, r) or (2, r)
+            _sX_mc = results_mcmc["sigma_X"]                         # (chains, draws) or scalar
+            _X_loc_mc = jnp.einsum("...pr,np->...nr", _W_mc, _Z)    # (chains, draws, n, r)
+            X_mcmc_aug = _X_loc_mc + _sX_mc[..., None, None] * results_mcmc["X"]  # (chains, draws, n, r)
+            # NOTE: do NOT overwrite results_mcmc["X"] — the curve reconstruction (compute_curves under
+            # substitute) reads the RAW X site and rebuilds total X = Z@W_proj + sigma_X*X internally.
+            # X_mcmc_aug (total X) is kept as a local for the latent-X parquet + downstream exports.
+
+            # Export total X to parquet (non-naive, linear path)
+            df = posterior_X_to_df(X_mcmc_aug, id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], [])
+            df.to_parquet(os.path.join(model_dir, "posterior_latent_X.parquet"), index=False)
+
+            # Export X_loc (covariate prior mean) separately
+            df_loc = posterior_X_to_df(_X_loc_mc, id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], [])
+            df_loc.to_parquet(os.path.join(model_dir, "posterior_X_loc.parquet"), index=False)
+        else:
+            # Non-linear (rflvm/hsgp) or model without W_proj: keep old augmentation
+            X_map_aug = jnp.concatenate([results_map["X"], obs_covariates], axis=-1)
+            _obs_bc = jnp.broadcast_to(
+                obs_covariates[None, None],
+                results_mcmc["X"].shape[:-1] + (obs_covariates.shape[-1],),
+            )
+            X_mcmc_aug = jnp.concatenate([results_mcmc["X"], _obs_bc], axis=-1)
+
+            # Export raw latent X (non-naive, non-linear path)
+            df = posterior_X_to_df(results_mcmc["X"], id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], [])
+            df.to_parquet(os.path.join(model_dir, "posterior_latent_X.parquet"), index=False)
     else:
         X_map_aug = None
         X_mcmc_aug = None
+
+    # ── Curve reconstruction via the model's own forward (single source) ─────────────────────
+    # _curves_under_substitute runs lp_model.compute_curves under numpyro substitute so the exported
+    # curve == the fitted model's forward exactly (incl. cosine/LKJ/curve_amp/1-over-sqrt-r); the AR
+    # is added separately via _compute_player_ar (zero for non-AR).
+    def _curves_under_substitute(params):
+        def f():
+            d = dict(lp_model.compute_curves(*_curve_args, include_derivs=True))
+            d["ar"] = lp_model._compute_player_ar()
+            return d
+        return numpyro.handlers.substitute(numpyro.handlers.seed(f, jax.random.PRNGKey(0)), data=params)()
 
     if _is_naive:
         _c_off_map = results_map["c_offset"]    # (k, n, 1)
@@ -412,30 +705,8 @@ if __name__ == "__main__":
         _a0_map    = results_map["AR_0"] * (_s_map / jnp.sqrt(1 - _r_map ** 2))
         _ar_map    = _ARLinearLVM._compute_ar_process_from_parameters(_s_map, _r_map, _z_map, _a0_map)
         mu = jnp.repeat(_c_off_map, repeats=len(basis), axis=-1) + _ar_map  # (k, n, j)
-    elif "rflvm" in model_name:
-        mu, *_ = make_mu_rflvm(results_map["X"], 3 + results_map["lengthscale_deriv"], results_map["alpha"], results_map["beta"],
-                                                results_map["W"], results_map["W_t_max"], results_map["W_c_max"],  results_map["lengthscale"], results_map["lengthscale_t_max"], results_map["lengthscale_c_max"], results_map["c_max"], results_map["t_max_raw"], 
-                                                results_map["sigma_t"],
-                                                results_map["sigma_c"], 
-                                                # offset_dict["t_max_var"],
-                                                # offset_dict["c_max_var"],
-                                                L_time, M_time, phi_time, x_time + L_time, offset_dict)
-    elif "hsgplvm" in model_name: 
-        mu, *_ = make_mu_hsgp(results_map["X"], 3 + results_map["lengthscale_deriv"], results_map["alpha"], results_map["alpha_X"], results_map["beta"], results_map["lengthscale"],
-                              results_map["lengthscale_c_max"], results_map["lengthscale_t_max"],  
-                              results_map["c_max"], results_map["t_max_raw"], 
-                            #   results_map["sigma_t"],
-                            #   results_map["sigma_c"], 
-                            offset_dict["t_max_var"],
-                            offset_dict["c_max_var"],
-                              L_time, M_time, phi_time, x_time + L_time, offset_dict, basis_dims, 2 * jnp.ones(basis_dims)[..., None] ,approx_x_dim )
-    elif "linear" in model_name:
-        _sigma_c_eff = results_map["sigma_c"] * jnp.sqrt(jnp.asarray(offset_dict["c_max_var"]))
-        _sigma_c_mcmc_eff = results_mcmc["sigma_c"] * jnp.sqrt(jnp.asarray(offset_dict["c_max_var"]))
-        mu, *_ = make_mu_linear(X_map_aug, 3 + results_map["lengthscale_deriv"], results_map["alpha"], results_map["beta"], results_map["c_max"], results_map["t_max_raw"],
-                                results_map["sigma_t"],
-                                _sigma_c_eff,
-                                  L_time, M_time, phi_time, x_time + L_time, basis_dims, offset_dict)
+    else:
+        mu = _curves_under_substitute(results_map)["mu"]   # (k, n, j) — calendar trend added below
     if "intercept" in results_map:
         mu += (results_map["intercept"] * results_map["sigma_intercept"])[..., None]
 
@@ -470,91 +741,40 @@ if __name__ == "__main__":
     # avg_sd = jnp.ones((len(metrics))) * .01
     # autocorr = jnp.zeros_like(avg_sd)
 
-    if "rflvm" in model_name:
-        wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv, first_deriv = make_mu_rflvm_mcmc_AR(results_mcmc["X"], 3 + results_mcmc["lengthscale_deriv"], results_mcmc["alpha"],
-                            results_mcmc["beta"], results_mcmc["W"], results_mcmc["W_t_max"], results_mcmc["W_c_max"], results_mcmc["lengthscale"], results_mcmc["lengthscale_t_max"], results_mcmc["lengthscale_c_max"],  results_mcmc["c_max"],
-                            results_mcmc["t_max_raw"], offset_dict["t_max_var"],
-                              offset_dict["c_max_var"], L_time, M_time, x_time + L_time, offset_dict, approx_x_dim,
-                            
-                            sigma_ar = results_mcmc["sigma_ar"],
-                            # sigma_ar = avg_sd[..., None][None, None],
-                            beta_ar = results_mcmc["beta_ar"], 
-                            rho_ar=results_mcmc["rho_ar"],
-                            # rho_ar = autocorr[..., None][None, None],
-                            AR_0_raw=results_mcmc["AR_0"],
-                            # AR_0_raw = jnp.zeros((len(metrics), covariate_X.shape[0])),
-                            phi_time=phi_time, orthogonalize=False)
-    elif "hsgplvm" in model_name:
-        wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv, first_deriv = make_mu_hsgp_mcmc_AR(results_mcmc["X"],  3 + results_mcmc["lengthscale_deriv"], 
-                              results_mcmc["alpha"], results_mcmc["alpha_X"], results_mcmc["beta"], results_mcmc["lengthscale"],
-                              results_mcmc["lengthscale_c_max"], results_mcmc["lengthscale_t_max"],  
-                              results_mcmc["c_max"], results_mcmc["t_max_raw"], offset_dict["t_max_var"],
-                              offset_dict["c_max_var"], L_time, M_time, phi_time, x_time + L_time, offset_dict,
-                              basis_dims, 2 * jnp.ones(basis_dims)[..., None] ,approx_x_dim,
-                            sigma_ar = results_mcmc["sigma_ar"],
-                            # sigma_ar = avg_sd[..., None][None, None],
-                            beta_ar = results_mcmc["beta_ar"], 
-                            rho_ar=results_mcmc["rho_ar"],
-                            # rho_ar = autocorr[..., None][None, None],
-                            AR_0_raw=results_mcmc["AR_0"],
-                            # AR_0_raw = jnp.zeros((len(metrics), covariate_X.shape[0])),
-                             orthogonalize=False)
-    elif "linear" in model_name:
-        if ("AR" in model_name) or injury:
-            wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv, first_deriv = make_mu_linear_mcmc_AR(X_mcmc_aug, 3 + results_mcmc["lengthscale_deriv"],
-                                results_mcmc["alpha"], results_mcmc["beta"],
-                                results_mcmc["c_max"], results_mcmc["t_max_raw"], results_mcmc["sigma_t"],
-                                _sigma_c_mcmc_eff, L_time, M_time, phi_time, x_time + L_time, basis_dims, offset_dict,
-                                sigma_ar = results_mcmc["sigma_ar"],
-                                # sigma_ar = avg_sd[..., None][None, None],
-                                beta_ar = results_mcmc["beta_ar"], 
-                                rho_ar=results_mcmc["rho_ar"],
-                                # rho_ar = autocorr[..., None][None, None],
-                                AR_0_raw=results_mcmc["AR_0"],
-                                # AR_0_raw = jnp.zeros((len(metrics), covariate_X.shape[0])),
-                                orthogonalize=False)
-        else:
-            wTx, mu_mcmc, tmax_mcmc, cmax_mcmc, AR, second_deriv, third_deriv, first_deriv = make_mu_linear_mcmc(X_mcmc_aug, 3 + results_mcmc["lengthscale_deriv"],
-                                results_mcmc["alpha"], results_mcmc["beta"],
-                                results_mcmc["c_max"], results_mcmc["t_max_raw"], results_mcmc["sigma_t"],
-                                _sigma_c_mcmc_eff, L_time, M_time, phi_time, x_time + L_time, basis_dims, offset_dict)
-    elif _is_naive:
+    if _is_naive:
+        # Naive has no convex/GPLVM curve — just per-player c_offset + AR(1), reconstructed inline.
         def _naive_one_draw(c_off, s, r, z, a0_raw):
             a0 = a0_raw * (s / jnp.sqrt(1 - r ** 2))
             ar = _ARLinearLVM._compute_ar_process_from_parameters(s, r, z, a0)   # (k, n, j)
             return jnp.repeat(c_off, repeats=z.shape[0], axis=-1), ar           # (k, n, j) each
-
         mu_mcmc, AR = vmap(vmap(_naive_one_draw))(
-            results_mcmc["c_offset"],   # (chains, draws, k, n, 1)
-            results_mcmc["sigma_ar"],   # (chains, draws, k, 1)
-            results_mcmc["rho_ar"],     # (chains, draws, k, 1)
-            results_mcmc["beta_ar"],    # (chains, draws, j, k, n)
-            results_mcmc["AR_0"],       # (chains, draws, k, n)
-        )
-        tmax_mcmc   = None
-        cmax_mcmc   = None
-        third_deriv = None
-        first_deriv = jnp.zeros_like(mu_mcmc)
-
-    # Reconstruct MCMC calendar-year TREND_AR — shape (chains, draws, k, n, j)
-    _has_year_ar_mcmc = _has_year_ar and all(k in results_mcmc for k in _year_ar_keys)
-    if _has_year_ar_mcmc:
-        def _ar3_one_draw(s, r, z, a0):
-            a0_scaled = a0 * s[None, :, 0]                                      # (1, num_ar)
-            traj = _ARLinearLVM._compute_ar1_calendar_process(s, r, z, a0_scaled)  # (num_ar, num_years)
-            trend_nj = traj[:, year_indices]                                     # (num_ar, n, j)
-            out = jnp.zeros((len(metrics),) + year_indices.shape)
-            return out.at[_ar_global_indices].set(trend_nj)                      # (k, n, j)
-
-        _ar3_mcmc = vmap(vmap(_ar3_one_draw))  # maps over (chains, draws)
-        TREND_AR_mcmc = _ar3_mcmc(
-            results_mcmc["sigma_year_ar"],   # (chains, draws, num_ar, 1)
-            results_mcmc["rho_year_ar"],     # (chains, draws, num_ar, 1)
-            results_mcmc["beta_year_ar"],    # (chains, draws, num_years, num_ar)
-            results_mcmc["AR_0_year"],       # (chains, draws, 1, num_ar)
-        )  # (chains, draws, k, n, j)
+            results_mcmc["c_offset"], results_mcmc["sigma_ar"], results_mcmc["rho_ar"],
+            results_mcmc["beta_ar"], results_mcmc["AR_0"])
+        tmax_mcmc = None; cmax_mcmc = None
+        second_deriv = None; third_deriv = None; first_deriv = jnp.zeros_like(mu_mcmc)
+        TREND_AR_mcmc = de_trend_adjusted
     else:
-        TREND_AR_mcmc = de_trend_adjusted   # fallback: broadcast (k, n, j)
+        # SINGLE SOURCE: reconstruct every MCMC curve through the model's own forward. lax.map runs
+        # one draw at a time (memory-safe — never materialises (chains,draws,k,n,t)); compute_curves
+        # gives mu/peaks/derivs/calendar-trend and _compute_player_ar gives the per-player AR. This
+        # replaces make_mu_linear* / make_mu_tvlinearlvm_mcmc and the per-family branches, so any
+        # models.py change (cosine, 1/sqrt(r), curve_amp, …) propagates here automatically.
+        _nc, _nd = _mcmc_leading
+        _flat = {k: v.reshape(-1, *v.shape[2:]) for k, v in results_mcmc.items() if k in _mcmc_sampled_keys}
+        _keys = jax.random.split(jax.random.PRNGKey(0), _nc * _nd)
+        def _one_draw(carry):
+            draw, key = carry
+            def f():
+                d = dict(lp_model.compute_curves(*_curve_args, include_derivs=True))
+                d["ar"] = lp_model._compute_player_ar()
+                return d
+            return numpyro.handlers.substitute(numpyro.handlers.seed(f, key), data={**results_map, **draw})()
+        _d_mc = jax.lax.map(_one_draw, (_flat, _keys))
+        _d_mc = {k: v.reshape(_nc, _nd, *v.shape[1:]) for k, v in _d_mc.items()}
+        mu_mcmc = _d_mc["mu"]; tmax_mcmc = _d_mc["t_max"]; cmax_mcmc = _d_mc["c_max"]
+        AR = _d_mc["ar"]; first_deriv = _d_mc["first_deriv"]
+        second_deriv = _d_mc["second_deriv"]; third_deriv = _d_mc["third_deriv"]
+        TREND_AR_mcmc = _d_mc["trend_ar"]
 
     latent_val = mu_mcmc + AR + TREND_AR_mcmc
     if _is_naive:
@@ -564,13 +784,28 @@ if __name__ == "__main__":
     if injury:
         injury_loading = results_mcmc["injury_loading"]
         injury_factor = results_mcmc["injury_factor"]
-        sigma_injury = results_mcmc["sigma_injury"]
-        injury_player_x = results_mcmc["injury_player_x"]
-        injury_player_effect = jnp.einsum("...nr, ...rki -> ...kni", X_mcmc_aug, injury_player_x)[:,:, :, :, None, :]
-        injury_mean_prior = jnp.einsum("...ip, ...kp -> ...ki", injury_factor, injury_loading )
-        injury_raw = results_mcmc["injury_raw"]
-        injury_effect_raw = injury_mean_prior[:,:,:,None, None, :] + injury_raw * sigma_injury[..., None, None, None] + injury_player_effect
-        injury_effect = jnp.take_along_axis(jnp.concatenate([jnp.zeros_like(AR)[..., None], injury_effect_raw ], -1), injury_types[..., None][None, None], -1).squeeze(-1) 
+        injury_mean_prior = jnp.einsum("...ip, ...kp -> ...ki", injury_factor, injury_loading)
+        # (chains, draws, k, i)
+        _injury_global_offset = results_mcmc.get("injury_global_offset", jnp.zeros(injury_mean_prior.shape[-2]))
+        _sigma_injury = results_mcmc.get("sigma_injury")       # (chains, draws, k) or None
+        _injury_time_raw = results_mcmc.get("injury_time_raw") # (chains, draws, j, i) or None
+        if _sigma_injury is not None and _injury_time_raw is not None:
+            injury_effect_raw = (
+                injury_mean_prior[:, :, :, None, None, :]                                              # (chains, draws, k, 1, 1, i)
+                + _injury_global_offset[:, :, :, None, None, None]                                    # (chains, draws, k, 1, 1, 1)
+                + _sigma_injury[:, :, :, None, None, None] * _injury_time_raw[:, :, None, None, :, :] # (chains, draws, k, 1, j, i)
+            )  # (chains, draws, k, 1, j, i)
+        else:
+            injury_effect_raw = (
+                injury_mean_prior[:, :, :, None, None, :]
+                + _injury_global_offset[:, :, :, None, None, None]
+            )  # (chains, draws, k, 1, 1, i) — decay model fallback
+        injury_effect_padded = jnp.concatenate(
+            [jnp.zeros(injury_effect_raw.shape[:-1] + (1,), dtype=injury_effect_raw.dtype),
+             injury_effect_raw],
+            axis=-1
+        )  # (..., k, 1, T, i+1) — take_along_axis broadcasts over n
+        injury_effect = jnp.take_along_axis(injury_effect_padded, injury_types[..., None][None, None], -1).squeeze(-1)
         latent_val = latent_val + injury_effect
 
         injury_posterior_df = posterior_injury_to_df(
@@ -604,15 +839,6 @@ if __name__ == "__main__":
                 axis=2,
             )
             injury_prior_metrics = injury_prior_metrics + ["exit_hazard"]
-        if "injury_scale_loading" in results_mcmc:
-            injury_scale_prior_mean = jnp.einsum("...ip, ...p -> ...i", injury_factor, results_mcmc["injury_scale_loading"])
-            if "injury_scale_global_offset" in results_mcmc:
-                injury_scale_prior_mean = injury_scale_prior_mean + results_mcmc["injury_scale_global_offset"][..., None]
-            injury_prior_mean_export = jnp.concatenate(
-                [injury_prior_mean_export, injury_scale_prior_mean[:, :, None, :]],
-                axis=2,
-            )
-            injury_prior_metrics = injury_prior_metrics + ["exit_scale"]
 
         injury_prior_df = posterior_injury_prior_mean_to_df(
             injury_prior_mean_export,
@@ -621,65 +847,71 @@ if __name__ == "__main__":
             injury_type_labels,
         )
         injury_prior_df.to_parquet(os.path.join(model_dir, "posterior_injury_prior_mean.parquet"), index=False)
+
+        # Export global injury offsets (per metric + survival) separately
+        _go = np.array(_injury_global_offset)                          # (chains, draws, k)
+        _n_chains, _n_draws, _k = _go.shape
+        _ci, _si, _ki = np.meshgrid(np.arange(_n_chains), np.arange(_n_draws), np.arange(_k), indexing="ij")
+        global_offset_df = pd.DataFrame({
+            "chain":  _ci.ravel(),
+            "sample": _si.ravel(),
+            "metric": np.array(list(metrics))[_ki.ravel()],
+            "value":  _go.ravel(),
+        })
+        _ci2, _si2 = np.meshgrid(np.arange(_n_chains), np.arange(_n_draws), indexing="ij")
+        if "injury_exit_global_offset" in results_mcmc:
+            _ego = np.array(results_mcmc["injury_exit_global_offset"])
+            global_offset_df = pd.concat([global_offset_df, pd.DataFrame({
+                "chain": _ci2.ravel(), "sample": _si2.ravel(),
+                "metric": "exit_hazard", "value": _ego.ravel(),
+            })], ignore_index=True)
+        global_offset_df.to_parquet(os.path.join(model_dir, "posterior_injury_global_offset.parquet"), index=False)
     else:
         injury_effect = jnp.zeros_like(latent_val)
 
+    surv_posterior = None
     if has_survival_injury and injury:
             surv_posterior = make_survival_linear_injury_mcmc(
                 X=X_mcmc_aug,
-                exit_global_offset=results_mcmc["exit_global_offset"],
+                gamma_global_log=results_mcmc["gamma_global_log"],
                 exit=results_mcmc["exit"],
                 exit_rate=results_mcmc["exit_rate"],
                 injury_factor=results_mcmc["injury_factor"],
                 injury_exit_loading=results_mcmc["injury_exit_loading"],
                 injury_exit_global_offset=results_mcmc["injury_exit_global_offset"],
-                sigma_injury_exit=results_mcmc["sigma_injury_exit"],
-                injury_player_exit=results_mcmc["injury_player_exit"],
-                injury_exit_raw=results_mcmc["injury_exit_raw"],
-                injury_scale_loading=results_mcmc["injury_scale_loading"],
-                injury_scale_global_offset=results_mcmc["injury_scale_global_offset"],
-                sigma_injury_scale=results_mcmc["sigma_injury_scale"],
-                injury_player_scale=results_mcmc["injury_player_scale"],
-                injury_scale_raw=results_mcmc["injury_scale_raw"],
                 injury_indicator=injury_masks,
                 injury_type=injury_types,
                 entrance_times=Y_surv[:, 0] - age_min + 1e-6,
                 basis=basis,
                 sigma_exit_scale=results_mcmc["sigma_exit_scale"],
-                scale_global_log=results_mcmc.get("scale_global_log", jnp.log(11.5)),
+                eta_global_log=results_mcmc.get("eta_global_log", jnp.log(0.04)),
+                age_min=age_min,
             )
 
             observed_surv_df = pd.DataFrame(
                 {
                     "player": id_df["id"].to_numpy(),
-                    "observed_entrance_age": np.asarray(Y_surv[:, 0]),
-                    "observed_exit_age": np.asarray(Y_surv[:, 1]),
-                    "exit_censored": np.asarray(surv_masks[:, 1]).astype(np.int32),
+                    "observed_entrance_age": np.asarray(Y_surv_eval[:, 0]),
+                    "observed_exit_age": np.asarray(Y_surv_eval[:, 1]),
+                    "exit_censored": np.asarray(surv_masks_eval[:, 1]).astype(np.int32),
                 }
             )
 
             surv_posterior_counterfactual = make_survival_linear_injury_mcmc(
                 X=X_mcmc_aug,
-                exit_global_offset=results_mcmc["exit_global_offset"],
+                gamma_global_log=results_mcmc["gamma_global_log"],
                 exit=results_mcmc["exit"],
                 exit_rate=results_mcmc["exit_rate"],
                 injury_factor=results_mcmc["injury_factor"],
                 injury_exit_loading=results_mcmc["injury_exit_loading"],
                 injury_exit_global_offset=results_mcmc["injury_exit_global_offset"],
-                sigma_injury_exit=results_mcmc["sigma_injury_exit"],
-                injury_player_exit=results_mcmc["injury_player_exit"],
-                injury_exit_raw=results_mcmc["injury_exit_raw"],
-                injury_scale_loading=results_mcmc["injury_scale_loading"],
-                injury_scale_global_offset=results_mcmc["injury_scale_global_offset"],
-                sigma_injury_scale=results_mcmc["sigma_injury_scale"],
-                injury_player_scale=results_mcmc["injury_player_scale"],
-                injury_scale_raw=results_mcmc["injury_scale_raw"],
                 injury_indicator=jnp.zeros_like(injury_masks),
                 injury_type=jnp.zeros_like(injury_types),   # type=0 → true no-injury baseline
                 entrance_times=Y_surv[:, 0] - age_min + 1e-6,
                 basis=basis,
                 sigma_exit_scale=results_mcmc["sigma_exit_scale"],
-                scale_global_log=results_mcmc.get("scale_global_log", jnp.log(11.5)),
+                eta_global_log=results_mcmc.get("eta_global_log", jnp.log(0.04)),
+                age_min=age_min,
             )
 
 
@@ -723,13 +955,37 @@ if __name__ == "__main__":
                 os.path.join(model_dir, "posterior_exit_hazard.parquet"), index=False
             )
 
-            exit_age_sample_df_obs = posterior_player_scalar_to_df(
-                surv_posterior["exit_age_sample"],
-                id_df["id"],
-                "exit_age_sample",
+            _inj_ent_dur  = Y_surv[:, 0] - age_min + 1e-6
+            _inj_tobs_dur = np.maximum(Y_surv[:, 1] - age_min, _inj_ent_dur)
+            _surv_inj_tobs = make_survival_linear_injury_mcmc(
+                X=X_mcmc_aug,
+                gamma_global_log=results_mcmc["gamma_global_log"],
+                exit=results_mcmc["exit"],
+                exit_rate=results_mcmc["exit_rate"],
+                injury_factor=results_mcmc["injury_factor"],
+                injury_exit_loading=results_mcmc["injury_exit_loading"],
+                injury_exit_global_offset=results_mcmc["injury_exit_global_offset"],
+                injury_indicator=injury_masks,
+                injury_type=injury_types,
+                entrance_times=_inj_ent_dur,
+                basis=basis,
+                sigma_exit_scale=results_mcmc["sigma_exit_scale"],
+                eta_global_log=results_mcmc.get("eta_global_log", jnp.log(0.04)),
+                age_min=age_min,
+                last_obs_times=_inj_tobs_dur,
             )
-            exit_age_sample_df_obs = exit_age_sample_df_obs.merge(observed_surv_df, on="player", how="left")
-            exit_age_sample_df_obs["scenario"] = "observed"
+            _exit_age_entrance_df = posterior_player_scalar_to_df(
+                surv_posterior["exit_age_sample"], id_df["id"], "exit_age_sample"
+            )
+            _exit_age_entrance_df["conditioning_label"] = "entrance"
+            _exit_age_entrance_df = _exit_age_entrance_df.merge(observed_surv_df, on="player", how="left")
+            _exit_age_entrance_df["scenario"] = "observed"
+            _exit_age_tobs_df = posterior_player_scalar_to_df(
+                _surv_inj_tobs["exit_age_sample"], id_df["id"], "exit_age_sample"
+            )
+            _exit_age_tobs_df["conditioning_label"] = "last_observed"
+            _exit_age_tobs_df = _exit_age_tobs_df.merge(observed_surv_df, on="player", how="left")
+            _exit_age_tobs_df["scenario"] = "observed"
             exit_age_sample_df_cf = posterior_player_scalar_to_df(
                 surv_posterior_counterfactual["exit_age_sample"],
                 id_df["id"],
@@ -737,44 +993,50 @@ if __name__ == "__main__":
             )
             exit_age_sample_df_cf = exit_age_sample_df_cf.merge(observed_surv_df, on="player", how="left")
             exit_age_sample_df_cf["scenario"] = "counterfactual"
-            pd.concat([exit_age_sample_df_obs, exit_age_sample_df_cf], ignore_index=True).to_parquet(
-                os.path.join(model_dir, "posterior_exit_age_sample.parquet"), index=False
-            )
+            exit_age_sample_df_cf["conditioning_label"] = "entrance"
+            pd.concat(
+                [_exit_age_entrance_df, _exit_age_tobs_df, exit_age_sample_df_cf], ignore_index=True
+            ).to_parquet(os.path.join(model_dir, "posterior_exit_age_sample.parquet"), index=False)
     elif _is_naive:
-        # Naive survival: per-player Weibull with no latent X.
-        # concentration = 1 + 2*sigmoid(exit_global_offset), scale = exp(scale_global_log).
+        # Naive survival: per-player Gompertz with no latent X.
         _naive_surv_key = jax.random.PRNGKey(42)
-        def _naive_surv_one_draw(exit_global_off, scale_global_log, entrance_times):
-            concentration = 1.0 + 2.0 * jax.nn.sigmoid(exit_global_off.squeeze(-1))  # (n,)
-            scale = jnp.exp(scale_global_log.squeeze(-1))                              # (n,)
-            tenure_grid = jnp.maximum(basis - age_min, 1e-6)                          # (j,)
-            # Conditional survival: S(t|entrance) = S(t)/S(entrance)
-            def _surv(t, c, s): return jnp.exp(-jnp.power(jnp.maximum(t, 1e-6) / s, c))
-            s_grid     = vmap(lambda c, s: _surv(tenure_grid, c, s))(concentration, scale)  # (n, j)
-            s_entrance = vmap(lambda c, s, e: _surv(e, c, s))(concentration, scale, entrance_times)[:, None]  # (n, 1)
-            exit_survival = s_grid / jnp.maximum(s_entrance, 1e-8)                    # (n, j)
-            exit_hazard   = vmap(lambda c, s: (c / s) * jnp.power(jnp.maximum(tenure_grid / s, 1e-6), c - 1))(concentration, scale)
-            # Weibull inverse-CDF conditioned on T > entrance: t = scale * (target + (ent/scale)^k)^(1/k)
-            u = jnp.clip(jax.random.uniform(_naive_surv_key, shape=concentration.shape), 1e-6, 1.0 - 1e-6)
+        def _naive_surv_one_draw(key, gamma_global_log, eta_global_log, entrance_times, last_obs_times):
+            eta   = jnp.exp(eta_global_log.squeeze(-1))    # (n,) — baseline hazard
+            gamma = jnp.exp(gamma_global_log.squeeze(-1))  # (n,) — aging rate
+            tenure_grid = jnp.maximum(basis - age_min, 1e-6)  # (j,)
+            # S(t | T > entrance) = exp(-(η/γ)*(exp(γ*t) - exp(γ*entrance)))
+            def _surv(t, eta_i, gamma_i, ent):
+                return jnp.exp(-(eta_i / gamma_i) * (jnp.exp(gamma_i * t) - jnp.exp(gamma_i * ent)))
+            exit_survival = vmap(lambda e, g, ent: _surv(tenure_grid, e, g, ent))(eta, gamma, entrance_times)
+            exit_hazard   = vmap(lambda e, g: e * jnp.exp(g * tenure_grid))(eta, gamma)
+            # Gompertz inverse-CDF conditioned on T > last_obs_times:
+            #   t = (1/γ) * log(exp(γ*last_obs) + target * γ/η)
+            u = jnp.clip(jax.random.uniform(key, shape=eta.shape), 1e-6, 1.0 - 1e-6)
             target = -jnp.log(u)
-            entrance_term = jnp.power(jnp.maximum(entrance_times, 0.0) / scale, concentration)
-            sampled_duration = scale * jnp.power(jnp.maximum(target + entrance_term, 1e-6), 1.0 / jnp.maximum(concentration, 1e-6))
-            sampled_duration = jnp.clip(sampled_duration, entrance_times, float(basis[-1] - age_min))
+            lam = gamma / eta
+            last_obs_exp = jnp.exp(gamma * jnp.maximum(last_obs_times, 0.0))
+            sampled_duration = jnp.log(last_obs_exp + target * lam) / gamma
+            sampled_duration = jnp.clip(sampled_duration, last_obs_times, float(basis[-1] - age_min))
             exit_age_sample = float(age_min) + sampled_duration
             return {"exit_survival": exit_survival, "exit_hazard": exit_hazard, "exit_age_sample": exit_age_sample}
 
-        _naive_surv_vmap = vmap(vmap(lambda a, b: _naive_surv_one_draw(a, b, Y_surv[:, 0] - age_min + 1e-6)))
+        _n_chains, _n_draws = results_mcmc["gamma_global_log"].shape[:2]
+        _naive_surv_keys = jax.random.split(_naive_surv_key, _n_chains * _n_draws).reshape(_n_chains, _n_draws, 2)
+        _entrance_dur = Y_surv[:, 0] - age_min + 1e-6
+        _last_obs_dur = jnp.maximum(jnp.array(Y_surv[:, 1] - age_min), jnp.array(_entrance_dur))
+        _naive_surv_vmap = vmap(vmap(lambda k, a, b: _naive_surv_one_draw(k, a, b, _entrance_dur, _entrance_dur)))
         surv_posterior = _naive_surv_vmap(
-            results_mcmc["exit_global_offset"],  # (chains, draws, n, 1)
-            results_mcmc["scale_global_log"],    # (chains, draws, n, 1)
+            _naive_surv_keys,
+            results_mcmc["gamma_global_log"],  # (chains, draws, n, 1)
+            results_mcmc["eta_global_log"],    # (chains, draws, n, 1)
         )
 
         observed_surv_df = pd.DataFrame(
             {
                 "player": id_df["id"].to_numpy(),
-                "observed_entrance_age": np.asarray(Y_surv[:, 0]),
-                "observed_exit_age": np.asarray(Y_surv[:, 1]),
-                "exit_censored": np.asarray(surv_masks[:, 1]).astype(np.int32),
+                "observed_entrance_age": np.asarray(Y_surv_eval[:, 0]),
+                "observed_exit_age": np.asarray(Y_surv_eval[:, 1]),
+                "exit_censored": np.asarray(surv_masks_eval[:, 1]).astype(np.int32),
             }
         )
 
@@ -798,32 +1060,69 @@ if __name__ == "__main__":
         exit_hazard_df_obs["scenario"] = "observed"
         exit_hazard_df_obs.to_parquet(os.path.join(model_dir, "posterior_exit_hazard.parquet"), index=False)
 
-        exit_age_sample_df_obs = posterior_player_scalar_to_df(
-            surv_posterior["exit_age_sample"],
-            id_df["id"],
-            "exit_age_sample",
+        # Exit age samples: entrance-conditioned and last_observed-conditioned
+        def _sample_naive_cond(key, gamma_global_log, eta_global_log, last_obs_times):
+            eta   = jnp.exp(eta_global_log.squeeze(-1))
+            gamma = jnp.exp(gamma_global_log.squeeze(-1))
+            u = jnp.clip(jax.random.uniform(key, shape=eta.shape), 1e-6, 1.0 - 1e-6)
+            lam = gamma / eta
+            t_exp = jnp.exp(gamma * jnp.maximum(last_obs_times, 0.0))
+            sampled = jnp.log(t_exp + (-jnp.log(u)) * lam) / gamma
+            return float(age_min) + jnp.clip(sampled, last_obs_times, float(basis[-1] - age_min))
+
+        _cond_scenarios = [
+            ("entrance",      _entrance_dur),
+            ("last_observed", _last_obs_dur),
+        ]
+        _exit_age_dfs = []
+        for _label, _cond_dur in _cond_scenarios:
+            _cond_keys = jax.random.split(
+                jax.random.PRNGKey(hash(_label) % (2 ** 31)), _n_chains * _n_draws
+            ).reshape(_n_chains, _n_draws, 2)
+            _exit_arr = vmap(vmap(lambda k, a, b: _sample_naive_cond(k, a, b, _cond_dur)))(
+                _cond_keys, results_mcmc["gamma_global_log"], results_mcmc["eta_global_log"]
+            )
+            _df = posterior_player_scalar_to_df(_exit_arr, id_df["id"], "exit_age_sample")
+            _df["conditioning_label"] = _label
+            _df = _df.merge(observed_surv_df, on="player", how="left")
+            _df["scenario"] = "observed"
+            _exit_age_dfs.append(_df)
+        pd.concat(_exit_age_dfs, ignore_index=True).to_parquet(
+            os.path.join(model_dir, "posterior_exit_age_sample.parquet"), index=False
         )
-        exit_age_sample_df_obs = exit_age_sample_df_obs.merge(observed_surv_df, on="player", how="left")
-        exit_age_sample_df_obs["scenario"] = "observed"
-        exit_age_sample_df_obs.to_parquet(os.path.join(model_dir, "posterior_exit_age_sample.parquet"), index=False)
     else:
+        # The survival forward must use the SAME latent representation the model's _survival_rates
+        # uses. For linear/cosine the exit weights act on the r-dim latent directly. For RFF the
+        # exit weights are sized to the 2m-dim projected feature map, so project X_mcmc_aug through
+        # the sampled W / lengthscale to the norm-1 RFF features (matching _project_X) and tell the
+        # util the kernel self-cov is 1 (||phi||^2 = 1) rather than the feature width.
+        if "rflvm" in model_name:
+            _Wm = results_mcmc["W"]                                   # (..., m, r)
+            _lsm = jnp.asarray(results_mcmc["lengthscale"])           # (..., r)
+            _wTx = jnp.einsum("...nr,...mr->...nm", X_mcmc_aug, _Wm * jnp.sqrt(_lsm)[..., None, :])
+            _X_surv = jnp.concatenate([jnp.cos(_wTx), jnp.sin(_wTx)], axis=-1) / jnp.sqrt(_Wm.shape[-2])
+            _surv_kcov = 1.0
+        else:
+            _X_surv, _surv_kcov = X_mcmc_aug, None
         surv_posterior = make_survival_linear_mcmc(
-                X=X_mcmc_aug,
-                exit_global_offset=results_mcmc["exit_global_offset"],
+                X=_X_surv,
+                gamma_global_log=results_mcmc["gamma_global_log"],
                 exit=results_mcmc["exit"],
                 exit_rate=results_mcmc["exit_rate"],
                 entrance_times=Y_surv[:, 0] - age_min + 1e-6,
                 basis=basis,
                 sigma_exit_scale=results_mcmc.get("sigma_exit_scale", 1.0),
-                scale_global_log=results_mcmc.get("scale_global_log", jnp.log(11.5)),
+                eta_global_log=results_mcmc.get("eta_global_log", jnp.log(0.04)),
+                age_min=age_min,
+                kernel_self_cov=_surv_kcov,
             )
 
         observed_surv_df = pd.DataFrame(
             {
                 "player": id_df["id"].to_numpy(),
-                "observed_entrance_age": np.asarray(Y_surv[:, 0]),
-                "observed_exit_age": np.asarray(Y_surv[:, 1]),
-                "exit_censored": np.asarray(surv_masks[:, 1]).astype(np.int32),
+                "observed_entrance_age": np.asarray(Y_surv_eval[:, 0]),
+                "observed_exit_age": np.asarray(Y_surv_eval[:, 1]),
+                "exit_censored": np.asarray(surv_masks_eval[:, 1]).astype(np.int32),
             }
         )
 
@@ -853,15 +1152,34 @@ if __name__ == "__main__":
             os.path.join(model_dir, "posterior_exit_hazard.parquet"), index=False
         )
 
-        exit_age_sample_df_obs = posterior_player_scalar_to_df(
-            surv_posterior["exit_age_sample"],
-            id_df["id"],
-            "exit_age_sample",
+        _ent_dur = Y_surv[:, 0] - age_min + 1e-6
+        _tobs_dur = np.maximum(Y_surv[:, 1] - age_min, _ent_dur)
+        _surv_cond_tobs = make_survival_linear_mcmc(
+            X=_X_surv,
+            gamma_global_log=results_mcmc["gamma_global_log"],
+            exit=results_mcmc["exit"],
+            exit_rate=results_mcmc["exit_rate"],
+            entrance_times=_ent_dur,
+            basis=basis,
+            sigma_exit_scale=results_mcmc.get("sigma_exit_scale", 1.0),
+            eta_global_log=results_mcmc.get("eta_global_log", jnp.log(0.04)),
+            age_min=age_min,
+            last_obs_times=_tobs_dur,
+            kernel_self_cov=_surv_kcov,
         )
-        exit_age_sample_df_obs = exit_age_sample_df_obs.merge(observed_surv_df, on="player", how="left")
-        exit_age_sample_df_obs["scenario"] = "observed"
-
-        exit_age_sample_df_obs.to_parquet(
+        _exit_age_entrance_df = posterior_player_scalar_to_df(
+            surv_posterior["exit_age_sample"], id_df["id"], "exit_age_sample"
+        )
+        _exit_age_entrance_df["conditioning_label"] = "entrance"
+        _exit_age_entrance_df = _exit_age_entrance_df.merge(observed_surv_df, on="player", how="left")
+        _exit_age_entrance_df["scenario"] = "observed"
+        _exit_age_tobs_df = posterior_player_scalar_to_df(
+            _surv_cond_tobs["exit_age_sample"], id_df["id"], "exit_age_sample"
+        )
+        _exit_age_tobs_df["conditioning_label"] = "last_observed"
+        _exit_age_tobs_df = _exit_age_tobs_df.merge(observed_surv_df, on="player", how="left")
+        _exit_age_tobs_df["scenario"] = "observed"
+        pd.concat([_exit_age_entrance_df, _exit_age_tobs_df], ignore_index=True).to_parquet(
             os.path.join(model_dir, "posterior_exit_age_sample.parquet"), index=False
         )
 
@@ -936,6 +1254,43 @@ if __name__ == "__main__":
     posterior_df = posterior_to_df(pos, id_df["id"], metrics, range(age_min, age_max + 1))
     posterior_df.to_parquet(os.path.join(model_dir, "posterior_ar.parquet"), index=False)
 
+    # Conditional posterior: for holdout cells, condition on observed games and pct_minutes as
+    # exposures so that only metric-rate uncertainty (FG2A/36, etc.) is propagated.  This enables
+    # "conditional coverage" in model_diagnostics.r — coverage that removes the contribution of
+    # minutes/games uncertainty and tests only the rate predictions.
+    minutes_index = metrics.index("pct_minutes")
+    games_index   = metrics.index("games")
+    _pct_min_pivot = (
+        data.pivot_table(index="id", columns="age", values="pct_minutes", aggfunc="first")
+        .reindex(index=id_df["id"].tolist(), columns=range(age_min, age_max + 1))
+    )
+    _pct_min_obs = jnp.array(_pct_min_pivot.values.astype(np.float64))  # (n, j)
+    _holdout_pct_obs = jnp.array(_score_mask_np) & ~jnp.isnan(_pct_min_obs)
+
+    _games_pivot = (
+        data.pivot_table(index="id", columns="age", values="games", aggfunc="first")
+        .reindex(index=id_df["id"].tolist(), columns=range(age_min, age_max + 1))
+    )
+    _games_obs = jnp.array(_games_pivot.values.astype(np.float64))  # (n, j)
+    _holdout_games_obs = jnp.array(_score_mask_np) & ~jnp.isnan(_games_obs)
+
+    Y_conditional = (
+        Y
+        .at[minutes_index].set(jnp.where(_holdout_pct_obs, _pct_min_obs, Y[minutes_index]))
+        .at[games_index].set(jnp.where(_holdout_games_obs, _games_obs, Y[games_index]))
+    )
+    _, pos_conditional = create_metric_trajectory_all(
+        latent_val, Y_conditional, exposures,
+        metric_output, metrics, exposure_list,
+        jnp.transpose(results_mcmc["sigma"], (2, 0, 1)),
+        jnp.transpose(results_mcmc["sigma_beta"], (2, 0, 1)),
+        posterior_kappa_samples=jnp.transpose(results_mcmc["sigma_beta_binomial"], (2, 0, 1)),
+        posterior_neg_bin_samples=_neg_bin_samples,
+        condition_on_observed=True,
+    )
+    posterior_conditional_df = posterior_to_df(pos_conditional, id_df["id"], metrics, range(age_min, age_max + 1))
+    posterior_conditional_df.to_parquet(os.path.join(model_dir, "posterior_ar_conditional.parquet"), index=False)
+
     if peaks is not None:
         posterior_peaks = posterior_peaks_to_df(peaks, id_df["id"], metrics)
         posterior_peaks.to_parquet(os.path.join(model_dir, "posterior_peaks_ar.parquet"), index=False)
@@ -959,6 +1314,7 @@ if __name__ == "__main__":
     posterior_mu_df.to_parquet(os.path.join(model_dir, "posterior_mu_ar.parquet"), index=False)
 
     # Export calendar-year AR(3) trend
+    _has_year_ar_mcmc = len(de_trend_metrics) > 0 and all(k in results_mcmc for k in _year_ar_keys)
     if _has_year_ar_mcmc:
         _de_trend_metric_names = [m for m, f in zip(metrics, de_trend_indices) if f]
         _years_range = np.arange(min_year, min_year + num_years)
@@ -994,6 +1350,224 @@ if __name__ == "__main__":
             _de_trend_metric_names,
             os.path.join(model_dir, "plots", "calendar_year_trends", f"{model_name}_calendar_year_trends.png"),
         )
+
+    # ── Per-sample log-loss (posterior interval for predictive accuracy) ─────────
+    # For each (chain, draw), compute avg NLL per metric on holdout and in-sample
+    # splits using that sample's latent mean + dispersion parameters.
+    # Produces a compact (chain, draw, split, metric, avg_log_loss) parquet that
+    # model_diagnostics.r uses to build posterior log-loss intervals.
+    try:
+        from model.model_utils import summarize_metric_error_observed_substitutions as _sme
+        from model.model_utils import summarize_pointwise_log_likelihoods as _spll
+        _ll_rows = []
+        _n_chains_ll, _n_draws_ll = latent_val.shape[:2]
+        _val_mask_np  = np.asarray(validation_mask, dtype=bool)   # full held-out set (drives in-sample complement)
+        _nval_mask_np = ~_val_mask_np                              # in-sample = never held out from training
+        _hold_mask_np = _score_mask_np                            # SCORED holdout cells (next-k window for stratified)
+        _Y_np  = np.asarray(Y)
+        _E_np  = np.asarray(exposures)
+        # Pre-compute per-sample survival log-likelihoods (shape C×D×n_players):
+        #   log p(T_i | θ) = log S(T_i) + (1 − censored) · log h(T_i)
+        _surv_ll_all = None
+        if surv_posterior is not None:
+            try:
+                _exit_surv_np = np.asarray(surv_posterior["exit_survival"])   # (C,D,n_pl,n_ages)
+                _exit_haz_np  = np.asarray(surv_posterior["exit_hazard"])
+                _exit_age_idx = np.clip(
+                    np.round(np.asarray(Y_surv_eval[:, 1]) - age_min).astype(int),
+                    0, _exit_surv_np.shape[-1] - 1,
+                )  # (n_pl,) — use eval (true) exit ages, not training-censored ones
+                _is_censored  = np.asarray(surv_masks_eval[:, 1]).astype(bool)    # (n_pl,)
+                _pl_idx       = np.arange(_exit_surv_np.shape[2])
+                _log_s = np.log(np.clip(_exit_surv_np[:, :, _pl_idx, _exit_age_idx], 1e-300, 1.0))
+                _log_h = np.log(np.clip(_exit_haz_np [:, :, _pl_idx, _exit_age_idx], 1e-300, None))
+                _surv_ll_all  = _log_s + np.where(_is_censored[None, None, :], 0.0, _log_h)
+            except Exception as _surv_pre_e:
+                print(f"[warn] survival LL pre-computation skipped: {_surv_pre_e}")
+        # ELPPD accumulators: log-sum-exp across samples, init at -inf
+        _n_players_ll, _n_ages_ll = _val_mask_np.shape
+        _elppd_acc = {
+            _sp: {_m: np.full((_n_players_ll, _n_ages_ll), -np.inf) for _m in metrics}
+            for _sp in ("holdout", "in_sample")
+        }
+        # Survival accumulator (one entry per player, not per player-age)
+        _elppd_acc_surv      = {_sp: np.full((_n_players_ll,), -np.inf) for _sp in ("holdout", "in_sample")}
+        _surv_holdout_pmask  = np.any(_val_mask_np, axis=1)   # players with any held-out season
+        _surv_insample_pmask = ~_surv_holdout_pmask
+        _n_samples_total = _n_chains_ll * _n_draws_ll
+        for _c in range(_n_chains_ll):
+            for _d in range(_n_draws_ll):
+                _mu_cd = np.asarray(latent_val[_c, _d])   # (k, n, t)
+                _sig_cd    = np.asarray(results_mcmc["sigma"][_c, _d])                    if "sigma"                    in results_mcmc else 1
+                _sig_b_cd  = np.asarray(results_mcmc["sigma_beta"][_c, _d])               if "sigma_beta"               in results_mcmc else 1
+                _sig_bb_cd = np.asarray(results_mcmc["sigma_beta_binomial"][_c, _d])      if "sigma_beta_binomial"      in results_mcmc else 1
+                _sig_nb_cd = np.asarray(results_mcmc["sigma_negative_binomial"][_c, _d])  if "sigma_negative_binomial"  in results_mcmc else 1
+                for _split, _mask in (("holdout", _hold_mask_np), ("in_sample", _nval_mask_np)):
+                    _res = _sme(
+                        posterior_mean_map=_mu_cd,
+                        observations=_Y_np,
+                        exposures=_E_np,
+                        metric_outputs=metric_output,
+                        metrics=metrics,
+                        sigma_beta=_sig_b_cd,
+                        sigma=_sig_cd,
+                        sigma_beta_binomial=_sig_bb_cd,
+                        sigma_negative_binomial=_sig_nb_cd,
+                        evaluation_mask=_mask,
+                    )
+                    for _, row in _res.iterrows():
+                        _ll_rows.append({
+                            "chain": _c, "draw": _d, "split": _split,
+                            "metric": row["metric"], "avg_log_loss": row["avg_log_loss"],
+                        })
+                    # ELPPD: accumulate log p(y_i|theta_s) via log-sum-exp
+                    _pw = _spll(
+                        posterior_mean_map=_mu_cd,
+                        observations=_Y_np,
+                        exposures=_E_np,
+                        metric_outputs=metric_output,
+                        metrics=metrics,
+                        sigma_beta=_sig_b_cd,
+                        sigma=_sig_cd,
+                        sigma_beta_binomial=_sig_bb_cd,
+                        sigma_negative_binomial=_sig_nb_cd,
+                        evaluation_mask=_mask,
+                    )
+                    for _mn, _ll_arr in _pw.items():
+                        _elppd_acc[_split][_mn] = np.logaddexp(_elppd_acc[_split][_mn], _ll_arr)
+                    # Survival: accumulate per-player log-likelihood
+                    if _surv_ll_all is not None:
+                        _surv_cd = _surv_ll_all[_c, _d]   # (n_players,)
+                        _elppd_acc_surv[_split] = np.logaddexp(_elppd_acc_surv[_split], _surv_cd)
+                        _spm = _surv_holdout_pmask if _split == "holdout" else _surv_insample_pmask
+                        _valid_sp = np.isfinite(_surv_cd) & _spm
+                        if np.any(_valid_sp):
+                            _ll_rows.append({
+                                "chain": _c, "draw": _d, "split": _split,
+                                "metric": "survival",
+                                "avg_log_loss": float(-np.mean(_surv_cd[_valid_sp])),
+                            })
+        if _ll_rows:
+            pd.DataFrame(_ll_rows).to_parquet(
+                os.path.join(model_dir, "posterior_metric_log_loss.parquet"), index=False
+            )
+        # Compute ELPPD = log(mean_s p(y_i|theta_s)) summed over holdout obs,
+        # plus SE via pointwise variance (Vehtari et al. 2017)
+        _elppd_rows = []
+        for _split in ("holdout", "in_sample"):
+            _mask_s = _hold_mask_np if _split == "holdout" else _nval_mask_np
+            for _mn in metrics:
+                _elppd_i = _elppd_acc[_split][_mn] - np.log(_n_samples_total)
+                _valid_e = np.isfinite(_elppd_i) & _mask_s
+                _n_obs_e = int(np.sum(_valid_e))
+                if _n_obs_e > 0:
+                    _vals_e = _elppd_i[_valid_e]
+                    _elppd_sum = float(np.sum(_vals_e))
+                    _elppd_se = float(np.sqrt(_n_obs_e * np.var(_vals_e, ddof=1))) if _n_obs_e > 1 else float("nan")
+                else:
+                    _elppd_sum = _elppd_se = float("nan")
+                _elppd_rows.append({
+                    "split": _split, "metric": _mn,
+                    "elppd": _elppd_sum,
+                    "elppd_per_obs": _elppd_sum / _n_obs_e if _n_obs_e > 0 else float("nan"),
+                    "elppd_se": _elppd_se,
+                    "n_obs": _n_obs_e,
+                })
+        # Survival ELPPD (one observation per player)
+        if _surv_ll_all is not None:
+            for _sp in ("holdout", "in_sample"):
+                _spm     = _surv_holdout_pmask if _sp == "holdout" else _surv_insample_pmask
+                _surv_ei = _elppd_acc_surv[_sp] - np.log(_n_samples_total)
+                _valid_s = np.isfinite(_surv_ei) & _spm
+                _n_s     = int(np.sum(_valid_s))
+                if _n_s > 0:
+                    _vals_s = _surv_ei[_valid_s]
+                    _e_s    = float(np.sum(_vals_s))
+                    _se_s   = float(np.sqrt(_n_s * np.var(_vals_s, ddof=1))) if _n_s > 1 else float("nan")
+                else:
+                    _e_s = _se_s = float("nan")
+                _elppd_rows.append({
+                    "split": _sp, "metric": "survival",
+                    "elppd": _e_s,
+                    "elppd_per_obs": _e_s / _n_s if _n_s > 0 else float("nan"),
+                    "elppd_se": _se_s,
+                    "n_obs": _n_s,
+                })
+        # "all" row: pool pointwise elpd_i values across every metric including survival
+        for _sp in ("holdout", "in_sample"):
+            _mask_s = _hold_mask_np if _sp == "holdout" else _nval_mask_np
+            _pw_all = []
+            for _mn in metrics:
+                _ei = _elppd_acc[_sp][_mn] - np.log(_n_samples_total)
+                _valid = np.isfinite(_ei) & _mask_s
+                if np.any(_valid):
+                    _pw_all.append(_ei[_valid])
+            if _surv_ll_all is not None:
+                _surv_ei = _elppd_acc_surv[_sp] - np.log(_n_samples_total)
+                _spm     = _surv_holdout_pmask if _sp == "holdout" else _surv_insample_pmask
+                _valid_s = np.isfinite(_surv_ei) & _spm
+                if np.any(_valid_s):
+                    _pw_all.append(_surv_ei[_valid_s])
+            if _pw_all:
+                _pw_cat = np.concatenate(_pw_all)
+                _n_all  = len(_pw_cat)
+                _e_all  = float(np.sum(_pw_cat))
+                _se_all = float(np.sqrt(_n_all * np.var(_pw_cat, ddof=1))) if _n_all > 1 else float("nan")
+            else:
+                _n_all = 0
+                _e_all = _se_all = float("nan")
+            _elppd_rows.append({
+                "split": _sp, "metric": "all",
+                "elppd": _e_all,
+                "elppd_per_obs": _e_all / _n_all if _n_all > 0 else float("nan"),
+                "elppd_se": _se_all,
+                "n_obs": _n_all,
+            })
+        # Per-stratum ELPPD (stratified_next_k only)
+        if _stratum_mat is not None:
+            for _s in sorted(np.unique(_stratum_mat[_stratum_mat > 0]).tolist()):
+                _s_mask = (_stratum_mat == _s) & _hold_mask_np
+                if not np.any(_s_mask):
+                    continue
+                _pw_s_all = []
+                for _mn in metrics:
+                    _elppd_i = _elppd_acc["holdout"][_mn] - np.log(_n_samples_total)
+                    _valid_e = np.isfinite(_elppd_i) & _s_mask
+                    _n_obs_e = int(np.sum(_valid_e))
+                    if _n_obs_e > 0:
+                        _vals_e = _elppd_i[_valid_e]
+                        _elppd_sum = float(np.sum(_vals_e))
+                        _elppd_se = float(np.sqrt(_n_obs_e * np.var(_vals_e, ddof=1))) if _n_obs_e > 1 else float("nan")
+                        _pw_s_all.append(_vals_e)
+                    else:
+                        _elppd_sum = _elppd_se = float("nan")
+                    _elppd_rows.append({
+                        "split": f"holdout_stratum_{_s}", "metric": _mn,
+                        "elppd": _elppd_sum,
+                        "elppd_per_obs": _elppd_sum / _n_obs_e if _n_obs_e > 0 else float("nan"),
+                        "elppd_se": _elppd_se, "n_obs": _n_obs_e,
+                    })
+                if _pw_s_all:
+                    _pw_cat_s = np.concatenate(_pw_s_all)
+                    _n_s = len(_pw_cat_s)
+                    _e_s = float(np.sum(_pw_cat_s))
+                    _elppd_rows.append({
+                        "split": f"holdout_stratum_{_s}", "metric": "all",
+                        "elppd": _e_s, "elppd_per_obs": _e_s / _n_s,
+                        "elppd_se": float(np.sqrt(_n_s * np.var(_pw_cat_s, ddof=1))) if _n_s > 1 else float("nan"),
+                        "n_obs": _n_s,
+                    })
+            _stratum_elppd_rows = [r for r in _elppd_rows if r.get("split", "").startswith("holdout_stratum_")]
+            if _stratum_elppd_rows:
+                pd.DataFrame(_stratum_elppd_rows).to_csv(
+                    os.path.join(model_dir, "stratum_elppd.csv"), index=False
+                )
+        if _elppd_rows:
+            pd.DataFrame(_elppd_rows).to_parquet(
+                os.path.join(model_dir, "posterior_elppd.parquet"), index=False
+            )
+    except Exception as _e:
+        print(f"[warn] per-sample log-loss/ELPPD export skipped: {_e}")
 
     if third_deriv is not None:
         posterior_third_deriv = posterior_peaks_to_df(third_deriv, id_df["id"], metrics)
@@ -1046,8 +1620,11 @@ if __name__ == "__main__":
             phi_x_c = phi_x * spd_c_max
         phi_x_latent = phi_x * spd_X
     elif "rflvm" in model_name:
-        wTx = jnp.einsum("nr,mr -> nm", results_map["X"], results_map["W"]  * jnp.sqrt(results_map["lengthscale"]))
-        phi_x_latent = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(approx_x_dim))  
+        # The RFF map is only an internal computational approximation of the GP; the object we analyze
+        # is the r-dim latent X itself (same as the linear model). So phi_X is the MAP latent X, NOT the
+        # 2m-dim RFF feature map — this keeps it the r-dim Procrustes reference latent_space.r aligns
+        # posterior_latent_X against, and the archetype clustering/NN run on the latent as for linear.
+        phi_x_latent = results_map["X"]
     elif "linear" in model_name:
         phi_x_latent = results_map["X"]
 

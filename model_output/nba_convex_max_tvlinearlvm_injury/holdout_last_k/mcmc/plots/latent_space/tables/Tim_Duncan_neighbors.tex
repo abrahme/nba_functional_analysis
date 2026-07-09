@@ -1,19 +1,17 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Tim Duncan} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Amile Jefferson & F & 2 & 1.00 & 2.57 & 5\% \\ 
-Todd MacCulloch & C & 1 & 2.00 & 2.64 & 4\% \\ 
-Dontell Jefferson & G & 2 & 3.00 & 2.64 & 0\% \\ 
-Terrell Brandon & G & 2 & 4.00 & 2.65 & 4\% \\ 
-Ben Uzoh & G & 2 & 5.00 & 2.68 & 1\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Pau Gasol & F & 3 \\
+    2 & Shaquille O'Neal & C & 3 \\
+    3 & Patrick Ewing & C & 3 \\
+    4 & Elton Brand & F & 3 \\
+    5 & Andrew Bogut & F & 3 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Tim Duncan in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
+  \label{tab:Tim_Duncan_neighbors}
 \end{table}
 

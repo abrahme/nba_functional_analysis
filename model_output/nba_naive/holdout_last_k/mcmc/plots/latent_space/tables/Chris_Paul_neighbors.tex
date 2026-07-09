@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Chris Paul} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-James Harden & G & 3 & 1.00 & 2.50 & 76\% \\ 
-John Stockton & G & 3 & 2.00 & 2.65 & 50\% \\ 
-Kawhi Leonard & F & 3 & 3.00 & 2.68 & 62\% \\ 
-Jason Kidd & G & 3 & 4.00 & 2.75 & 54\% \\ 
-Manu Ginobili & G & 3 & 5.00 & 2.81 & 63\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Kawhi Leonard & F & 2 \\
+    2 & Manu Ginobili & G & 2 \\
+    3 & John Stockton & G & 2 \\
+    4 & Jason Kidd & G & 2 \\
+    5 & Paul Pierce & G & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Chris Paul in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

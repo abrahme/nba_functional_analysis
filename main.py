@@ -48,9 +48,23 @@ from numpyro.distributions.transforms import AffineTransform
 from model.hsgp import  diag_spectral_density, make_psi_gamma,  vmap_make_convex_phi, vmap_make_convex_phi_prime, sqrt_eigenvalues
 jax.config.update("jax_enable_x64", True)
 from model.inference_utils import get_latent_sites, create_metric_trajectory_map
-from model.model_utils import make_mu_rflvm, make_mu_linear, make_mu_hsgp, compute_residuals_map, compute_priors, apply_detrend_for_offsets, compute_linear_predictor_mean_offsets, summarize_metric_error_observed_substitutions, summarize_metric_error_injury_splits, summarize_normalized_weighted_metric_residuals_by_age, write_coverage_tables
+from model.model_utils import compute_residuals_map, compute_priors, apply_detrend_for_offsets, compute_linear_predictor_mean_offsets, summarize_metric_error_observed_substitutions, summarize_metric_error_injury_splits, summarize_normalized_weighted_metric_residuals_by_age, write_coverage_tables
 from data.data_utils import create_fda_data, create_surv_data, create_validation_mask
-from model.models import  ConvexMaxInjuryTVLinearLVM, ConvexMaxTVLinearLVM, ConvexMaxDecayInjuryTVLinearLVM, ConvexMaxTVRFLVM, NaiveLinearLVM, ConvexMaxARTVRFLVM, ConvexMaxARTVLinearLVM, ConvexMaxLinearTrendTVLinearLVM
+from model.inference_inputs import dispatch_model, fda_injury_flag
+
+
+def _curves_under_substitute(model, model_args, params, include_derivs=False):
+    """Run model.compute_curves under numpyro substitute with `params` — the single-source curve
+    reconstruction (replaces the retired make_mu_* duplicates) for main.py's init/MAP diagnostics."""
+    import numpyro
+    _ca = (model_args["hsgp_params"], model_args["offsets"],
+           model_args["sample_free_indices"], model_args["sample_fixed_indices"],
+           model_args.get("ar_metric_indices", jnp.array([])), model_args.get("year_indices", jnp.array([])),
+           model_args.get("num_years", 1), model_args.get("num_de_trend", 0), model_args.get("ref_year_idx", 0))
+    return numpyro.handlers.substitute(
+        numpyro.handlers.seed(lambda: model.compute_curves(*_ca, include_derivs=include_derivs), jax.random.PRNGKey(0)),
+        data=params)()
+from model.models import  ConvexMaxInjuryTVLinearLVM, ConvexMaxTVLinearLVM, ConvexMaxDecayInjuryTVLinearLVM, ConvexMaxTVRFLVM, NaiveLinearLVM, ConvexMaxARTVRFLVM, ConvexMaxARTVLinearLVM, ConvexMaxLinearTrendTVLinearLVM, ConvexMaxLKJTVLinearLVM, ConvexMaxARLKJTVLinearLVM, ConvexMaxTVCosineLVM, ConvexMaxARTVCosineLVM, TVLinearLVM, TVLinearLVM_AR, LKJTVLinearLVM, LKJTVLinearLVM_AR
 from visualization.visualization import plot_posterior_predictive_career_trajectory_map, plot_prior_predictive_career_trajectory, plot_prior_mean_trajectory, plot_calendar_year_trends
 
 
@@ -68,14 +82,29 @@ if __name__ == "__main__":
     parser.add_argument('--model_name', required=True, help='model entry key in model_config.yaml')
     parser.add_argument('--model_config', required=True, help='path to model_config.yaml')
     parser.add_argument('--inference_method', required=False, default=None,
-        choices=["mcmc", "svi", "map", "prior"],
+        choices=["mcmc", "svi", "map"],
         help='inference regime; selects the matching regimes block in model_config.yaml')
     parser.add_argument('--eval_only', action='store_true', default=False,
         help='skip training; load saved samples.pkl and re-run coverage calculations only')
+    parser.add_argument('--mcmc_init', required=False, default=None,
+        choices=["map", "median", "median_nofix"],
+        help='override mcmc_init from config: map (seed from MAP) | median (init_to_median, fixed plug-ins from MAP) | median_nofix (fully MAP-free)')
+    parser.add_argument('--set', dest='overrides', action='append', default=[],
+        help='override a prior knob, e.g. --set sigma_X=0.3 / --set alpha=HalfNormal:1.0 / '
+             '--set use_c_offset_re=0 / --set sigma_c@usg=0.2 (repeatable)')
     _cli = vars(parser.parse_args())
 
     args = resolve_model_config(_cli["model_config"], _cli["model_name"], _cli.get("inference_method"))
     args["model_name"] = _cli["model_name"]
+    # CLI knob overrides layer on top of any config prior_knobs (used for prior-tuned fits).
+    from model.inference_inputs import knobs_from_overrides as _knobs_from_overrides
+    _cli_knobs = _knobs_from_overrides(_cli.get("overrides", []))
+    # non-prior run params can also come via --set (e.g. --set map_num_steps=50000)
+    for _ra in ("map_num_steps",):
+        if _ra in _cli_knobs:
+            args[_ra] = int(_cli_knobs.pop(_ra))
+    if _cli_knobs:
+        args["prior_knobs"] = {**(args.get("prior_knobs") or {}), **_cli_knobs}
     _config_fixed_params = args.pop("fixed_params", [])
 
     eval_only = _cli.get("eval_only", False)
@@ -83,14 +112,16 @@ if __name__ == "__main__":
     map_inference = (inference_method == "map")
     svi_inference = (inference_method == "svi")
     mcmc_inference = (inference_method == "mcmc")
-    prior_predictive = (inference_method == "prior")
+    prior_predictive = False  # retired: prior-predictive draws + checks now live in prior_check.py
     num_warmup, num_samples, num_chains = args["num_warmup"], args["num_samples"], args["num_chains"]
-    thinning = int(num_samples / args.get("thinning", 250))
+    mcmc_init_strategy = _cli.get("mcmc_init") or args.get("mcmc_init", "map")   # CLI overrides config
+    thinning = int(num_samples / (args.get("thinning") or 250))
     initial_params_path = args["init_path"]
     model_name = args["model_name"]
     basis_dims = args["basis_dims"]
     approx_x_dim = args["approx_x_dim"]
     injury = args["injury"]
+    censor_survival_at_injury = args.get("censor_survival_at_injury", False)
     age_min = args["age_min"]
     age_max = args["age_max"]
     start_year = args.get("start_year")
@@ -99,6 +130,12 @@ if __name__ == "__main__":
     basis_dims_2 = args["basis_dims_2"]
     param_path = args["fixed_param_path"]
     vectorized = args["vectorized"]
+    # 'median_nofix': fully MAP-free MCMC — sample every param (no fixed plug-ins) and init_to_median.
+    # Clear the fixed-param set and both MAP file paths so nothing is loaded from a MAP fit.
+    if mcmc_init_strategy == "median_nofix":
+        _config_fixed_params = []
+        param_path = None
+        initial_params_path = None
     model_dir = args.get("model_dir") or f"model_output/{model_name}/{inference_method}"
     os.makedirs(model_dir, exist_ok=True)
     _plots_dir = os.path.join(model_dir, "plots")
@@ -213,38 +250,50 @@ if __name__ == "__main__":
     _, surv_data_set, basis = create_surv_data(data, basis_dims, ["left", "right"], ["retirement"] * 2, [], validation_year=validation_year, age_min=age_min, age_max=age_max)
     surv_masks = jnp.stack([data_entity["censored"] for data_entity in surv_data_set], -1)
     censor = jnp.stack([data_entity["censor_type"] for data_entity in surv_data_set], -1)
-    Y_surv = jnp.stack([data_entity["observations"] for data_entity in surv_data_set], -1) 
+    Y_surv = jnp.stack([data_entity["observations"] for data_entity in surv_data_set], -1)
+
+    if censor_survival_at_injury:
+        # Censor the survival time at the first injury onset for each player.
+        # Players without injury are unaffected; the fake player (id=99999999) has no
+        # injury_period != "pre-injury" rows, so it is also unaffected.
+        _onset = (
+            data_all[data_all["injury_period"] != "pre-injury"]
+            .groupby("id")["age"].min()
+        )
+        _player_ids = data.groupby("id").apply(lambda g: g["id"].iloc[0]).index.tolist()
+        _Y_surv_np = np.array(Y_surv)
+        _surv_masks_np = np.array(surv_masks)
+        for _i, _pid in enumerate(_player_ids):
+            if _pid in _onset.index:
+                _onset_age = float(_onset[_pid])
+                if _onset_age < _Y_surv_np[_i, 1]:
+                    _Y_surv_np[_i, 1] = _onset_age
+                    _surv_masks_np[_i, 1] = True   # right-censor at injury onset
+        Y_surv = jnp.array(_Y_surv_np)
+        surv_masks = jnp.array(_surv_masks_np)
+
     surv_data_dict = {}
     surv_data_dict["observations"] = Y_surv - age_min
     surv_data_dict["censored"] = surv_masks
     surv_data_dict["censor_type"] = censor
 
-    if "tvrflvm" in model_name:
-        if "convex" in model_name:
-            covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, [], injury=injury, validation_year=validation_year, age_min=age_min, age_max=age_max)
-            if "max" in model_name:
-                model = ConvexMaxTVRFLVM(latent_rank=basis_dims, rff_dim=approx_x_dim, output_shape=(covariate_X.shape[0], len(basis), len(metrics)), basis=basis)
-                if "AR" in model_name:
-                    model = ConvexMaxARTVRFLVM(latent_rank=basis_dims, rff_dim=approx_x_dim, output_shape=(covariate_X.shape[0], len(basis), len(metrics)), basis=basis)
-    elif "naive" in model_name:
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, [], injury=injury, validation_year=validation_year, age_min=age_min, age_max=age_max)
-        model = NaiveLinearLVM(latent_rank=basis_dims, output_shape=(covariate_X.shape[0], len(basis), len(metrics)), basis = basis)
-    elif "linear" in model_name:
-        covariate_X, data_set, basis = create_fda_data(data, basis_dims, metric_output, metrics, exposure_list, [], injury=injury, validation_year=validation_year, age_min=age_min, age_max=age_max)
-        model = ConvexMaxTVLinearLVM(latent_rank=basis_dims, output_shape=(covariate_X.shape[0], len(basis), len(metrics)), basis = basis)
-        if injury and ("injury" in model_name):
-            model = ConvexMaxInjuryTVLinearLVM(latent_rank=basis_dims, output_shape=(covariate_X.shape[0], len(basis), len(metrics)), basis = basis, injury_rank=5, num_injury_types=int(data["injury_code"].max()))
-            if "decay" in model_name:
-                model = ConvexMaxDecayInjuryTVLinearLVM(latent_rank=basis_dims, output_shape=(covariate_X.shape[0], len(basis), len(metrics)), basis = basis, injury_rank=5, num_injury_types=int(data["injury_code"].max()))
-        elif "linear_trend" in model_name:
-            model = ConvexMaxLinearTrendTVLinearLVM(latent_rank=basis_dims, output_shape=(covariate_X.shape[0], len(basis), len(metrics)), basis=basis)
-        elif "AR" in model_name:
-            model = ConvexMaxARTVLinearLVM(latent_rank=basis_dims, output_shape=(covariate_X.shape[0], len(basis), len(metrics)), basis = basis)
-    else:
-        raise ValueError("Model not implemented")
-    
+    covariate_X, data_set, basis = create_fda_data(
+        data, basis_dims, metric_output, metrics, exposure_list, [],
+        injury=fda_injury_flag(model_name, injury), validation_year=validation_year, age_min=age_min, age_max=age_max)
+    model = dispatch_model(
+        model_name, latent_rank=basis_dims, output_shape=(covariate_X.shape[0], len(basis), len(metrics)),
+        basis=basis, injury=injury, num_injury_types=int(data["injury_code"].max()),
+        rff_dim=approx_x_dim, prior_knobs=(args.get("prior_knobs") or {}))
 
+
+    # Attribute knobs (e.g. x_latent_df) must be set before initialize_priors; dict knobs after.
+    from model.inference_inputs import apply_prior_knobs as _apply_prior_knobs, _ATTRIBUTE_KNOBS as _ATTR_KNOBS, _build_knob_value as _bkv
+    _prior_knobs = args.get("prior_knobs", {}) or {}
+    for _k in _ATTR_KNOBS:
+        if _k in _prior_knobs:
+            setattr(model, _k, _bkv(_prior_knobs[_k]))
     model.initialize_priors(scale_values = scale_values)
+    _apply_prior_knobs(model, _prior_knobs, metrics=metrics)
     initial_params = {}
     initial_map_init = None
     map_fixed_params_loc = {}
@@ -294,16 +343,52 @@ if __name__ == "__main__":
         masks = jnp.stack([data_entity["mask"] for data_entity in data_set]) * (~validation_mask[None])
         _ref = np.array(data_set[0]["output_data"])
         _train_scheme = None if validation_scheme == "all" else validation_scheme
-        holdout_mask = jnp.array(create_validation_mask(_ref, _train_scheme, holdout_fraction, holdout_k, holdout_seed))
+        holdout_mask = jnp.array(create_validation_mask(_ref, _train_scheme, holdout_fraction, holdout_k, holdout_seed, age_min=age_min))
         masks = masks * (~holdout_mask[None])
         if _train_scheme is not None:
             _hm = np.asarray(holdout_mask)
             _pids = data[["year", "age", "id"]].pivot(columns="age", index="id", values="year").index.values
             _ages = list(range(age_min, age_max + 1))
             _hi_rows, _hi_cols = np.where(_hm)
-            pd.DataFrame({"player": _pids[_hi_rows], "age": np.array(_ages)[_hi_cols]}).to_csv(
+            _ho_ages_arr = np.array(_ages)[_hi_cols]
+            _ho_df_dict: dict = {"player": _pids[_hi_rows], "age": _ho_ages_arr}
+            if _train_scheme == "stratified_next_k":
+                # The full career tail is held out of training, but only the first
+                # holdout_k seasons of each player's tail are scored. score_window=1 marks
+                # those scored cells; the remaining tail cells are held out of training yet
+                # excluded from both scoring and the in-sample set. Stratum is the player's
+                # cohort (derived from the holdout-start age), constant across the tail.
+                _score_mask = np.zeros_like(_hm)
+                _ho_start_age = np.full(_hm.shape[0], -1, dtype=int)
+                for _r in range(_hm.shape[0]):
+                    _cols = np.where(_hm[_r])[0]
+                    if len(_cols):
+                        _start = int(_cols[0])
+                        _score_mask[_r, _start:_start + holdout_k] = _hm[_r, _start:_start + holdout_k]
+                        _ho_start_age[_r] = _ages[_start]
+                _strata_ends = [24, 26, 28, 30, 32, 34]
+                def _stratum_of(_a):
+                    return next((s for s, end in enumerate(_strata_ends, 1) if int(_a) <= end), None)
+                _ho_df_dict["stratum"] = [_stratum_of(_ho_start_age[_r]) for _r in _hi_rows]
+                _ho_df_dict["score_window"] = _score_mask[_hi_rows, _hi_cols].astype(int)
+            pd.DataFrame(_ho_df_dict).to_csv(
                 os.path.join(model_dir, "holdout_indices.csv"), index=False
             )
+            # Censor survival at last in-sample age for each holdout player so the
+            # survival model does not see exit ages that fall inside the held-out window.
+            _Y_surv_h = np.array(Y_surv)
+            _smasks_h = np.array(surv_masks)
+            _ages_arr = np.array(_ages)
+            for _pi in range(_hm.shape[0]):
+                _ho_ages = _ages_arr[_hm[_pi]]
+                if len(_ho_ages) == 0:
+                    continue
+                _last_in = max(float(_ho_ages.min()) - 1.0, float(_Y_surv_h[_pi, 0]))
+                if _last_in < float(_Y_surv_h[_pi, 1]):
+                    _Y_surv_h[_pi, 1] = _last_in
+                    _smasks_h[_pi, 1] = True
+            Y_surv     = jnp.array(_Y_surv_h)
+            surv_masks = jnp.array(_smasks_h)
         injury_masks = jnp.stack([data_entity["injury_mask"] for data_entity in data_set])
         using_injury_model = isinstance(model, (ConvexMaxInjuryTVLinearLVM))
         should_mask_injury_values = ((injury and not using_injury_model) or ("counterfactual" in model_name))
@@ -442,7 +527,7 @@ if __name__ == "__main__":
             metric_output,
         )
 
-        offset_max, offset_max_var, offset_peak_absolute, offset_peak_absolute_var = compute_priors(
+        offset_max, offset_max_var, offset_peak_absolute, offset_peak_absolute_var, offset_mean = compute_priors(
             Y_for_offsets_masked,
             exposures_for_offsets,
             metric_output,
@@ -497,23 +582,29 @@ if __name__ == "__main__":
                 if "hsgp" in model_name:
                     hsgp_params["eigenvalues_X"] = sqrt_eigenvalues(2 *  jnp.ones(basis_dims)[..., None] , approx_x_dim, basis_dims)
 
-        # Observed covariates: -log(draft_position_adj) and height_inches
+        # Observed covariates: -log(draft_position_adj), height_inches, position one-hot
         # Player order matches create_basis groupby sort on id
-        player_obs = data.groupby("id")[["draft_position_adj", "height_inches"]].first()
+        player_obs = data.groupby("id")[["draft_position_adj", "height_inches", "position_group"]].first()
         neg_log_draft = -np.log(player_obs["draft_position_adj"].values.astype(float))
         height_vals   = player_obs["height_inches"].values.astype(float)
-        obs_raw = np.stack([neg_log_draft, height_vals], axis=1)  # (n, 2)
-        obs_mean = np.nanmean(obs_raw, axis=0)
-        obs_std  = np.nanstd(obs_raw, axis=0) + 1e-8
-        obs_covariates = jnp.array((obs_raw - obs_mean) / obs_std)  # (n, 2), standardized
+        obs_numeric = np.stack([neg_log_draft, height_vals], axis=1)  # (n, 2)
+        obs_mean = np.nanmean(obs_numeric, axis=0)
+        obs_std  = np.nanstd(obs_numeric, axis=0) + 1e-8
+        obs_numeric_std = (obs_numeric - obs_mean) / obs_std          # (n, 2), standardized
+        pos_dummies = pd.get_dummies(player_obs["position_group"], drop_first=True).astype(float).values  # (n, 2): F, G vs C baseline
+        obs_covariates = jnp.array(np.concatenate([obs_numeric_std, pos_dummies], axis=1))  # (n, 4)
+        model.player_covariates = obs_covariates
 
         model_args = {"data_set": data_dict,  "inference_method": inference_method, "sample_free_indices": jnp.array(player_indices),
-                      "sample_fixed_indices": jnp.setdiff1d(jnp.arange(covariate_X.shape[0]), jnp.array(player_indices), assume_unique=True),
-                      "observed_covariates": obs_covariates}
+                      "sample_fixed_indices": jnp.setdiff1d(jnp.arange(covariate_X.shape[0]), jnp.array(player_indices), assume_unique=True)}
         # Calendar-year trend params: all LinearLVM models accept these
         last_observed_year = int(data_all["year"].max())
         year_max_idx = last_observed_year - min_year
-        if "linear" in model_name:
+        # Capability gate (was `"linear" in model_name`): pass the calendar-year AR-trend kwargs to
+        # any model whose forward routes through compute_curves — the ConvexMaxTVLinearLVM family,
+        # now incl. the RFF leaves (names contain "tvrflvm", not "linear"). Naive ignores the extra
+        # kwargs harmlessly; the non-convex linear models already received them under the old gate.
+        if hasattr(model, "compute_curves"):
             model_args["ar_metric_indices"] = jnp.where(jnp.array(de_trend_indices))[0]
             model_args["year_indices"] = year_indices
             model_args["num_years"] = num_years
@@ -536,26 +627,18 @@ if __name__ == "__main__":
         model_args["offsets"]["injury_indicator"] = injury_masks
         model_args["offsets"]["injury_type"] = injury_types
         model_args.update({"hsgp_params": hsgp_params})
+        if "tvlinearlvm" in model_name and "convex" not in model_name:
+            model_args["offsets"].update({
+                "c_mean": offset_mean,
+                "c_max_var": offset_max_var,
+            })
         if "convex" in model_name:
             if "max" in model_name:
                 model_args["offsets"].update({"t_max": offset_peak_absolute, "c_max": offset_max, "boundary_r": offset_boundary_r, "boundary_l": offset_boundary_l, "t_max_var": offset_peak_absolute_var, "c_max_var": offset_max_var})
                 if "AR" in model_name and (len(initial_params) > 0) & (inference_method == "mcmc"):
-                    if "rflvm" in model_name:
-                        mu, *_ = make_mu_rflvm(jnp.concatenate([initial_params["X"], jnp.asarray(model_args["observed_covariates"])], axis=-1), initial_params["lengthscale_deriv"], initial_params["alpha"], initial_params["beta"],
-                                            initial_params["W"], initial_params["W_t_max"], initial_params["W_c_max"],  initial_params["lengthscale"], initial_params["lengthscale_t_max"], initial_params["lengthscale_c_max"], initial_params["c_max"], initial_params["t_max_raw"], initial_params["sigma_t"],
-                                            initial_params["sigma_c"], L_time, M_time, phi_time, x_time + L_time, model_args["offsets"])
-                    elif "linear" in model_name:
-                        mu, *_ = make_mu_linear(jnp.concatenate([initial_params["X"], jnp.asarray(model_args["observed_covariates"])], axis=-1), initial_params["lengthscale_deriv"], initial_params["alpha"], initial_params["beta"], initial_params["c_max"], initial_params["t_max_raw"], 
-                            initial_params["sigma_t"],
-                            initial_params["sigma_c"], L_time, M_time, phi_time, x_time + L_time, basis_dims, model_args["offsets"])
-                    elif "hsgp" in model_name:
-                        mu, *_ = make_mu_hsgp(jnp.concatenate([initial_params["X"], jnp.asarray(model_args["observed_covariates"])], axis=-1), initial_params["lengthscale_deriv"], initial_params["alpha"], initial_params["alpha_X"], initial_params["beta"], initial_params["lengthscale"],
-                            initial_params["lengthscale_c_max"], initial_params["lengthscale_t_max"],  
-                            initial_params["c_max"], initial_params["t_max_raw"], 
-                            initial_params["sigma_t"],
-                            initial_params["sigma_c"],
-                            L_time, M_time, phi_time, x_time + L_time, model_args["offsets"], basis_dims, 2 * jnp.ones(basis_dims)[..., None] ,approx_x_dim
-                            )
+                    # Reconstruct mu from the MAP init via the model's OWN forward (single source).
+                    _d_init = _curves_under_substitute(model, model_args, initial_params)
+                    mu = _d_init["mu"] + _d_init["trend_ar"]
                     obs, preds = create_metric_trajectory_map(mu, [], Y, exposures, metric_output, metrics)
                     
                     avg_sd, autocorr, lognormal_params, beta_params = compute_residuals_map(preds["y"], obs["y"], exposures, metric_output, metrics, initial_params["sigma"], initial_params.get("sigma_negative_binomial",1),
@@ -565,13 +648,109 @@ if __name__ == "__main__":
                         
         if not eval_only:
             if map_inference:
-                samples, state = model.run_map_inference(num_steps = 50000, model_args=model_args, initial_state=initial_map_init)
+                samples, state = model.run_map_inference(num_steps = args.get("map_num_steps", 50000), model_args=model_args, initial_state=initial_map_init)
             elif prior_predictive:
                 print("sampling from prior")
                 samples = model.predict({}, model_args, num_samples = num_samples)
             elif mcmc_inference:
+                if os.environ.get("DEBUG_INIT"):
+                    import sys as _sys
+                    from numpyro.handlers import substitute as _subst, trace as _trace, seed as _seed
+                    _tr = _trace(_subst(_seed(model.model_fn, jax.random.PRNGKey(0)), data=initial_params)).get_trace(**model_args)
+                    print(f"[DEBUG_INIT] tracing {len(_tr)} sites at MAP init point")
+                    for _nm, _site in _tr.items():
+                        _v = _site.get("value")
+                        try: _vfin = bool(jnp.all(jnp.isfinite(jnp.asarray(_v))))
+                        except Exception: _vfin = True
+                        _lpfin = True
+                        if _site["type"] == "sample":
+                            try: _lpfin = bool(jnp.all(jnp.isfinite(_site["fn"].log_prob(_v))))
+                            except Exception as _e: _lpfin = False; print(f"  LPERR {_nm}: {_e}")
+                        if (not _vfin) or (not _lpfin):
+                            _a = jnp.asarray(_v)
+                            print(f"  BAD {_site['type']:13s} {_nm:22s} shape={_a.shape} val_finite={_vfin} lp_finite={_lpfin} nan={int(jnp.isnan(_a).sum())} inf={int(jnp.isinf(_a).sum())}")
+                    for _nm,_s in _tr.items():
+                        if _s.get("is_observed") and "neg" in _nm.lower():
+                            _fn=_s["fn"]
+                            for _attr in ["mean","rate","concentration"]:
+                                try:
+                                    _av=np.asarray(getattr(_fn,_attr))
+                                    print(f"  [REAL {_nm}.{_attr}] min={np.nanmin(_av):.3e} max={np.nanmax(_av):.3e} nan={int(np.isnan(_av).sum())} n={_av.size}")
+                                except Exception as _e: print(f"   {_nm}.{_attr} err {_e}")
+                    print("[DEBUG_INIT] forward done; checking gradients")
+                    from numpyro.infer.util import unconstrain_fn as _uncon, potential_energy as _pe
+                    _ssites = {n for n,s in _tr.items() if s["type"]=="sample" and not s.get("is_observed")}
+                    _initc = {k:v for k,v in initial_params.items() if k in _ssites}
+                    print("[DEBUG_INIT] sample sites:", sorted(_ssites))
+                    print("[DEBUG_INIT] init covers:", sorted(_initc), " MISSING:", sorted(_ssites - set(_initc)))
+                    _u = _uncon(model.model_fn, (), model_args, _initc)
+                    _val, _g = jax.value_and_grad(lambda p: _pe(model.model_fn, (), model_args, p))(_u)
+                    print(f"[DEBUG_INIT] potential_energy={_val}")
+                    for _k,_gv in _g.items():
+                        _ga=jnp.asarray(_gv)
+                        if not bool(jnp.all(jnp.isfinite(_ga))):
+                            print(f"  NAN-GRAD {_k:22s} shape={_ga.shape} nan={int(jnp.isnan(_ga).sum())} inf={int(jnp.isinf(_ga).sum())}")
+                    _cre_g = jnp.asarray(_g.get("c_offset_re"))
+                    _idx = np.asarray(jnp.argwhere(jnp.isnan(_cre_g)))
+                    print(f"[DEBUG_INIT] c_offset_re NaN-grad cells: {_idx[:8].tolist()}")
+                    _mu_full = np.asarray(_curves_under_substitute(model, model_args, initial_params)["mu"])
+                    print(f"[DEBUG_INIT] reconstructed mu shape={_mu_full.shape}")
+                    # Quantify negbin/poisson mean (exp(log_rate)) over OBSERVED cells — underflow check
+                    for _fam,_ks in [("negbin",[11,12,13]),("poisson",[5,6,7,8,9,10])]:
+                        _lrs=[]
+                        for _k in _ks:
+                            _Yk=np.asarray(Y[_k]); _ek=np.asarray(exposures[_k]); _mk=_mu_full[_k]
+                            _ok=np.isfinite(_Yk)
+                            _lrs.append((_mk+_ek)[_ok])
+                        _lr=np.concatenate(_lrs)
+                        _mean=np.exp(_lr)
+                        print(f"  [{_fam}] obs cells={_lr.size} log_rate[min,max]=[{_lr.min():.1f},{_lr.max():.1f}] "
+                              f"mean[min,max]=[{_mean.min():.2e},{_mean.max():.2e}] "
+                              f"#underflow(mean=0)={int((_mean==0).sum())} #overflow(mean=inf)={int(np.isinf(_mean).sum())} "
+                              f"#log_rate<-50={int((_lr<-50).sum())} #log_rate>50={int((_lr>50).sum())}")
+                    for _row in _idx[:5]:
+                        _n,_k = int(_row[0]), int(_row[1])
+                        try:
+                            _Yr = np.asarray(Y[_k,_n]); _er = np.asarray(exposures[_k,_n])
+                            _obs_j = np.where(np.isfinite(_Yr))[0]
+                            print(f"  cell n={_n} k={_k} metric={metrics[_k]} family={metric_output[_k]} "
+                                  f"cre={float(initial_params['c_offset_re'][_n,_k]):.3f} obs_ages_idx={_obs_j.tolist()} Yobs={_Yr[_obs_j].tolist()}")
+                            if _mu_full is not None:
+                                _mu = _mu_full[_k,_n,:]
+                                _lr = _mu + _er
+                                print(f"    mu[min,max]=[{np.nanmin(_mu):.2f},{np.nanmax(_mu):.2f}]  "
+                                      f"log_rate[min,max]=[{np.nanmin(_lr):.2f},{np.nanmax(_lr):.2f}]  "
+                                      f"mean=exp(lr)[min,max]=[{np.exp(np.nanmin(_lr)):.3e},{np.exp(np.nanmax(_lr)):.3e}]")
+                                for _j in _obs_j:
+                                    print(f"      obs age_idx={_j}: mu={_mu[_j]:.3f} exp={_er[_j]:.3f} log_rate={_lr[_j]:.3f} mean={np.exp(_lr[_j]):.3e}")
+                        except Exception as _e:
+                            print("   inspect err", _e)
+                    # Isolate: does the NaN grad come from the convex construction (make_mu_linear) alone?
+                    def _mu_cell(tmr, bet, cm, Xp):
+                        _p = {**initial_params, "t_max_raw": tmr, "beta": bet, "c_max": cm, "X": Xp}
+                        return _curves_under_substitute(model, model_args, _p)["mu"][13, 591, :].sum()
+                    _gt = jax.grad(_mu_cell, argnums=(0,1,2,3))(initial_params["t_max_raw"], initial_params["beta"], initial_params["c_max"], initial_params["X"])
+                    for _nm,_gg in zip(["t_max_raw","beta","c_max","X"], _gt):
+                        _ga=jnp.asarray(_gg)
+                        print(f"  [construction grad] {_nm:10s} finite={bool(jnp.all(jnp.isfinite(_ga)))} nan={int(jnp.isnan(_ga).sum())}")
+                    print("[DEBUG_INIT] enabling jax_debug_nans to locate the offending op...")
+                    import traceback as _tb
+                    jax.config.update("jax_debug_nans", True)
+                    try:
+                        _ = jax.grad(lambda p: _pe(model.model_fn, (), model_args, p))(_u)
+                        print("  no NaN raised under jax_debug_nans (??)")
+                    except FloatingPointError as _fe:
+                        _tb.print_exc()
+                    jax.config.update("jax_debug_nans", False)
+                    print("[DEBUG_INIT] done"); _sys.exit(0)
+                _mcmc_init = {} if mcmc_init_strategy in ("median", "median_nofix") else initial_params
+                print({
+                    "map": "[MCMC] init: seed NUTS from MAP samples",
+                    "median": "[MCMC] init: init_to_median; no MAP seeding (fixed plug-in params still from MAP)",
+                    "median_nofix": "[MCMC] init: init_to_median, fully MAP-free (all params sampled, no fixed plug-ins)",
+                }.get(mcmc_init_strategy, f"[MCMC] init: {mcmc_init_strategy}"))
                 samples, mcmc_model = model.run_inference(num_chains=num_chains, num_samples=num_samples, num_warmup=num_warmup, vectorized=vectorized,
-                model_args=model_args, initial_values=initial_params, thinning=thinning)
+                model_args=model_args, initial_values=_mcmc_init, thinning=thinning)
 
             elif svi_inference:
                 samples = model.run_svi_inference(num_steps=30000, guide_kwargs={}, model_args=model_args, initial_values=initial_params,
@@ -595,6 +774,18 @@ if __name__ == "__main__":
             if param_name not in samples:
                 samples[param_name] = param_value
 
+    # Parameters fixed to 1 in the model are not sampled sites, so they're absent from `samples`.
+    # Inject them so reconstruction here (and in model_export via samples.pkl) doesn't KeyError.
+    # setdefault is idempotent: a run where these were free keeps its fitted values.
+    if map_inference:
+        samples = dict(samples)
+        if "lengthscale_deriv__loc" in samples:
+            samples.setdefault("alpha__loc", jnp.ones_like(jnp.asarray(samples["lengthscale_deriv__loc"])))
+        for _k in ("sigma_c__loc", "sigma_t__loc", "sigma_exit_scale__loc", "sigma_c_offset__loc"):
+            samples.setdefault(_k, 1.0)
+        samples.setdefault("sigma_t_offset__loc", 1.0)   # must match prior["sigma_t_offset"] in models.py
+        samples.setdefault("sigma_curve__loc", 0.5)      # must match prior["sigma_curve"] in models.py
+
     if not eval_only:
         if not prior_predictive:
             with open(os.path.join(model_dir, "samples.pkl"), "wb") as f:
@@ -607,91 +798,28 @@ if __name__ == "__main__":
                 f.close()
                 print("saved state")
 
-            if mcmc_inference:
-                if not initial_params_path:
-                    print("Warning: init_path unset — skipping MCMC export")
-                else:
-                    import subprocess, sys as _sys
-                    subprocess.run(
-                        [_sys.executable, "model_export.py",
-                         "--model_name", model_name,
-                         "--model_config", _cli["model_config"]],
-                        check=True,
-                    )
-                    print(f"MCMC export complete: {model_dir}")
 
     if map_inference:
         if "max" in model_name:
             print("sigma", samples["sigma__loc"])
             alpha_time = samples["alpha__loc"]
             print("alpha_time", alpha_time)
-            shifted_x_time = hsgp_params["shifted_x_time"]
-            ls_deriv = 3 + samples["lengthscale_deriv__loc"]
-            weights = samples["beta__loc"]
-            # print(samples["sigma_beta__loc"], samples["sigma_beta_binomial__loc"])
-            if "back_constrained" not in model_name:
-                X = samples["X__loc"]
-                if "hsgp" in model_name:
-                    X = jnp.tanh(X) * 1.9
-                # Append observed covariates so X matches the shape used during training.
-                # Only applies to linear LVM models; rflvm/hsgp models project X differently
-                # and their W matrices are sized to the sampled r, not r+p.
-                if "linear" in model_name and "observed_covariates" in model_args:
-                    X = jnp.concatenate([X, jnp.asarray(model_args["observed_covariates"])], axis=-1)
-
-            # X -= jnp.mean(X, keepdims = True, axis = 0)
-            # X /= jnp.std(X, keepdims = True, axis = 0)
-            spd = jnp.squeeze(jnp.sqrt(jax.vmap(lambda alpha, ls: diag_spectral_density(1, alpha, ls, L_time, M_time))(alpha_time, ls_deriv)))
-
-            if "tvrflvm" in model_name:
-                lengthscale =  samples["lengthscale__loc"]
-                lengthscale_t_max = samples["lengthscale_t_max__loc"]
-                lengthscale_c_max = samples["lengthscale_c_max__loc"]
-                W = samples["W__loc"]
-                W_c_max = samples["W_c_max__loc"]
-                W_t_max = samples["W_t_max__loc"]
-                wTx = jnp.einsum("nr, mr -> nm", X, W * jnp.sqrt(lengthscale))    
-                psi_x = jnp.concatenate([jnp.cos(wTx), jnp.sin(wTx)], axis = -1) * (1/ jnp.sqrt(approx_x_dim))
-                wTx_t_max = jnp.einsum("nr, mr -> nm", X, W_t_max * jnp.sqrt(lengthscale_t_max))
-                psi_x_t_max = jnp.concatenate([jnp.cos(wTx_t_max), jnp.sin(wTx_t_max)], axis = -1) * (1/ jnp.sqrt(approx_x_dim))   
-                wTx_c_max = jnp.einsum("nr, mr -> nm", X, W_c_max * jnp.sqrt(lengthscale_c_max))
-                psi_x_c_max = jnp.concatenate([jnp.cos(wTx_c_max), jnp.sin(wTx_c_max)], axis = -1) * (1/ jnp.sqrt(approx_x_dim))
-
-                spd = spd.T[None]
-            
-            elif "linear" in model_name:
-                psi_x = X
-                spd = spd.T[None]
-
-            weights *= spd 
-            gamma_phi_gamma_x = jnp.einsum("nm, mdk, tdz, jzk, nj -> nkt", psi_x, weights, phi_time, weights, psi_x)
-            X_center = X - jnp.mean(X, keepdims = True, axis = 0)
-            sigma_c_unit = samples["sigma_c__loc"]
-            _c_max_var = model_args["offsets"].get("c_max_var", None)
-            sigma_c_max = sigma_c_unit * jnp.sqrt(jnp.asarray(_c_max_var)) if _c_max_var is not None else sigma_c_unit
-            sigma_t_max = samples["sigma_t__loc"]
-            t_max_raw = samples["t_max_raw__loc"]
-            t_max_offset_absolute = samples.get("t_offset__loc", model_args["offsets"]["t_max"])
-            c_max_offset_absolute = samples.get("c_offset__loc", model_args["offsets"]["c_max"])
-            weight_offset = samples.get("weight_offset__loc", 0.0)
-            t_amp = float(jnp.squeeze(L_time)) / 2
-            if "linear" in model_name:
-                eps_t = 1e-6
-                t_max_offset_scaled = jnp.clip(t_max_offset_absolute / t_amp, -1.0 + eps_t, 1.0 - eps_t)
-                t_max = jnp.tanh(make_psi_gamma(psi_x, t_max_raw * sigma_t_max) + jnp.arctanh(t_max_offset_scaled)) * t_amp
-                c_max = make_psi_gamma(psi_x, samples["c_max__loc"] * sigma_c_max) / jnp.sqrt(psi_x.shape[-1]) + c_max_offset_absolute
-            elif "rflvm" in model_name:
-                eps_t = 1e-6
-                t_max_offset_scaled = jnp.clip(t_max_offset_absolute / t_amp, -1.0 + eps_t, 1.0 - eps_t)
-                t_max = jnp.tanh(make_psi_gamma(psi_x_t_max, t_max_raw * sigma_t_max) + jnp.arctanh(t_max_offset_scaled)) * t_amp
-                c_max = make_psi_gamma(psi_x_c_max, samples["c_max__loc"]) * sigma_c_max + c_max_offset_absolute
-
-            phi_prime_t_max = jax.vmap(lambda t: vmap_make_convex_phi_prime(t, L_time, M_time))(t_max)
-            phi_t_max = jax.vmap(lambda t: vmap_make_convex_phi(t, L_time, M_time))(t_max)
-            intercept = jnp.transpose(c_max)[..., None]
-            projected_weights = jnp.einsum("nm, mdk -> ndk", psi_x, weights) / jnp.sqrt(psi_x.shape[-1]) + weight_offset
-            gamma_phi_gamma_x = jnp.einsum("ndk, nktdz, nzk -> knt", projected_weights, phi_t_max[:,:,None,...] - phi_time[None, None] +  phi_prime_t_max[:, :, None, ...] * (((shifted_x_time - L_time)[None, None] - t_max[...,None])[..., None, None]), projected_weights)
-            mu = intercept + gamma_phi_gamma_x
+            # Reconstruct via the model's OWN forward (single source): compute_curves rebuilds X via
+            # _resolve_latent_X_structured, projects with the model's _project_X (linear X OR cosine
+            # sqrt(r)*X/||X||), and applies the SAME /sqrt(r) (level/peak) and /r (curvature)
+            # normalization + curve_amp as the fit. Replaces the hand-written forward that had desynced
+            # from models.py (missing /sqrt(r) on t_max; /sqrt(r) instead of /r on curvature; psi_x=X
+            # for cosine; sigma_X defaulting to 1.0). Mirrors the non-convex tvlinearlvm branch below.
+            _map_data = {k[:-5]: v for k, v in samples.items() if k.endswith("__loc")}
+            _d_map = _curves_under_substitute(model, model_args, _map_data, include_derivs=False)
+            mu = _d_map["mu"]                                   # (k, n, t)
+            X = _d_map["X"]                                     # raw latent (n, r)
+            psi_x = _d_map["psi_x"]                             # projected features (identity=r for linear,
+            #                                                    cosine=r, RFF=2*m); used by the survival +
+            #                                                    injury reconstructions below (single source)
+            X_center = X - jnp.mean(X, keepdims=True, axis=0)
+            t_max = np.asarray(_d_map["t_max"])                 # (n, k) centered
+            c_max = np.asarray(_d_map["c_max"])                 # (n, k)
         
             if injury:
                 if ("counterfactual" not in model_name) and ("injury_loading__loc" in samples):
@@ -709,16 +837,21 @@ if __name__ == "__main__":
                             injury_global_offset[:, None] + injury_mean_prior
                         )  # (k, i)
                     else:
-                        injury_raw = samples["injury_raw__loc"]
-                        sigma_injury = samples["sigma_injury__loc"]
-                        injury_player_effect = jnp.einsum("nr, rki -> kni", psi_x, injury_player_x)[:, :, None, :]
-
-                        # static model: injury_raw is (k, n, t, i)
-                        injury_effect_component = injury_global_offset[:, None, None, None] + injury_mean_prior[:, None, None, :] + injury_raw * sigma_injury[:, None, None, None] + injury_player_effect
-                        injury_effect_raw = jnp.concatenate([jnp.zeros_like(injury_indicator)[..., None], injury_effect_component], -1)
+                        injury_time_raw_map = samples.get("injury_time_raw__loc", jnp.zeros((len(basis), int(data["injury_code"].max()))))  # (j, i)
+                        sigma_injury_map = samples.get("sigma_injury__loc", jnp.zeros(len(metrics)))  # (k,)
+                        injury_effect_component = (
+                            injury_global_offset[:, None, None, None]                                        # (k, 1, 1, 1)
+                            + injury_mean_prior[:, None, None, :]                                            # (k, 1, 1, i)
+                            + sigma_injury_map[:, None, None, None] * injury_time_raw_map[None, None, :, :]  # (k, 1, j, i)
+                        )  # (k, 1, j, i) — uniform over players
+                        injury_effect_padded = jnp.concatenate(
+                            [jnp.zeros(injury_effect_component.shape[:-1] + (1,), dtype=injury_effect_component.dtype),
+                             injury_effect_component],
+                            axis=-1
+                        )  # (k, 1, j, i+1) — take_along_axis broadcasts over n
                         full_mask = (injury_indicator * masks)[..., None]
-                        avg_injury_effect = (injury_effect_raw * full_mask).sum(axis=(1, 2)) / full_mask.sum(axis=(1, 2))
-                        injury_effect = jnp.take_along_axis(injury_effect_raw, injury_type[..., None], -1).squeeze(-1) * injury_indicator
+                        avg_injury_effect = (injury_effect_padded * full_mask).sum(axis=(1, 2)) / full_mask.sum(axis=(1, 2))
+                        injury_effect = jnp.take_along_axis(injury_effect_padded, injury_type[..., None], -1).squeeze(-1) * injury_indicator
                     injuries = data["first_major_injury"].cat.categories[1:]
                     injury_effect_data = pd.DataFrame(injury_mean_prior + injury_global_offset[:, None], columns = injuries, index = metrics)
                     plot_metric_names = list(metrics)
@@ -798,7 +931,7 @@ if __name__ == "__main__":
                         if (exit is not None) and (exit_rate is not None):
                             sigma_exit_scale = samples.get("sigma_exit_scale__loc", 1.0)
                             scale_global_log = samples.get("scale_global_log__loc", jnp.log(11.5))
-                            exit_raw = make_psi_gamma(X, exit) / jnp.sqrt(X.shape[-1]) * sigma_exit_scale
+                            exit_raw = make_psi_gamma(psi_x, exit) / jnp.sqrt(model._kernel_self_cov(psi_x)) * sigma_exit_scale
                             scale_player = jnp.exp(scale_global_log + exit_raw)  # (n,) baseline
                             # Per-player per-injury-type scale: (n, i)
                             scale_injury = jnp.exp(
@@ -806,7 +939,7 @@ if __name__ == "__main__":
                             )  # (n, i)
 
                             # Model: exit_rate_raw = make_psi_gamma(X, exit_rate) + exit_global_offset + injury_effect
-                            baseline_exit_rate = make_psi_gamma(X, exit_rate) + exit_global_offset  # (n,)
+                            baseline_exit_rate = make_psi_gamma(psi_x, exit_rate) + exit_global_offset  # (n,)
                             baseline_concentration = 1.0 + 2.0 * jax.nn.sigmoid(baseline_exit_rate)  # (n,)
                             # injury_shift is (n, i); baseline_exit_rate[:, None] is (n, 1) → broadcasts to (n, i)
                             injury_concentration = 1.0 + 2.0 * jax.nn.sigmoid(
@@ -976,6 +1109,17 @@ if __name__ == "__main__":
             _mean = samples.get("c_offset__loc", jnp.zeros((len(metrics), covariate_X.shape[0], 1)))
             mu = jnp.repeat(_mean, repeats=len(basis), axis=-1)  # (k, n, t) — AR added by has_ar_params block below
 
+        elif "tvlinearlvm" in model_name and "convex" not in model_name:
+            # Reconstruct via the model's OWN forward (single source): compute_curves rebuilds X,
+            # applies the LKJ metric correlation, and derives peaks — replacing make_mu_tvlinearlvm.
+            _map_data = {k[:-5]: v for k, v in samples.items() if k.endswith("__loc")}
+            _d_map = _curves_under_substitute(model, model_args, _map_data, include_derivs=False)
+            mu = _d_map["mu"]                                   # (k, n, t)
+            X = _d_map["X"]; psi_x = X
+            X_center = X - jnp.mean(X, keepdims=True, axis=0)
+            t_max = np.asarray(_d_map["t_max"])                 # (n, k) centered
+            c_max = np.asarray(_d_map["c_max"])                 # (n, k)
+
         has_survival_samples = ("exit__loc" in samples)
         if has_survival_samples:
             eps_h = 1e-6
@@ -1008,7 +1152,7 @@ if __name__ == "__main__":
             # scale = exp(scale_global_log + exit_raw + injury_scale_effect)  [log-normal, no sigmoid saturation]
             sigma_exit_scale = samples.get("sigma_exit_scale__loc", 1.0)
             scale_global_log = samples.get("scale_global_log__loc", jnp.log(11.5))
-            exit_scale_raw = make_psi_gamma(X, exit) / jnp.sqrt(X.shape[-1]) * sigma_exit_scale if exit is not None else 0.0
+            exit_scale_raw = make_psi_gamma(psi_x, exit) / jnp.sqrt(model._kernel_self_cov(psi_x)) * sigma_exit_scale if exit is not None else 0.0
             # Per-player injury scale effect (additive in log-space)
             _surv_scale_loading = samples.get("injury_scale_loading__loc")
             _surv_scale_global_offset = samples.get("injury_scale_global_offset__loc", 0.0)
@@ -1039,7 +1183,7 @@ if __name__ == "__main__":
             scale_exit = jnp.exp(scale_global_log + exit_scale_raw + _surv_scale_effect)
 
             # Model: exit_rate_raw = make_psi_gamma(X, exit_rate) + exit_global_offset + injury_effect_exit
-            exit_rate_base = make_psi_gamma(X, exit_rate) + exit_global_offset if exit_rate is not None else exit_global_offset  # (n,)
+            exit_rate_base = make_psi_gamma(psi_x, exit_rate) + exit_global_offset if exit_rate is not None else exit_global_offset  # (n,)
             num_exit_intervals = len(base_hazard_grid)
             interval_starts = jnp.arange(num_exit_intervals, dtype=exit_rate_base.dtype)[None, :]
             interval_ends = interval_starts + 1.0
@@ -1170,10 +1314,11 @@ if __name__ == "__main__":
         category_to_color = {cat: cmap(i) for i, cat in enumerate(categories)}
         data["color"] = data["position_group"].map(category_to_color)
         id_df = data[["position_group","name","id", "minutes", "color"]].groupby("id").max().reset_index()
+        id_df["id"] = id_df["id"].astype(str)
 
-        if "max" in model_name:
+        if "max" in model_name or ("tvlinearlvm" in model_name and "convex" not in model_name):
 
-            
+
             tsne = TSNE(n_components=2)
             X_tsne_df = pd.DataFrame(tsne.fit_transform(X_center), columns = ["Dim. 1", "Dim. 2"])
             X_tsne_df = pd.concat([X_tsne_df, id_df], axis = 1)
@@ -1234,7 +1379,7 @@ if __name__ == "__main__":
             # --- Per-dimension loading of downstream parameters onto X ---
             # All four weight tensors are shaped (effective_r, ...) so the first r
             # entries are learned latent dims; the last 2 are -log(draft_pos) and height.
-            if "linear" in model_name:
+            if "linear" in model_name and "tvlinearlvm" not in model_name:
                 _beta    = np.array(samples["beta__loc"])          # (effective_r, M_time, k)
                 _c_max   = np.array(samples["c_max__loc"])         # (effective_r, k)
                 _t_max_r = np.array(samples["t_max_raw__loc"])     # (effective_r, k)

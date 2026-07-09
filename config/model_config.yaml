@@ -15,7 +15,8 @@
 
 defaults:
   inference_method: map
-  basis_dims: 21
+  mcmc_init: map         # MCMC init strategy: 'map' (seed NUTS from MAP samples) | 'median' (init_to_median; no MAP seeding, fixed plug-in params still loaded from fixed_param_path)
+  basis_dims: 10
   metrics:
     - {name: games,       distribution: beta-binomial,    exposure: games_exposure}
     - {name: usg,         distribution: beta,             exposure: minutes}
@@ -39,6 +40,15 @@ defaults:
   num_chains: 2
   num_samples: 2000
   num_warmup: 1000
+  map_num_steps: 50000   # MAP/SVI Adam steps (raise for harder stacked-RE landscapes)
+  # Prior knobs overridden after initialize_priors (model/inference_inputs.py:apply_prior_knobs).
+  # Empty by default => current hardcoded priors preserved exactly. Override per-model here, or
+  # via prior_check.py --set KEY=VAL / --sweep KEY=v1,v2,.. for prior-predictive tuning.
+  # Tunable keys (current values shown for reference):
+  #   sigma_curve: 0.5        sigma_c_offset: 1.0     sigma_t_offset: 1.0
+  #   sigma_X: 1.0            sigma_W_proj: 1.0       x_latent_df: 4.0
+  #   lengthscale_deriv: {dist: LogNormal, args: [1.0986, 0.7]}   # log(3), 0.7
+  prior_knobs: {}
   position_group: all
   validation_year: 2025
   cohort_year: 2025
@@ -59,22 +69,53 @@ defaults:
   model_dir: ~           # null → model_output/<model_name>/<inference_method>
   vectorized: false
   injury: false
+  censor_survival_at_injury: false
   debug_nan: false
   thinning: 250               # null → num_samples / 250
 
 models:
   # ── ConvexMaxTVLinearLVM ───────────────────────────────────────────────────
   nba_convex_max_tvlinearlvm:
+    m_time: 5   # HSGP age-basis count (= default)
+    basis_dims: 10   # latent rank r
+    map_num_steps: 50000   # REs are off, so the simpler landscape converges in 50k (matches the other variants)
     fixed_param_path: ~
     fixed_params: []
+    prior_knobs:
+      # Random effects OFF (per-player level/peak-age/curvature). They overfit at MAP and add ~100k
+      # hierarchical params that made MCMC hit max tree depth; off => smaller, tractable geometry.
+      use_curve_re: &re_off 0
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      # Tuned prior scales shared across the convex family (anchored, reused by the AR/LKJ variants).
+      sigma: &convex_sigma {dist: InverseGamma, args: [5, 600]}
+      # LEARNED (no longer fixed): the fixed 0.3/0.5 shrank E||X||^2/r to ~0.6 (vs the /sqrt(r)
+      # normalization's assumption of 1.0), under-amplifying the curve -> flat MAP. Learn them at MAP so
+      # the latent scale can grow to the right amplitude; still in fixed_params so they're pinned at MCMC.
+      sigma_X: &convex_sigma_X {dist: HalfNormal, args: [0.5]}
+      sigma_W_proj: &convex_sigma_W {dist: HalfNormal, args: [1.0]}
+      # Peak-AGE spread: LEARNED, not fixed. Resolved at sample_shape (1,k) so each metric gets its own
+      # sigma_t ~ HalfNormal(0.5) iid. Fixing it (esp. pct_minutes=0.1) pinned the peak age ~28 and made
+      # young early-career players structurally uncoverable; a prior lets the data set per-metric spread.
+      # Non-centered (t_max = tanh(psi*(t_max_raw*sigma_t)+...)), so sampling it stays well-conditioned.
+      sigma_t: &convex_sigma_t {dist: HalfNormal, args: [0.5]}
+      # Peak-VALUE spread: also LEARNED (was fixed from MAP). InverseGamma(2,1) keeps a heavy right tail so
+      # elite players can attain high peaks; resolved at (1,k) so each metric gets its own sigma_c iid.
+      sigma_c: &convex_sigma_c {dist: InverseGamma, args: [2, 1]}
+      # Curvature rate alpha: LEARNED per-metric ~ HalfNormal(1.0) (resolved at (k,1), iid), like the
+      # LKJ variants. The alpha<->beta ridge that wrecked sampling is an MCMC problem, so alpha is
+      # learned at MAP and then held fixed during MCMC (it's listed in the mcmc fixed_params), which
+      # removes the ridge while letting the data set per-metric curvature (no more hand-set 0.1 hack).
+      alpha: &alpha_per_metric {dist: HalfNormal, args: [1.0]}
     regimes:
       map:
         model_dir: model_output/nba_convex_max_tvlinearlvm/map
       mcmc:
+        mcmc_init: map   # seed NUTS from the MAP samples (per request); fixed_params hyperparams are plugged in from MAP, sampled latents start at their MAP point
         model_dir:        model_output/nba_convex_max_tvlinearlvm/mcmc
         init_path:        model_output/nba_convex_max_tvlinearlvm/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm/map/samples.pkl
-        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset]
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
         thinning: ~
 
   nba_convex_max_tvlinearlvm_holdout_last_k:
@@ -93,18 +134,611 @@ models:
     model_dir: model_output/nba_convex_max_tvlinearlvm/holdout_peak/map
     validation_scheme: holdout_peak
 
-  # ── ConvexMaxARTVLinearLVM ─────────────────────────────────────────────────
-  nba_convex_max_tvlinearlvm_AR:
+  nba_convex_max_tvlinearlvm_stratified_next_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
+  # ── ConvexMaxRFFTVLinearLVM (RFF latent kernel) ────────────────────────────
+  # RFF leaf of the ConvexMaxTVLinearLVM family: identical machinery (structured prior, REs,
+  # survival, compute_curves) with the latent feature map = RFF cos/sin of W*X (approx_x_dim = m
+  # frequencies -> 2*m features) instead of the linear identity. Mirrors the tvlinearlvm blocks;
+  # reuses the convex-family prior anchors (*re_off, *convex_sigma, ...).
+  nba_convex_max_tvrflvm:
+    m_time: 5
+    basis_dims: 10   # latent rank r
+    approx_x_dim: 50       # RFF frequency count m; projected feature width = 2*m = 100
+    map_num_steps: 50000
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm/map
+      mcmc:
+        mcmc_init: map
+        model_dir:        model_output/nba_convex_max_tvrflvm/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm/map/samples.pkl
+        # RFF feature map: lengthscale (ARD bandwidth) FIXED at MAP like lengthscale_deriv — pins the
+        # kernel scale and removes the W*sqrt(lengthscale) scaling ridge; W stays sampled (the frequency
+        # realization is integrated). sigma_exit_scale is a no-op (hard-constant 1.0); exit_global_offset
+        # has no matching site (survival globals are eta_global_log/gamma_global_log) — both inherited.
+        fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_tvrflvm_holdout_last_k:
+    model_dir: model_output/nba_convex_max_tvrflvm/holdout_last_k/map
+    validation_scheme: holdout_last_k
+
+  nba_convex_max_tvrflvm_holdout_first_k:
+    model_dir: model_output/nba_convex_max_tvrflvm/holdout_first_k/map
+    validation_scheme: holdout_first_k
+
+  nba_convex_max_tvrflvm_random_interior:
+    model_dir: model_output/nba_convex_max_tvrflvm/random_interior/map
+    validation_scheme: random_interior
+
+  nba_convex_max_tvrflvm_holdout_peak:
+    model_dir: model_output/nba_convex_max_tvrflvm/holdout_peak/map
+    validation_scheme: holdout_peak
+
+  nba_convex_max_tvrflvm_stratified_next_k:
+    model_dir: model_output/nba_convex_max_tvrflvm/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
+  # ── ConvexMaxARRFFTVLinearLVM (RFF latent kernel + AR(1)/calendar-year trend) ─
+  nba_convex_max_tvrflvm_AR:
+    m_time: 5
+    basis_dims: 10   # latent rank r
+    approx_x_dim: 50
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR/map
+      mcmc:
+        mcmc_init: map
+        model_dir:        model_output/nba_convex_max_tvrflvm_AR/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm/map/samples.pkl
+        # lengthscale FIXED (ARD bandwidth) — pins the RFF kernel scale, removes the W*sqrt(lengthscale)
+        # ridge; W stays sampled. (See non-AR block for the sigma_exit_scale/exit_global_offset notes.)
+        fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_tvrflvm_AR_holdout_last_k:
+    model_dir: model_output/nba_convex_max_tvrflvm_AR/holdout_last_k/map
+    validation_scheme: holdout_last_k
+
+  nba_convex_max_tvrflvm_AR_holdout_first_k:
+    model_dir: model_output/nba_convex_max_tvrflvm_AR/holdout_first_k/map
+    validation_scheme: holdout_first_k
+
+  nba_convex_max_tvrflvm_AR_random_interior:
+    model_dir: model_output/nba_convex_max_tvrflvm_AR/random_interior/map
+    validation_scheme: random_interior
+
+  nba_convex_max_tvrflvm_AR_holdout_peak:
+    model_dir: model_output/nba_convex_max_tvrflvm_AR/holdout_peak/map
+    validation_scheme: holdout_peak
+
+  nba_convex_max_tvrflvm_AR_stratified_next_k:
+    model_dir: model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
+  # ── alpha fixed-vs-learnable A/B comparison (REs off, tuned scale knobs) ──────
+  # Question: with the curve/max/max-age REs off and the beta-offset fix in place, is it better to
+  # FIX the per-metric curvature rate alpha at the prior-elicited values (0.15 for obpm/dbpm) or to
+  # LEARN it? Both entries inherit the convex family (m_time=10, basis_dims=10, regimes) via the
+  # _stratified_next_k suffix; they differ ONLY in prior_knobs.alpha and model_dir, so a MAP run of
+  # each is a clean A/B. map_num_steps lowered to 50000 (REs off => simpler landscape than the base).
+  nba_convex_max_tvlinearlvm_alpha_fixed_stratified_next_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm/stratified_next_k/map_alpha_fixed
+    validation_scheme: stratified_next_k
+    map_num_steps: 50000
+    prior_knobs:
+      use_curve_re: 0
+      use_c_offset_re: 0
+      use_t_offset_re: 0
+      sigma: {dist: InverseGamma, args: [5, 600]}
+      sigma_X: 0.3
+      sigma_W_proj: 0.5
+      sigma_t: 0.5
+      alpha: {per_metric: {obpm: 0.15, dbpm: 0.15}, default: 1.0}   # fixed per-metric curvature rate
+
+  nba_convex_max_tvlinearlvm_alpha_learn_stratified_next_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm/stratified_next_k/map_alpha_learn
+    validation_scheme: stratified_next_k
+    map_num_steps: 50000
+    prior_knobs:
+      use_curve_re: 0
+      use_c_offset_re: 0
+      use_t_offset_re: 0
+      sigma: {dist: InverseGamma, args: [5, 600]}
+      sigma_X: 0.3
+      sigma_W_proj: 0.5
+      sigma_t: 0.5
+      alpha: {dist: HalfNormal, args: [1.0]}                        # learned per-metric (sampled k x 1)
+
+  # ── ConvexMaxTVCosineLVM (cosine / normalized dot-product latent kernel) ──────
+  # Same convex-max forward as nba_convex_max_tvlinearlvm, but _project_X returns X/||X||, so the
+  # latent kernel phi(x)^T phi(x') is COSINE (bounded self-covariance = 1) instead of LINEAR (||X||^2).
+  # Removes the ||X||^2 curvature/peak-age blow-up for extreme-covariate players: curve shape depends
+  # on the DIRECTION of the embedding, not its magnitude. Mirrors the base convex prior_knobs; alpha /
+  # sigma_* may want retuning since ||phi||=1 makes the effective amplitude ~1/sqrt(r) smaller.
+  nba_convex_max_cosine_tvlinearlvm:
+    m_time: 5
+    basis_dims: 10
+    map_num_steps: 50000
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_cosine_tvlinearlvm/map
+      mcmc:
+        mcmc_init: map   # seed NUTS from MAP samples (per request)
+        model_dir:        model_output/nba_convex_max_cosine_tvlinearlvm/mcmc
+        init_path:        model_output/nba_convex_max_cosine_tvlinearlvm/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_cosine_tvlinearlvm/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_cosine_tvlinearlvm_stratified_next_k:
+    model_dir: model_output/nba_convex_max_cosine_tvlinearlvm/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
+  # ── ConvexMaxARTVCosineLVM (cosine latent kernel + per-player AR) ─────────────
+  nba_convex_max_cosine_tvlinearlvm_AR:
+    m_time: 5
+    basis_dims: 10
+    map_num_steps: 50000
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_cosine_tvlinearlvm_AR/map
+      mcmc:
+        mcmc_init: map   # seed NUTS from MAP samples (per request)
+        model_dir:        model_output/nba_convex_max_cosine_tvlinearlvm_AR/mcmc
+        init_path:        model_output/nba_convex_max_cosine_tvlinearlvm/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_cosine_tvlinearlvm/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_cosine_tvlinearlvm_AR_stratified_next_k:
+    model_dir: model_output/nba_convex_max_cosine_tvlinearlvm_AR/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
+  # ── ConvexMaxLKJTVLinearLVM (LKJ correlation across the metric axis of the curve weights) ──
+  # Same convex forward as nba_convex_max_tvlinearlvm, but the HSGP curve weights are
+  #   beta[r,m,:] = L_corr @ z,  L_corr ~ LKJCholesky(k, eta),  z ~ N(0,1)
+  # so metrics share curvature structure (obpm/dbpm borrow strength) while each beta[r,m,k] stays
+  # marginally N(0,1) (the alpha/spectral calibration is unchanged). eta is set via the attribute
+  # knob prior_knobs.lkj_concentration (eta>1 shrinks toward independence). Defaults adopt the
+  # alpha A/B outcome: REs off, learnable alpha, tuned scale knobs.
+  nba_convex_max_lkj_tvlinearlvm:
+    m_time: 5
+    basis_dims: 10
+    map_num_steps: 50000
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: 0
+      use_c_offset_re: 0
+      use_t_offset_re: 0
+      sigma: {dist: InverseGamma, args: [5, 600]}
+      sigma_X: 0.3
+      sigma_W_proj: 0.5
+      sigma_t: 0.5
+      # Per-metric HalfNormal prior on the curvature rate alpha (same family, metric-specific scale)
+      # instead of a single HalfNormal(1). Scales seeded from the learned alpha of the REs-off
+      # learnable-alpha A/B (weakly-informative, metric-calibrated). Tune via prior_check/holdout.
+      alpha: *alpha_per_metric   # per-metric HalfNormal alpha (anchored on nba_convex_max_tvlinearlvm)
+      lkj_concentration: 2.0
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_lkj_tvlinearlvm/map
+      mcmc:
+        mcmc_init: median
+        model_dir:        model_output/nba_convex_max_lkj_tvlinearlvm/mcmc
+        init_path:        model_output/nba_convex_max_lkj_tvlinearlvm/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_lkj_tvlinearlvm/map/samples.pkl
+        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X, beta_corr_chol]
+        thinning: ~
+
+  nba_convex_max_lkj_tvlinearlvm_stratified_next_k:
+    model_dir: model_output/nba_convex_max_lkj_tvlinearlvm/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
+  # ── LKJ convex: alpha fixed-vs-learnable A/B (same as the non-LKJ A/B, now with LKJ metric
+  # coupling on the curve weights). Inherits nba_convex_max_lkj_tvlinearlvm; differs only in
+  # prior_knobs.alpha and model_dir, so a MAP run of each is a clean A/B.
+  nba_convex_max_lkj_tvlinearlvm_alpha_fixed_stratified_next_k:
+    model_dir: model_output/nba_convex_max_lkj_tvlinearlvm/stratified_next_k/map_alpha_fixed
+    validation_scheme: stratified_next_k
+    map_num_steps: 50000
+    prior_knobs:
+      use_curve_re: 0
+      use_c_offset_re: 0
+      use_t_offset_re: 0
+      sigma: {dist: InverseGamma, args: [5, 600]}
+      sigma_X: 0.3
+      sigma_W_proj: 0.5
+      sigma_t: 0.5
+      alpha: {per_metric: {obpm: 0.15, dbpm: 0.15}, default: 1.0}
+      lkj_concentration: 2.0
+
+  nba_convex_max_lkj_tvlinearlvm_alpha_learn_stratified_next_k:
+    model_dir: model_output/nba_convex_max_lkj_tvlinearlvm/stratified_next_k/map_alpha_learn
+    validation_scheme: stratified_next_k
+    map_num_steps: 50000
+    prior_knobs:
+      use_curve_re: 0
+      use_c_offset_re: 0
+      use_t_offset_re: 0
+      sigma: {dist: InverseGamma, args: [5, 600]}
+      sigma_X: 0.3
+      sigma_W_proj: 0.5
+      sigma_t: 0.5
+      alpha: {dist: HalfNormal, args: [1.0]}
+      lkj_concentration: 2.0
+
+  # ── LKJ convex + per-player level/peak-age REs (c_offset_re + t_offset_re; NO curve_re) ──────
+  # The REs-off A/B answered the alpha/LKJ questions; this re-enables the per-player level (c_offset_re)
+  # and peak-age (t_offset_re) random effects so curves can track individuals (the REs-off MAP curves
+  # over-regularized to the population). curve_re stays OFF (it was the -10000 tail inflator). LKJ +
+  # learnable alpha retained. More Adam steps since the hierarchical REs make a harder landscape.
+  nba_convex_max_lkj_tvlinearlvm_re_on_stratified_next_k:
+    model_dir: model_output/nba_convex_max_lkj_tvlinearlvm/stratified_next_k/map_re_on
+    validation_scheme: stratified_next_k
+    map_num_steps: 150000
+    prior_knobs:
+      use_c_offset_re: 1
+      use_t_offset_re: 1
+      use_curve_re: 0
+      sigma: {dist: InverseGamma, args: [5, 600]}
+      sigma_X: 0.3
+      sigma_W_proj: 0.5
+      sigma_t: 0.5
+      alpha: {dist: HalfNormal, args: [1.0]}
+      lkj_concentration: 2.0
+
+  # ── ConvexMaxARLKJTVLinearLVM (convex + per-player AR + LKJ metric correlation) ──
+  nba_convex_max_lkj_tvlinearlvm_AR:
+    m_time: 5
+    basis_dims: 10
+    map_num_steps: 50000
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: 0
+      use_c_offset_re: 0
+      use_t_offset_re: 0
+      sigma: {dist: InverseGamma, args: [5, 600]}
+      sigma_X: 0.3
+      sigma_W_proj: 0.5
+      sigma_t: 0.5
+      # Per-metric HalfNormal prior on alpha (same family, metric-specific scale); see base entry.
+      alpha: *alpha_per_metric   # per-metric HalfNormal alpha (anchored on nba_convex_max_tvlinearlvm)
+      lkj_concentration: 2.0
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_lkj_tvlinearlvm_AR/map
+      mcmc:
+        mcmc_init: median
+        model_dir:        model_output/nba_convex_max_lkj_tvlinearlvm_AR/mcmc
+        init_path:        model_output/nba_convex_max_lkj_tvlinearlvm_AR/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_lkj_tvlinearlvm_AR/map/samples.pkl
+        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X, beta_corr_chol]
+        thinning: ~
+
+  nba_convex_max_lkj_tvlinearlvm_AR_stratified_next_k:
+    model_dir: model_output/nba_convex_max_lkj_tvlinearlvm_AR/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
+  # ── LKJTVLinearLVM (non-convex GPLVM + LKJ metric correlation) ────────────────
+  # eta via prior_knobs.lkj_concentration; correlates the metric axis of the MVN curve weights while
+  # each metric's marginal stays MVN(0, kernel). No REs (non-convex family has none).
+  nba_lkj_tvlinearlvm:
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      sigma: {dist: InverseGamma, args: [5, 600]}
+      sigma_X: 0.3
+      sigma_W_proj: 0.5
+      alpha: {dist: HalfNormal, args: [1.0]}   # learnable per-metric amplitude (sampled => alpha__loc for MAP reconstruction)
+      lkj_concentration: 2.0
+    regimes:
+      map:
+        model_dir: model_output/nba_lkj_tvlinearlvm/map
+      mcmc:
+        model_dir:        model_output/nba_lkj_tvlinearlvm/mcmc
+        init_path:        model_output/nba_lkj_tvlinearlvm/map/samples.pkl
+        fixed_param_path: model_output/nba_lkj_tvlinearlvm/map/samples.pkl
+        fixed_params: [lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X, beta_corr_chol]
+        thinning: ~
+
+  nba_lkj_tvlinearlvm_stratified_next_k:
+    model_dir: model_output/nba_lkj_tvlinearlvm/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
+  # ── LKJTVLinearLVM_AR (non-convex GPLVM + per-player AR + LKJ metric correlation) ──
+  nba_lkj_tvlinearlvm_AR:
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      sigma: {dist: InverseGamma, args: [5, 600]}
+      sigma_X: 0.3
+      sigma_W_proj: 0.5
+      alpha: {dist: HalfNormal, args: [1.0]}   # learnable per-metric amplitude (sampled => alpha__loc for MAP reconstruction)
+      lkj_concentration: 2.0
+    regimes:
+      map:
+        model_dir: model_output/nba_lkj_tvlinearlvm_AR/map
+      mcmc:
+        model_dir:        model_output/nba_lkj_tvlinearlvm_AR/mcmc
+        init_path:        model_output/nba_lkj_tvlinearlvm_AR/map/samples.pkl
+        fixed_param_path: model_output/nba_lkj_tvlinearlvm_AR/map/samples.pkl
+        fixed_params: [lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X, beta_corr_chol]
+        thinning: ~
+
+  nba_lkj_tvlinearlvm_AR_stratified_next_k:
+    model_dir: model_output/nba_lkj_tvlinearlvm_AR/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
+  # ── TVLinearLVM (direct GP kernel, identity projection, mean-centered intercept) ──
+  nba_tvlinearlvm:
     fixed_param_path: ~
     fixed_params: []
     regimes:
       map:
+        model_dir: model_output/nba_tvlinearlvm/map
+      mcmc:
+        model_dir:        model_output/nba_tvlinearlvm/mcmc
+        init_path:        model_output/nba_tvlinearlvm/map/samples.pkl
+        fixed_param_path: model_output/nba_tvlinearlvm/map/samples.pkl
+        fixed_params: [lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_tvlinearlvm_holdout_last_k:
+    model_dir: model_output/nba_tvlinearlvm/holdout_last_k/map
+    validation_scheme: holdout_last_k
+
+  nba_tvlinearlvm_holdout_first_k:
+    model_dir: model_output/nba_tvlinearlvm/holdout_first_k/map
+    validation_scheme: holdout_first_k
+
+  nba_tvlinearlvm_random_interior:
+    model_dir: model_output/nba_tvlinearlvm/random_interior/map
+    validation_scheme: random_interior
+
+  nba_tvlinearlvm_holdout_peak:
+    model_dir: model_output/nba_tvlinearlvm/holdout_peak/map
+    validation_scheme: holdout_peak
+
+  nba_tvlinearlvm_stratified_next_k:
+    model_dir: model_output/nba_tvlinearlvm/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
+  # ── TVLinearLVM_AR (GP prior + per-player AR) ────────────────────────────────
+  nba_tvlinearlvm_AR:
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_tvlinearlvm_AR/map
+      mcmc:
+        model_dir:        model_output/nba_tvlinearlvm_AR/mcmc
+        init_path:        model_output/nba_tvlinearlvm_AR/map/samples.pkl
+        fixed_param_path: model_output/nba_tvlinearlvm_AR/map/samples.pkl
+        fixed_params: [lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_tvlinearlvm_AR_holdout_last_k:
+    model_dir: model_output/nba_tvlinearlvm_AR/holdout_last_k/map
+    validation_scheme: holdout_last_k
+
+  nba_tvlinearlvm_AR_holdout_first_k:
+    model_dir: model_output/nba_tvlinearlvm_AR/holdout_first_k/map
+    validation_scheme: holdout_first_k
+
+  nba_tvlinearlvm_AR_random_interior:
+    model_dir: model_output/nba_tvlinearlvm_AR/random_interior/map
+    validation_scheme: random_interior
+
+  nba_tvlinearlvm_AR_holdout_peak:
+    model_dir: model_output/nba_tvlinearlvm_AR/holdout_peak/map
+    validation_scheme: holdout_peak
+
+  nba_tvlinearlvm_AR_stratified_next_k:
+    model_dir: model_output/nba_tvlinearlvm_AR/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
+  # ── ConvexMaxTVLinearLVM latent-dim ablations (q ∈ {5,10,15,20}) ────────────
+  nba_convex_max_tvlinearlvm_q5:
+    basis_dims: 5
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm_q5/map
+      mcmc:
+        model_dir:        model_output/nba_convex_max_tvlinearlvm_q5/mcmc
+        init_path:        model_output/nba_convex_max_tvlinearlvm_q5/holdout_last_k/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvlinearlvm_q5/holdout_last_k/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_tvlinearlvm_q5_holdout_last_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q5/holdout_last_k/map
+    validation_scheme: holdout_last_k
+
+  nba_convex_max_tvlinearlvm_q5_holdout_first_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q5/holdout_first_k/map
+    validation_scheme: holdout_first_k
+
+  nba_convex_max_tvlinearlvm_q5_holdout_peak:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q5/holdout_peak/map
+    validation_scheme: holdout_peak
+
+  nba_convex_max_tvlinearlvm_q5_random_interior:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q5/random_interior/map
+    validation_scheme: random_interior
+
+  nba_convex_max_tvlinearlvm_q10:
+    basis_dims: 10
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm_q10/map
+      mcmc:
+        model_dir:        model_output/nba_convex_max_tvlinearlvm_q10/mcmc
+        init_path:        model_output/nba_convex_max_tvlinearlvm_q10/holdout_last_k/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvlinearlvm_q10/holdout_last_k/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_tvlinearlvm_q10_holdout_last_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q10/holdout_last_k/map
+    validation_scheme: holdout_last_k
+
+  nba_convex_max_tvlinearlvm_q10_holdout_first_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q10/holdout_first_k/map
+    validation_scheme: holdout_first_k
+
+  nba_convex_max_tvlinearlvm_q10_holdout_peak:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q10/holdout_peak/map
+    validation_scheme: holdout_peak
+
+  nba_convex_max_tvlinearlvm_q10_random_interior:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q10/random_interior/map
+    validation_scheme: random_interior
+
+  nba_convex_max_tvlinearlvm_q15:
+    basis_dims: 15
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm_q15/map
+      mcmc:
+        model_dir:        model_output/nba_convex_max_tvlinearlvm_q15/mcmc
+        init_path:        model_output/nba_convex_max_tvlinearlvm_q15/holdout_last_k/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvlinearlvm_q15/holdout_last_k/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_tvlinearlvm_q15_holdout_last_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q15/holdout_last_k/map
+    validation_scheme: holdout_last_k
+
+  nba_convex_max_tvlinearlvm_q15_holdout_first_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q15/holdout_first_k/map
+    validation_scheme: holdout_first_k
+
+  nba_convex_max_tvlinearlvm_q15_holdout_peak:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q15/holdout_peak/map
+    validation_scheme: holdout_peak
+
+  nba_convex_max_tvlinearlvm_q15_random_interior:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q15/random_interior/map
+    validation_scheme: random_interior
+
+  nba_convex_max_tvlinearlvm_q20:
+    basis_dims: 20
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm_q20/map
+      mcmc:
+        model_dir:        model_output/nba_convex_max_tvlinearlvm_q20/mcmc
+        init_path:        model_output/nba_convex_max_tvlinearlvm_q20/holdout_last_k/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvlinearlvm_q20/holdout_last_k/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_tvlinearlvm_q20_holdout_last_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q20/holdout_last_k/map
+    validation_scheme: holdout_last_k
+
+  nba_convex_max_tvlinearlvm_q20_holdout_first_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q20/holdout_first_k/map
+    validation_scheme: holdout_first_k
+
+  nba_convex_max_tvlinearlvm_q20_holdout_peak:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q20/holdout_peak/map
+    validation_scheme: holdout_peak
+
+  nba_convex_max_tvlinearlvm_q20_random_interior:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_q20/random_interior/map
+    validation_scheme: random_interior
+
+  # ── ConvexMaxARTVLinearLVM ─────────────────────────────────────────────────
+  nba_convex_max_tvlinearlvm_AR:
+    m_time: 5   # HSGP age-basis count (= default)
+    basis_dims: 10   # latent rank r
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric   # per-metric fixed alpha (see nba_convex_max_tvlinearlvm)
+    regimes:
+      map:
         model_dir: model_output/nba_convex_max_tvlinearlvm_AR/map
       mcmc:
+        mcmc_init: map   # seed NUTS from MAP samples (per request)
         model_dir:        model_output/nba_convex_max_tvlinearlvm_AR/mcmc
         init_path:        model_output/nba_convex_max_tvlinearlvm/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm/map/samples.pkl
-        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset]
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
         thinning: ~
 
   nba_convex_max_tvlinearlvm_AR_holdout_last_k:
@@ -123,6 +757,10 @@ models:
     model_dir: model_output/nba_convex_max_tvlinearlvm_AR/holdout_peak/map
     validation_scheme: holdout_peak
 
+  nba_convex_max_tvlinearlvm_AR_stratified_next_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_AR/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
   # ── ConvexMaxInjuryTVLinearLVM ─────────────────────────────────────────────
   nba_convex_max_tvlinearlvm_injury:
     injury: true
@@ -135,7 +773,7 @@ models:
         model_dir:        model_output/nba_convex_max_tvlinearlvm_injury/mcmc
         init_path:        model_output/nba_convex_max_tvlinearlvm_injury/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm_injury/map/samples.pkl
-        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset]
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
         thinning: 50
 
   nba_convex_max_tvlinearlvm_injury_holdout_last_k:
@@ -157,6 +795,83 @@ models:
     model_dir: model_output/nba_convex_max_tvlinearlvm_injury/holdout_peak/map
     validation_scheme: holdout_peak
     injury: true
+
+  nba_convex_max_tvlinearlvm_injury_stratified_next_k:
+    model_dir: model_output/nba_convex_max_tvlinearlvm_injury/stratified_next_k/map
+    validation_scheme: stratified_next_k
+    injury: true
+
+  # ── Two-Stage Causal Injury Pipeline ─────────────────────────────────────────
+  # Stage 1: fit aging curve on healthy observations only; survival censored at
+  # injury onset. Produces clean counterfactual plug-ins (X, beta, AR, survival).
+  # Stage 2: fix Stage 1 params; sample only injury-specific parameters.
+
+  nba_convex_max_tvlinearlvm_causal_prefit:
+    age_max: 45
+    m_time: 5
+    end_year: 2023
+    injury: true
+    censor_survival_at_injury: true
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm_causal/prefit/map
+
+  nba_convex_max_tvlinearlvm_AR_causal_prefit:
+    age_max: 45
+    m_time: 5
+    end_year: 2023
+    injury: true
+    censor_survival_at_injury: true
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm_AR_causal/prefit/map
+
+  nba_convex_max_tvlinearlvm_injury_causal:
+    age_max: 45
+    m_time: 5
+    end_year: 2023
+    injury: true
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm_injury_causal/map
+      mcmc:
+        model_dir:        model_output/nba_convex_max_tvlinearlvm_injury_causal/mcmc
+        init_path:        model_output/nba_convex_max_tvlinearlvm_causal/prefit/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvlinearlvm_causal/prefit/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
+                       sigma_W_proj, W_proj, sigma_X, X,
+                       exit, sigma_exit_scale, exit_rate, exit_global_offset, scale_global_log]
+        thinning: 250
+
+  nba_convex_max_tvlinearlvm_AR_injury_causal:
+    age_max: 45
+    m_time: 5
+    end_year: 2023
+    injury: true
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvlinearlvm_AR_injury_causal/map
+      mcmc:
+        model_dir:        model_output/nba_convex_max_tvlinearlvm_AR_injury_causal/mcmc
+        init_path:        model_output/nba_convex_max_tvlinearlvm_AR_causal/prefit/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvlinearlvm_AR_causal/prefit/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
+                       sigma_W_proj, W_proj, sigma_X, X,
+                       exit, sigma_exit_scale, exit_rate, exit_global_offset, scale_global_log,
+                       rho_ar, sigma_ar, beta_ar, AR_0]
+        thinning: 250
 
   # ── NaiveLinearLVM (AR(1) per player per metric, no latent factors) ──────────
   nba_naive:
@@ -187,3 +902,7 @@ models:
   nba_naive_holdout_peak:
     model_dir: model_output/nba_naive/holdout_peak/map
     validation_scheme: holdout_peak
+
+  nba_naive_stratified_next_k:
+    model_dir: model_output/nba_naive/stratified_next_k/map
+    validation_scheme: stratified_next_k

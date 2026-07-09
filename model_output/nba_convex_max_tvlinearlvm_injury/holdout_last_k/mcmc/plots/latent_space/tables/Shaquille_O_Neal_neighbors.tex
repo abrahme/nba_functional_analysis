@@ -1,19 +1,17 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Shaquille O'Neal} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Dwyane Wade & G & 1 & 1.00 & 3.74 & 42\% \\ 
-Viacheslav Kravtsov & C & 2 & 2.00 & 3.85 & 6\% \\ 
-Deron Williams & G & 1 & 3.00 & 3.90 & 19\% \\ 
-LeBron James & G & 3 & 4.00 & 3.93 & 15\% \\ 
-Tim Duncan & F & 1 & 5.00 & 3.98 & 29\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Yao Ming & C & 3 \\
+    2 & Patrick Ewing & C & 3 \\
+    3 & Rik Smits & C & 3 \\
+    4 & Tim Duncan & F & 3 \\
+    5 & Chris Kaman & C & 1 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Shaquille O'Neal in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
+  \label{tab:Shaquille_O_Neal_neighbors}
 \end{table}
 

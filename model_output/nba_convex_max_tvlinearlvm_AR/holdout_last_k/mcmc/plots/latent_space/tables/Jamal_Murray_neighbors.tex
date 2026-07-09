@@ -1,19 +1,17 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Jamal Murray} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Shake Milton & G & 4 & 1.00 & 1.66 & 13\% \\ 
-Marcus Sasser & G & 4 & 2.00 & 1.81 & 5\% \\ 
-Jaylen Nowell & G & 2 & 3.00 & 1.85 & 8\% \\ 
-Chris Hunter & C & 4 & 4.00 & 1.93 & 3\% \\ 
-Darius Garland & G & 4 & 5.00 & 1.98 & 4\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Bones Hyland & G & 1 \\
+    2 & Bogdan Bogdanovic & G & 2 \\
+    3 & Jrue Holiday & G & 1 \\
+    4 & Kemba Walker & G & 1 \\
+    5 & O.J. Mayo & G & 1 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Jamal Murray in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
+  \label{tab:Jamal_Murray_neighbors}
 \end{table}
 

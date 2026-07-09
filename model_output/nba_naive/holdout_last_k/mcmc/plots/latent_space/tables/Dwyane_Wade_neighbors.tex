@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Dwyane Wade} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Tracy McGrady & G & 3 & 1.00 & 0.96 & 90\% \\ 
-Blake Griffin & F & 3 & 2.00 & 1.42 & 62\% \\ 
-Jimmy Butler & G & 3 & 3.00 & 1.61 & 47\% \\ 
-Shai Gilgeous-Alexander & G & 3 & 4.00 & 1.66 & 33\% \\ 
-Grant Hill & G & 3 & 5.00 & 1.75 & 36\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Tracy McGrady & G & 2 \\
+    2 & Blake Griffin & F & 2 \\
+    3 & Jimmy Butler & G & 2 \\
+    4 & Shai Gilgeous-Alexander & G & 2 \\
+    5 & Karl Malone & F & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Dwyane Wade in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

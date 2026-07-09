@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Klay Thompson} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Buddy Hield & G & 3 & 1.00 & 0.89 & 68\% \\ 
-CJ McCollum & G & 3 & 2.00 & 1.33 & 51\% \\ 
-Allan Houston & G & 3 & 3.00 & 1.36 & 6\% \\ 
-Jamal Crawford & G & 3 & 4.00 & 1.39 & 57\% \\ 
-Jamal Murray & G & 3 & 5.00 & 1.46 & 30\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Buddy Hield & G & 2 \\
+    2 & CJ McCollum & G & 2 \\
+    3 & Allan Houston & G & 2 \\
+    4 & Jamal Crawford & G & 2 \\
+    5 & Jamal Murray & G & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Klay Thompson in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

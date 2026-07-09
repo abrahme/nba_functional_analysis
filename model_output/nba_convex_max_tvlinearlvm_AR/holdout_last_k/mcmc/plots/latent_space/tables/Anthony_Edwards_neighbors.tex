@@ -1,19 +1,17 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Anthony Edwards} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Peyton Watson & G & 1 & 1.00 & 1.55 & 3\% \\ 
-PJ Hall & C & 1 & 2.00 & 1.72 & 2\% \\ 
-Justin Anderson & G & 1 & 3.00 & 1.78 & 5\% \\ 
-Ryan Rollins & G & 4 & 4.00 & 1.88 & 4\% \\ 
-Tyler Smith & F & 4 & 5.00 & 1.89 & 1\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Shai Gilgeous-Alexander & G & 1 \\
+    2 & Paolo Banchero & F & 1 \\
+    3 & Victor Oladipo & G & 1 \\
+    4 & Tracy McGrady & G & 1 \\
+    5 & Zaccharie Risacher & F & 1 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Anthony Edwards in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
+  \label{tab:Anthony_Edwards_neighbors}
 \end{table}
 

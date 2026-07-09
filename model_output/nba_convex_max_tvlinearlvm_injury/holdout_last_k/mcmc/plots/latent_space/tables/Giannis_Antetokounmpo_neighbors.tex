@@ -1,19 +1,17 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Giannis Antetokounmpo} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-LeBron James & G & 3 & 1.00 & 3.10 & 72\% \\ 
-Luka Doncic & G & 3 & 2.00 & 3.59 & 36\% \\ 
-Shai Gilgeous-Alexander & G & 3 & 3.00 & 3.71 & 52\% \\ 
-Jalen Johnson & F & 3 & 4.00 & 3.90 & 4\% \\ 
-Jalen Williams & G & 3 & 5.00 & 3.91 & 9\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Nikola Jokic & C & 2 \\
+    2 & Joel Embiid & C & 2 \\
+    3 & LeBron James & G & 2 \\
+    4 & Jayson Tatum & F & 2 \\
+    5 & Alperen Sengun & C & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Giannis Antetokounmpo in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
+  \label{tab:Giannis_Antetokounmpo_neighbors}
 \end{table}
 

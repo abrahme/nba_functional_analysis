@@ -2,6 +2,7 @@ import yaml
 
 _SCHEME_SUFFIXES = (
     "_holdout_last_k", "_holdout_first_k", "_random_interior", "_holdout_peak",
+    "_stratified_next_k",
 )
 
 
@@ -45,7 +46,10 @@ def resolve_model_config(config_path: str, model_name: str, inference_method: st
 
     regime_overrides = regimes.get(inference_method, {}) if inference_method else {}
 
-    merged = {**defaults, **base_entry, **regime_overrides, **scheme_entry}
+    if _is_scheme_variant:
+        merged = {**defaults, **base_entry, **regime_overrides, **scheme_entry}
+    else:
+        merged = {**defaults, **base_entry, **regime_overrides}
     if inference_method:
         merged["inference_method"] = inference_method
 

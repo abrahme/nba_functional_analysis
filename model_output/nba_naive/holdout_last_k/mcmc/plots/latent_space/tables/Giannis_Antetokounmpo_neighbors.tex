@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Giannis Antetokounmpo} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Anthony Davis & F & 3 & 1.00 & 1.68 & 39\% \\ 
-Domantas Sabonis & F & 3 & 2.00 & 1.70 & 17\% \\ 
-Joel Embiid & C & 3 & 3.00 & 1.80 & 42\% \\ 
-Andrei Kirilenko & F & 3 & 4.00 & 1.88 & 24\% \\ 
-Chris Webber & F & 3 & 5.00 & 1.94 & 19\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Karl Malone & F & 2 \\
+    2 & Domantas Sabonis & F & 2 \\
+    3 & Nikola Jokic & C & 2 \\
+    4 & Andrei Kirilenko & F & 2 \\
+    5 & Chris Webber & F & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Giannis Antetokounmpo in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

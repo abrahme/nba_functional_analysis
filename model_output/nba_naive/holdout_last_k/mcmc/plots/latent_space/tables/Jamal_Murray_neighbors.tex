@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Jamal Murray} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Bradley Beal & G & 3 & 1.00 & 0.65 & 57\% \\ 
-CJ McCollum & G & 3 & 2.00 & 0.82 & 44\% \\ 
-Zach LaVine & G & 3 & 3.00 & 0.92 & 22\% \\ 
-Tyrese Maxey & G & 3 & 4.00 & 1.02 & 11\% \\ 
-Jalen Brunson & G & 3 & 5.00 & 1.06 & 4\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & CJ McCollum & G & 2 \\
+    2 & D'Angelo Russell & G & 2 \\
+    3 & Bradley Beal & G & 2 \\
+    4 & Zach LaVine & G & 2 \\
+    5 & Tyrese Maxey & G & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Jamal Murray in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

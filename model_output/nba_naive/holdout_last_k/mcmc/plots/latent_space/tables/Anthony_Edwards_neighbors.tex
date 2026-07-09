@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Anthony Edwards} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Jayson Tatum & F & 3 & 1.00 & 1.19 & 24\% \\ 
-Donovan Mitchell & G & 3 & 2.00 & 1.42 & 19\% \\ 
-Kevin Durant & G & 3 & 3.00 & 1.43 & 13\% \\ 
-Jalen Brunson & G & 3 & 4.00 & 1.44 & 9\% \\ 
-Mitch Richmond & G & 3 & 5.00 & 1.50 & 11\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Jayson Tatum & F & 2 \\
+    2 & Franz Wagner & F & 2 \\
+    3 & Gordon Hayward & F & 2 \\
+    4 & Donovan Mitchell & G & 2 \\
+    5 & Bradley Beal & G & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Anthony Edwards in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

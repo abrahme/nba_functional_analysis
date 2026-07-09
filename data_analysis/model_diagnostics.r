@@ -15,35 +15,27 @@ library(ggdist)
 library(uwot)
 library(patchwork)
 library(arrow)
+library(fdasrvf)
+library(dbscan)
 
+
+source("data_analysis/diagnostics_utils.r")
+
+options(expressions = 500000)  # raise R call-stack limit for deep dendrogram traversal
 
 args             <- commandArgs(trailingOnly = TRUE)
 model_dir        <- if (length(args) >= 1) args[1] else stop("Usage: Rscript model_diagnostics.r <model_dir> [validation_year]")
 validation_year  <- if (length(args) >= 2) as.integer(args[2]) else 2021L
 
-posterior_plot_names <-  c("Stephen Curry", "Kevin Durant", "LeBron James", "Kobe Bryant", "Dwight Howard",  "Nikola Jokic", "Kevin Garnett", "Steve Nash",
-                "Chris Paul", "Shaquille O'Neal","Anthony Edwards", "Jamal Murray", "Donovan Mitchell", "Ray Allen", "Klay Thompson",
-                "Scottie Pippen", "Amar'e Stoudemire", "Shawn Marion", "Dirk Nowitzki", "Jason Kidd","Marcus Camby", "Rudy Gobert", "Tim Duncan",
-                 "Manu Ginobili", "James Harden", "Russell Westbrook", "Luka Doncic", "Devin Booker", "Paul Pierce", "Allen Iverson", "Tyrese Haliburton",
-                 "LaMelo Ball", "Carmelo Anthony", "Dwyane Wade", "Derrick Rose", "Chris Bosh", "Karl-Anthony Towns", "Kristaps Porzingis", "Giannis Antetokounmpo", "Jrue Holiday", "No Name")
+
 
 
 posterior_data <- read_parquet(file.path(model_dir, "posterior_ar.parquet")) |>
   mutate(value = if_else(metric == "pct_minutes", value * 48, value))
-age_min   <- min(posterior_data$age)
-age_max   <- max(posterior_data$age)
-fake_data <- data.frame(age = age_min:age_max, name = "No Name", id = "99999999",
-                        year = seq(2000, 2000 + age_max - age_min))
-data <- read.csv("data/injury_player_cleaned.csv") %>% mutate(retirement = 1) %>% bind_rows(fake_data)
-player_year_bounds <- data %>%
-  group_by(id) %>% arrange(age) %>%
-  summarise(
-    first_obs = min(year[!is.na(age)], na.rm = TRUE),
-    last_obs  = max(year[!is.na(age)], na.rm = TRUE)
-  )
+data <- make_player_data(posterior_data)
 
 
-player_corrs <- injury_data <-  data |> 
+player_corrs <- data |>
     mutate(`GP%` = games / pmax(games, total_games, na.rm = TRUE),
             MPG = (minutes / games) / 48,
             BLK = 36 * (blk / minutes),
@@ -72,34 +64,12 @@ pheatmap(player_corrs,
          filename =  "model_output/model_plots/empirical_correlation.png"
          )
 
-injury_data <-  data |> 
-    mutate( pct_games = games / pmax(games, total_games, na.rm = TRUE),
-            mpg = (minutes / games) ,
-            blk_rate = 36 * (blk / minutes),
-            ast_rate = 36 * (ast / minutes),
-            tov_rate = 36 * (tov / minutes),
-            oreb_rate = 36 * (oreb / minutes),
-            dreb_rate = 36 * (dreb / minutes),
-            stl_rate = 36 * (stl / minutes),
-            fg3a_rate = 36 * (fg3a / minutes),
-            fg2a_rate = 36 * (fg2a / minutes), 
-            fta_rate = 36 * (fta / minutes), 
-            ft_pct =  (ftm / fta), 
-            usg = (usg / 100) + .01, 
-            fg2_pct =  (fg2m / fg2a), 
-            fg3_pct =  (fg3m / fg3a)) |>
-    select(name, id, obpm, dbpm, pct_games, mpg, usg, blk_rate, ast_rate, tov_rate, oreb_rate, dreb_rate, stl_rate, fg3a_rate, fg2a_rate, fta_rate, ft_pct, fg2_pct, fg3_pct, age, first_major_injury, injury_period, year, retirement) |>
-    rename(pct_minutes = mpg, games = pct_games, blk = blk_rate, ast = ast_rate, tov = tov_rate, oreb = oreb_rate, dreb = dreb_rate, stl = stl_rate, fg3a = fg3a_rate, fg2a = fg2a_rate, fta = fta_rate, ftm = ft_pct, fg2m = fg2_pct, fg3m = fg3_pct) |>
-    pivot_longer( cols = c(obpm, dbpm, games, pct_minutes, blk, ast, tov, retirement,
-             oreb, dreb, stl, usg, fg2a, fg3a,
-             fta, ftm, fg2m, fg3m, retirement),
-    names_to = "metric",
-    values_to = "obs_value")
+injury_data <- build_injury_data(data)
 
 print("pivoted the original data")
 
 
-empirical_player_plt <- injury_data |> filter(name %in% c("Kobe Bryant", "Dwight Howard", "LeBron James")) |> mutate(metric = toupper(metric),
+empirical_player_plt <- injury_data |> filter(name %in% c("Kobe Bryant", "Dwight Howard", "LeBron James")) |> filter(metric %in% c("obpm", "pct_minutes", "fta")) |> mutate(metric = toupper(metric),
            metric = case_when(metric == "GAMES" ~ "GP%",
                               metric == "FG2M" ~ "FG2%",
                               metric == "FG3M" ~ "FG3%",
@@ -113,14 +83,16 @@ empirical_player_plt <- injury_data |> filter(name %in% c("Kobe Bryant", "Dwight
                               .default =  paste0(metric, " (𝓡)")
                     )) |>
                               ggplot(aes(x = age, y = obs_value, color = name, group = name)) +  
-                              geom_smooth(method = "loess", se = FALSE) + facet_wrap(~metric, scales = "free_y") + theme_bw() + scale_colour_brewer(palette = "Set1") + 
+                              geom_smooth(method = "loess", se = FALSE) + facet_wrap(~metric, scales = "free_y") + theme_bw(base_size = 18) + scale_colour_brewer(palette = "Set1") +
                               ggtitle("An Empirical Production Curve Comparison by Metric") +xlab("Age") + ylab("Metric Value") +theme(legend.position = "bottom",
                               legend.justification = "center",
-                              legend.title = element_blank())
+                              legend.title = element_blank()) +
+                              scale_colour_brewer(palette = "Set1", labels = plot_name)
 
-ggsave("model_output/model_plots/empirical_production_player.png", empirical_player_plt)    
+ggsave("model_output/model_plots/empirical_production_player.png", empirical_player_plt,
+       width = 10, height = 4, dpi = 150)
 
-empirical_plt <- injury_data |> mutate(metric = toupper(metric),
+empirical_plt <- injury_data |> filter(metric %in% c("obpm", "pct_minutes", "fta")) |> mutate(metric = toupper(metric),
            metric = case_when(metric == "GAMES" ~ "GP%",
                               metric == "FG2M" ~ "FG2%",
                               metric == "FG3M" ~ "FG3%",
@@ -131,9 +103,10 @@ empirical_plt <- injury_data |> mutate(metric = toupper(metric),
                               metric %in% c("FG2%", "FT%", "FG3%") ~ paste0(metric, " (𝓑)"),
                               metric %in% c("MPG", "GP%") ~ metric,
                               .default =  paste0(metric, " (𝓡)"))) |> ggplot(aes(x = age, y = obs_value)) + 
-                              geom_smooth(method = "loess", se = TRUE) + facet_wrap(~metric, scales = "free_y") + theme_bw() + scale_colour_brewer(palette = "Set1") + 
+                              geom_smooth(method = "loess", se = TRUE) + facet_wrap(~metric, scales = "free_y") + theme_bw(base_size = 18) + scale_colour_brewer(palette = "Set1") +
                               ggtitle("Empirical Production Curves by Metric") +xlab("Age") + ylab("Metric Value")
-ggsave("model_output/model_plots/empirical_production.png", empirical_plt) 
+ggsave("model_output/model_plots/empirical_production.png", empirical_plt,
+       width = 10, height = 4, dpi = 150)
 
 
 plots_dir        <- file.path(model_dir, "plots")
@@ -147,19 +120,21 @@ dir.create(file.path(plots_dir, "mcmc"),                          recursive = TR
 
 # posterior_data already loaded above (hoisted for age_min/age_max derivation)
 print("loaded the posterior data")
-read_parquet_if_exists <- function(path) if (file.exists(path)) read_parquet(path) else NULL
 
 posterior_mu_data    <- read_parquet(file.path(model_dir, "posterior_mu_ar.parquet"))
 posterior_peaks      <- read_parquet_if_exists(file.path(model_dir, "posterior_peaks_ar.parquet"))
 posterior_peak_vals  <- read_parquet_if_exists(file.path(model_dir, "posterior_peak_vals_ar.parquet"))
 latent_space         <- read_parquet_if_exists(file.path(model_dir, "latent_space.parquet"))
+injury_global_offset <- read_parquet_if_exists(file.path(model_dir, "posterior_injury_global_offset.parquet"))
+injury_prior_mean    <- read_parquet_if_exists(file.path(model_dir, "posterior_injury_prior_mean.parquet"))
 phi_X                <- read_parquet_if_exists(file.path(model_dir, "phi_X.parquet"))
-third_deriv          <- read_parquet_if_exists(file.path(model_dir, "posterior_third_deriv_ar.parquet"))
-log_posterior        <- read_parquet_if_exists(file.path(model_dir, "log_posterior.parquet"))
+third_deriv              <- read_parquet_if_exists(file.path(model_dir, "posterior_third_deriv_ar.parquet"))
+log_posterior            <- read_parquet_if_exists(file.path(model_dir, "log_posterior.parquet"))
 
-posterior_retirement_data <- open_dataset(file.path(model_dir, "posterior_exit_age_sample.parquet")) |>
-  filter(measure == "exit_age_sample", scenario == "observed", exit_censored == 0) |>
-  select(player, value, observed_exit_age) |>
+posterior_exit_samples <- open_dataset(file.path(model_dir, "posterior_exit_age_sample.parquet")) |>
+  filter(measure == "exit_age_sample", scenario == "observed",
+         conditioning_label %in% c("entrance", "last_observed")) |>
+  select(player, value, observed_exit_age, exit_censored, conditioning_label) |>
   collect()
 
 posterior_survival_data <- open_dataset(file.path(model_dir, "posterior_exit_survival.parquet")) |>
@@ -172,6 +147,17 @@ posterior_latent_X <- if (file.exists(file.path(model_dir, "posterior_latent_X.p
     select(id, name, chain, sample, starts_with("Dim")) |>
     collect()
 } else NULL
+
+posterior_latent_X_peak_age <- read_parquet_if_exists(file.path(model_dir, "posterior_latent_X_peak_age.parquet"))
+posterior_latent_X_peak_value <- read_parquet_if_exists(file.path(model_dir, "posterior_latent_X_peak_value.parquet"))
+phi_X_peak_age <- read_parquet_if_exists(file.path(model_dir, "phi_X_peak_age.parquet"))
+phi_X_peak_value <- read_parquet_if_exists(file.path(model_dir, "phi_X_peak_value.parquet"))
+
+curvature_post_paths <- list.files(
+  model_dir,
+  pattern = "^posterior_latent_X_curvature_m[0-9]+\\.parquet$",
+  full.names = TRUE
+)
 
 
 # obpm_curves <- posterior_mu_data |> filter(metric == "dbpm") |> group_by(player, age) |> summarize(value = mean(value)) |> ungroup() |> group_by(player) |> arrange(age, .by_group = TRUE) |>
@@ -197,7 +183,7 @@ posterior_latent_X <- if (file.exists(file.path(model_dir, "posterior_latent_X.p
 #   summarise(mean_value = mean(value, na.rm = TRUE)) %>%
 #   ungroup()
 
-# cluster_curves_plt <- ggplot(obpm_curves_cluster, aes(x = age, y = mean_value, color = cluster)) + geom_line() + theme_bw() +  scale_colour_brewer(palette = "Set1") + 
+# cluster_curves_plt <- ggplot(obpm_curves_cluster, aes(x = age, y = mean_value, color = cluster)) + geom_line() + theme_bw(base_size = 14) +  scale_colour_brewer(palette = "Set1") + 
 #                               ggtitle("Clustered Normalized OBPM Curves") +xlab("Age") + ylab("Metric Value")
 # ggsave("model_output/model_plots/peaks/mcmc/nba_convex_tvlinearlvm_ar_max_cluster.png", cluster_curves_plt) 
 
@@ -254,10 +240,10 @@ peak_2019_class <- peaks_plt_df |> rename(peak_age = value) |> inner_join(peak_v
   group_by(player) |> summarize(peak_val = mean(peak_val), peak_age = mean(peak_age), position_group = first(position_group), name = first(name)) |> 
   ggplot(aes(x = peak_age, y = peak_val, color = position_group)) + 
   geom_point() + 
-  geom_text_repel(aes(label = name),
+  geom_text_repel(aes(label = plot_name(name)),
                   color = "black",
                   fontface = "bold",
-                  max.overlaps = 5) + theme_bw() + 
+                  max.overlaps = 5) + theme_bw(base_size = 14) + 
   scale_colour_brewer(palette = "Set1") + ggtitle("Posterior Mean of Peak OBPM Age, Value for 2016 Draft Class") + labs(x = "Peak Age", color = "Position Group", y = "Peak OBPM Value")
 
 ggsave(file.path(plots_dir, "peaks", "mcmc", "peak_class_2018.png"), peak_2019_class)
@@ -311,6 +297,8 @@ ggsave(file.path(plots_dir, "peaks", "mcmc", "peak_class_2018.png"), peak_2019_c
 
 
 
+if (!is.null(latent_space)) {
+
 peaks_players <- peaks_plt_df %>% group_by(metric, player) %>% summarize(value = mean(value)) %>% ungroup() %>% pivot_wider(names_from = metric, values_from = value) %>% inner_join(latent_space %>% filter(minutes >= quantile(minutes, .75, na.rm = TRUE)) %>% select(id), by = c("player" = "id"))
 
 peaks_pca <- prcomp(peaks_players  %>% select(-c(player)) %>% data.matrix() , scale. = TRUE, center = TRUE)
@@ -322,44 +310,123 @@ max_range <- max(abs(range(peaks_pca_df$PC1)),
 
 
 
+# Label only the spatial extremes along each PC: these sit at the periphery and
+# repel cleanly. The dense central cluster of stars is left unlabeled so player
+# names do not overlap.
 tops <- c(peaks_pca_df %>% arrange(desc(PC1)) %>% pull(name) %>% head(10), peaks_pca_df %>% arrange(desc(PC2)) %>% pull(name) %>% head(10))
 bottoms <- c(peaks_pca_df %>% arrange(PC1) %>% pull(name) %>% head(10), peaks_pca_df %>% arrange(PC2) %>% pull(name) %>% head(10))
 
-pca_outlier_names <- unique(c(tops,bottoms, posterior_plot_names))
-
-peaks_pca_plot  <-filter(peaks_pca_df, name %in% pca_outlier_names) %>% ggplot(aes(x = PC1, y = PC2)) + 
-                      geom_text_repel(
-                      aes(label = name, x = PC1, y = PC2),
-                      size = 3,
-                      fontface = "bold",
-                      max.overlaps = 20,
-                      inherit.aes = FALSE) + 
-  coord_fixed() +
-  xlim(-max_range, max_range) +
-  ylim(-max_range, max_range) + 
-  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("PCA Visualization of Learned Metric Peaks") + labs(x = "PC 1", y = "PC 2")
-
-ggsave(file.path(plots_dir, "peaks", "mcmc", "peaks_pca.png"), peaks_pca_plot)
+pca_outlier_names <- unique(c(tops, bottoms))
 
 # Extract loadings
 loadings <- as.data.frame(peaks_pca$rotation[, 1:2])
 loadings$metric <- rownames(loadings)
-db <- kmeans(loadings %>% select(-c(metric)), center = 3)
-loadings$metric_group <- as.factor(db$cluster) 
+
+# Fixed semantic metric clusters (replaces the prior DBSCAN grouping). The level
+# order is chosen so scale_*_brewer("Set1") keeps the paper's colors:
+# Skill = red, Both = blue, Athleticism = green. FG2% (two-point FG%) groups with
+# "Both" alongside FG2A.
+metric_group_map <- c(
+  OREB = "Athleticism", STL = "Athleticism", BLK = "Athleticism",
+  FTA  = "Athleticism", `GP%` = "Athleticism",
+  `FT%` = "Skill", `FG3%` = "Skill", FG3A = "Skill",
+  AST = "Both", TOV = "Both", DBPM = "Both", OBPM = "Both", MPG = "Both",
+  USG = "Both", DREB = "Both", FG2A = "Both", `FG2%` = "Both"
+)
+loadings$metric_group <- factor(unname(metric_group_map[loadings$metric]),
+                                levels = c("Skill", "Both", "Athleticism"))
+if (any(is.na(loadings$metric_group)))
+  warning("Metrics with no fixed cluster assignment: ",
+          paste(loadings$metric[is.na(loadings$metric_group)], collapse = ", "))
+
+# Axis interpretation for the direction labels. PC1 is a "general" peak-timing
+# factor: essentially all metric loadings share one sign, so moving along PC1
+# shifts every metric's peak age together (overall earlier vs. later peaking).
+# PC2 is a contrast between defensive-impact/rebounding metrics and
+# scoring-volume/usage metrics peaking at different relative ages (empirically it
+# separates defensive bigs from high-usage scorers). Both axes are oriented from
+# the data (PCA signs are arbitrary) so the labels stay correct if a sign flips
+# across model runs.
+pc1_later_is_pos <- mean(loadings$PC1) >= 0     # + direction = later-peaking?
+# DBPM is the dominant PC2 loader; its sign marks the defense/rebounding end.
+pc2_defreb_is_pos <- loadings$PC2[loadings$metric == "DBPM"] >= 0
+
+later_lab    <- "Later-peaking\n(overall)"
+earlier_lab  <- "Earlier-peaking\n(overall)"
+defreb_lab   <- "Defense & rebounding\npeak later"
+scoreuse_lab <- "Scoring & usage\npeak later"
+
+pc1_pos_label <- if (pc1_later_is_pos) later_lab else earlier_lab
+pc1_neg_label <- if (pc1_later_is_pos) earlier_lab else later_lab
+pc2_pos_label <- if (pc2_defreb_is_pos) defreb_lab else scoreuse_lab
+pc2_neg_label <- if (pc2_defreb_is_pos) scoreuse_lab else defreb_lab
+
+avg_minutes_df <- data |>
+  group_by(id) |>
+  summarize(avg_minutes = mean(minutes, na.rm = TRUE), .groups = "drop")
+
+peaks_pca_df <- peaks_pca_df |>
+  left_join(avg_minutes_df, by = c("id" = "id"))
+
+# Label a few representative players per quadrant: the 4 furthest from the
+# origin (most characteristic peak-age profiles) among established players, so
+# each region has a handful of well-separated names rather than a dense cloud.
+peaks_pca_labels <- peaks_pca_df |>
+  filter(avg_minutes > 1200) |>
+  mutate(quadrant = interaction(PC1 >= 0, PC2 >= 0),
+         dist = sqrt(PC1^2 + PC2^2)) |>
+  group_by(quadrant) |>
+  slice_max(dist, n = 4, with_ties = FALSE) |>
+  ungroup() |>
+  pull(name)
+
+label_pos <- max_range * 0.99
+peaks_pca_plot  <- filter(peaks_pca_df, name %in% peaks_pca_labels) %>% ggplot(aes(x = PC1, y = PC2)) +
+  # Faint zero cross marks the quadrants (the bold arrowed axes were redundant
+  # with the PC1/PC2 tick axes and have been removed).
+  geom_hline(yintercept = 0, colour = "grey85", linewidth = 0.3) +
+  geom_vline(xintercept = 0, colour = "grey85", linewidth = 0.3) +
+  geom_text_repel(
+    aes(label = plot_name(name), x = PC1, y = PC2),
+    size = 3.2,
+    fontface = "bold",
+    max.overlaps = Inf,
+    min.segment.length = 0,
+    box.padding = 0.4,
+    inherit.aes = FALSE
+  ) +
+  coord_fixed(clip = "off") +
+  xlim(-max_range, max_range) +
+  ylim(-max_range, max_range) +
+  # Direction labels sit inside the panel near each edge, justified inward.
+  annotate("text", x = label_pos,  y = 0, label = pc1_pos_label, hjust = 1,   vjust = -0.4, size = 3.2, lineheight = 0.9, colour = "grey30", fontface = "italic") +
+  annotate("text", x = -label_pos, y = 0, label = pc1_neg_label, hjust = 0,   vjust = -0.4, size = 3.2, lineheight = 0.9, colour = "grey30", fontface = "italic") +
+  annotate("text", x = 0, y = label_pos,  label = pc2_pos_label, hjust = 0.5, vjust = 1,    size = 3.2, lineheight = 0.9, colour = "grey30", fontface = "italic") +
+  annotate("text", x = 0, y = -label_pos, label = pc2_neg_label, hjust = 0.5, vjust = 0,    size = 3.2, lineheight = 0.9, colour = "grey30", fontface = "italic") +
+  theme_bw(base_size = 14) +
+  theme(panel.grid = element_blank(), plot.margin = margin(10, 14, 10, 14),
+        plot.title = element_text(hjust = 0.5)) +
+  ggtitle("Player Peak Ages") +
+  labs(x = "PC 1", y = "PC 2")
+
+ggsave(file.path(plots_dir, "peaks", "mcmc", "peaks_pca.png"), peaks_pca_plot, width = 6, height = 6)
 peaks_pca_loadings_plt <- ggplot(loadings, aes(x = PC1, y = PC2)) +
-  geom_text(aes(label = metric, color = metric_group), size = 4,
-                      fontface = "bold", show.legend = FALSE) +
-  geom_point(aes(color = metric_group), alpha = 0) + 
-  theme_bw() + 
-  guides(color = guide_legend(override.aes = list(shape = 16, alpha = 1))) + 
-  scale_colour_brewer(palette = "Set1") + 
+  # geom_text_repel (not geom_text) so co-located metric labels separate instead of stacking.
+  geom_text_repel(aes(label = metric, color = metric_group), size = 4,
+                      fontface = "bold", show.legend = FALSE, max.overlaps = Inf,
+                      min.segment.length = 0, box.padding = 0.35, seed = 1) +
+  geom_point(aes(color = metric_group), alpha = 0) +
+  theme_bw(base_size = 14) +
+  guides(color = guide_legend(override.aes = list(shape = 16, alpha = 1))) +
+  scale_colour_brewer(palette = "Set1") +
   geom_hline(yintercept = 0, color = "black", linewidth = 0.5) +
   geom_vline(xintercept = 0, color = "black", linewidth = 0.5) +
   # Make equal scaling so 0,0 is visually centered
-  coord_cartesian(xlim = c(-max(abs(loadings$PC1)), max(abs(loadings$PC1))), 
+  coord_cartesian(xlim = c(-max(abs(loadings$PC1)), max(abs(loadings$PC1))),
                   ylim = c(-max(abs(loadings$PC2)), max(abs(loadings$PC2)))) +
-  ggtitle("PCA Visualization of Learned Metric Peaks Factor Loadings") + labs(x = "PC 1", y = "PC 2", color = "Metric Group")
-ggsave(file.path(plots_dir, "peaks", "mcmc", "peaks_pca_loadings.png"), peaks_pca_loadings_plt)
+  theme(plot.title = element_text(hjust = 0.5), legend.position = "bottom") +
+  ggtitle("Metric Loadings (Peak Age)") + labs(x = "PC 1", y = "PC 2", color = "Metric Group")
+ggsave(file.path(plots_dir, "peaks", "mcmc", "peaks_pca_loadings.png"), peaks_pca_loadings_plt, width = 5, height = 5)
 
 
 peak_vals_players <- peak_vals_plt_df %>% group_by(metric, player) %>% summarize(value = mean(value)) %>% ungroup() %>% pivot_wider(names_from = metric, values_from = value) %>% inner_join(latent_space %>% filter(minutes >= quantile(minutes, .75, na.rm = TRUE)) %>% select(id), by = c("player" = "id"))
@@ -368,21 +435,30 @@ peak_vals_pca <- prcomp(peak_vals_players  %>% select(-c(player)) %>% data.matri
 
 peak_vals_pca_df <- tibble(PC1 = peak_vals_pca$x[,1], PC2 = peak_vals_pca$x[,2], id = peak_vals_players$player) %>% inner_join(latent_space %>% select(id, name, position_group, minutes))
 
-tops <- c(peak_vals_pca_df %>% arrange(desc(PC1)) %>% pull(name) %>% head(10), peak_vals_pca_df %>% arrange(desc(PC2)) %>% pull(name) %>% head(10))
-bottoms <- c(peak_vals_pca_df %>% arrange(PC1) %>% pull(name) %>% head(10), peak_vals_pca_df %>% arrange(PC2) %>% pull(name) %>% head(10))
+# Label only the spatial extremes (periphery) so player names do not overlap.
+tops <- c(peak_vals_pca_df %>% arrange(desc(PC1)) %>% pull(name) %>% head(5), peak_vals_pca_df %>% arrange(desc(PC2)) %>% pull(name) %>% head(5))
+bottoms <- c(peak_vals_pca_df %>% arrange(PC1) %>% pull(name) %>% head(5), peak_vals_pca_df %>% arrange(PC2) %>% pull(name) %>% head(5))
 
-pca_outlier_names <- unique(c(tops,bottoms, posterior_plot_names))
+pca_outlier_names <- unique(c(tops, bottoms))
 
 peak_vals_pca_plot  <-  peak_vals_pca_df %>% ggplot(aes(x = PC1, y = PC2)) +  geom_point(aes(alpha = minutes, color = position_group)) + scale_alpha(range = c(0,1)) +
-                      geom_text_repel(data = filter(peak_vals_pca_df, name %in% posterior_plot_names), 
-                      aes(label = name, x = PC1, y = PC2),
+                      geom_text_repel(data = filter(peak_vals_pca_df, name %in% pca_outlier_names),
+                      aes(label = plot_name(name), x = PC1, y = PC2),
                       size = 3,
                       fontface = "bold",
-                      max.overlaps = 20,
-                      inherit.aes = FALSE) + 
-  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("PCA Visualization of Learned Metric Peak Values") + labs(x = "PC 1", y = "PC 2", color = "Position Group", alpha = "Minutes")
+                      max.overlaps = Inf,
+                      min.segment.length = 0,
+                      box.padding = 0.4,
+                      seed = 1,
+                      inherit.aes = FALSE) +
+  theme_bw(base_size = 14) + scale_colour_brewer(palette = "Set1") +
+  # Legend to the bottom so the scatter uses the full panel width (it was crushed to half-width before).
+  guides(color = guide_legend(nrow = 1, override.aes = list(alpha = 1)), alpha = guide_legend(nrow = 1)) +
+  theme(legend.position = "bottom", legend.box = "horizontal",
+        plot.title = element_text(hjust = 0.5)) +
+  ggtitle("Player Peak Values") + labs(x = "PC 1", y = "PC 2", color = "Position Group", alpha = "Minutes")
 
-ggsave(file.path(plots_dir, "peaks", "mcmc", "peak_vals_pca.png"), peak_vals_pca_plot)
+ggsave(file.path(plots_dir, "peaks", "mcmc", "peak_vals_pca.png"), peak_vals_pca_plot, width = 4.8, height = 6)
 
 # Extract loadings
 loadings_vals <- as.data.frame(peak_vals_pca$rotation[, 1:2])
@@ -391,17 +467,18 @@ loadings_vals$metric <- rownames(loadings_vals)
 # loadings$metric_group <- as.factor(db$cluster) 
 peak_vals_pca_loadings_plt <- ggplot(loadings_vals, aes(x = PC1, y = PC2)) +
   geom_text_repel(aes(label = metric), size = 4,
-                      fontface = "bold", show.legend = FALSE) +
-  theme_bw() + 
-  guides(color = guide_legend(override.aes = list(shape = 16, alpha = 1))) + 
-  scale_colour_brewer(palette = "Set1") + 
+                      fontface = "bold", show.legend = FALSE, max.overlaps = Inf,
+                      min.segment.length = 0, box.padding = 0.35, seed = 1) +
+  theme_bw(base_size = 14) +
+  guides(color = guide_legend(override.aes = list(shape = 16, alpha = 1))) +
+  scale_colour_brewer(palette = "Set1") +
   geom_hline(yintercept = 0, color = "black", linewidth = 0.5) +
   geom_vline(xintercept = 0, color = "black", linewidth = 0.5) +
-  # Make equal scaling so 0,0 is visually centered
-  coord_cartesian(xlim = c(-max(abs(loadings_vals$PC1)), max(abs(loadings_vals$PC1))), 
+  coord_cartesian(xlim = c(-max(abs(loadings_vals$PC1)), max(abs(loadings_vals$PC1))),
                   ylim = c(-max(abs(loadings_vals$PC2)), max(abs(loadings_vals$PC2)))) +
-  ggtitle("PCA Visualization of Learned Metric Peak Values Factor Loadings") + labs(x = "PC 1", y = "PC 2")
-ggsave(file.path(plots_dir, "peaks", "mcmc", "peak_vals_pca_loadings.png"), peak_vals_pca_loadings_plt)
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ggtitle("Metric Loadings (Peak Value)") + labs(x = "PC 1", y = "PC 2")
+ggsave(file.path(plots_dir, "peaks", "mcmc", "peak_vals_pca_loadings.png"), peak_vals_pca_loadings_plt, width = 5, height = 5)
 
 
 skew_plt_df <- posterior_peaks |> inner_join(
@@ -429,18 +506,55 @@ skew_plt_df <- posterior_peaks |> inner_join(
     metric_group = first(metric_group)) |> ungroup()
 
 
-skew_plt <- ggplot(skew_plt_df, aes( x = first_deriv_pre / first_deriv_post, color = metric_group, y = metric, )) +
-      stat_pointinterval() + 
-  scale_color_brewer(palette = "Set1") + scale_y_discrete(expand = expansion(mult = c(0.2, 0.2))) + 
-  theme_bw() +
+skew_plt <- ggplot(skew_plt_df, aes(x = abs(first_deriv_pre / first_deriv_post), color = metric_group, y = metric)) +
+  stat_pointinterval() +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "grey50", linewidth = 0.4) +
+  scale_x_log10() +
+  scale_color_brewer(palette = "Set1") +
+  scale_y_discrete(expand = expansion(mult = c(0.2, 0.2))) +
+  theme_bw(base_size = 14) +
   labs(
     title = "Posterior Mean of Pre vs. Post Peak First Deriv. by Metric",
-    x = "Ratio of Pre-Peak to Post-Peak First Derivative",
+    x = "|Pre-Peak| / |Post-Peak| First Derivative (log scale; 1 = symmetric)",
     color = "Metric Group"
-  ) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) 
-
+  ) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
 
 ggsave(file.path(plots_dir, "peaks", "mcmc", "peaks_skew.png"), skew_plt)
+
+skew_obpm_df <- skew_plt_df |>
+  filter(metric == "OBPM") |>
+  inner_join(
+    data |>
+      filter(id != "99999999") |>
+      group_by(id) |>
+      summarize(name = first(name), position_group = first(position_group), .groups = "drop"),
+    by = c("player" = "id")
+  )
+
+obpm_skew_scatter <- ggplot(skew_obpm_df,
+    aes(x = first_deriv_pre, y = first_deriv_post, color = position_group)) +
+  geom_point(aes(size = minutes), alpha = 0.55) +
+  geom_text_repel(
+    data = filter(skew_obpm_df, name %in% posterior_plot_names),
+    aes(label = plot_name(name)),
+    size = 3, fontface = "bold", max.overlaps = 20
+  ) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50", linewidth = 0.4) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50", linewidth = 0.4) +
+  scale_colour_brewer(palette = "Set1") +
+  theme_bw(base_size = 14) +
+  labs(
+    title = "OBPM Career Arc: Pre-Peak vs Post-Peak First Derivative",
+    subtitle = "Each point is a player (posterior mean); x > 0 = ascending, y < 0 = declining",
+    x = "Pre-Peak First Derivative (latent units / year)",
+    y = "Post-Peak First Derivative (latent units / year)",
+    color = "Position",
+    size = "Career Minutes"
+  )
+
+ggsave(file.path(plots_dir, "peaks", "mcmc", "obpm_skew_scatter.png"), obpm_skew_scatter,
+       width = 10, height = 7)
 
 
 peaks_plt <- ggplot(peaks_plt_df |> inner_join(loadings, by = "metric") |> group_by(metric, player) |> summarize(minutes = first(minutes), metric_group = first(metric_group), value = mean(value)) |> ungroup() |>   mutate(
@@ -451,21 +565,20 @@ peaks_plt <- ggplot(peaks_plt_df |> inner_join(loadings, by = "metric") |> group
   stat_pointinterval() + 
   scale_fill_brewer(palette = "Set1") +
   scale_colour_brewer(palette = "Set1") + 
-  theme_bw() +
+  theme_bw(base_size = 14) +
   labs(
-    title = "Posterior Mean of Peak Age by Metric",
+    title = str_wrap("Posterior Mean of Peak Age by Metric", 24),
     x = "Age",
     y = "Metric",
     fill = "Metric Group",
     color = "Metric Group",
-  ) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) + scale_y_discrete(expand = expansion(mult = c(0.2, 0.2)))
+  ) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+            plot.title = element_text(hjust = 0.5),
+            legend.position = "bottom") + scale_y_discrete(expand = expansion(mult = c(0.2, 0.2)))
 
 
 
-ggsave(file.path(plots_dir, "peaks", "mcmc", "peaks.png"), peaks_plt)
-
-
-
+ggsave(file.path(plots_dir, "peaks", "mcmc", "peaks.png"), peaks_plt, width = 5, height = 5.4)
 
 if (!is.null(third_deriv)) {
 
@@ -486,7 +599,7 @@ third_deriv_plt <- ggplot(third_deriv |> inner_join(data |> group_by(id) |> summ
                aes(x = metric, y = posterior_mean, color = metric_group)) + 
                 stat_pointinterval() + 
   ggtitle("Posterior Mean of Third Derivative by Metric") +labs(y = "Posterior Mean of Third Derivative", x = "Metric", color = "Metric Group") + 
-  theme_bw() + scale_fill_brewer(palette = "Set1") + scale_color_brewer(palette = "Set1") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) 
+  theme_bw(base_size = 14) + scale_fill_brewer(palette = "Set1") + scale_color_brewer(palette = "Set1") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) 
 
 
 ggsave(file.path(plots_dir, "peaks", "mcmc", "peaks_third_deriv.png"), third_deriv_plt)
@@ -495,414 +608,173 @@ ggsave(file.path(plots_dir, "peaks", "mcmc", "peaks_third_deriv.png"), third_der
 
 curve_third_deriv_plt <- ggplot(third_deriv |> filter(metric == "obpm") |> mutate(quantile = cut(value, breaks = c(-Inf, -0.05, 0.05, Inf),
                                                                      labels = c("Left-Skew Symmetry", "Symmetric", "Right-Skew Symmetry"))) |> group_by(quantile) |> slice_sample(n = 5) |> ungroup() |> group_by(metric, sample,chain, player) |> select(-value) |> 
-                                inner_join(posterior_mu_data) |> mutate(value = value - value[age == 18]) , aes(x = age, y = value, group = interaction(chain, sample, player, metric), color = quantile)) + geom_line(alpha = .9)  + theme_bw() + scale_fill_brewer(palette = "Set1") +
+                                inner_join(posterior_mu_data) |> mutate(value = value - value[age == 18]) , aes(x = age, y = value, group = interaction(chain, sample, player, metric), color = quantile)) + geom_line(alpha = .9)  + theme_bw(base_size = 14) + scale_fill_brewer(palette = "Set1") +
                                 labs(x = "Age", y = "Latent Curve Value", color = "Skew Type") + ggtitle("Illustration of Third Derivative Influence on Latent Curve Symmetry")
 
 ggsave(file.path(plots_dir, "peaks", "mcmc", "peaks_third_deriv_curves.png"), curve_third_deriv_plt)
 
 } # end if (!is.null(third_deriv))
 
-posterior_data <- posterior_data  |>
-                                    inner_join(posterior_peaks |>
-                                    rename(peak_age = value), by = c("player", "chain", "sample", "metric"))
+} # end if (!is.null(latent_space))
 
 } # end if (!is.null(posterior_peaks))
 
-joined_data <- posterior_data |> 
-                left_join(injury_data |> inner_join(player_year_bounds) |>
-                                semi_join(posterior_data, by = c("id" = "player")
-                                ),
-                                 by = c("player" = "id", "metric", "age")
-                                 )  |>
-                group_by(player, chain, sample, metric) |> 
-                arrange(age) |> fill(name, first_major_injury, .direction  = "downup") |> 
-                fill(injury_period, .direction = "up") |> mutate(injury_period = replace_na(injury_period, "post-injury")) |>
-                mutate(
-                  base_age = if_else(!is.na(year), age, NA_integer_),
-                  base_year = if_else(!is.na(year), year, NA_integer_)) |>
-                
-                fill(base_age, base_year, .direction = "downup") |>
-                mutate(
-                  year = if_else(is.na(year), base_year + (age - base_age), year)) |> 
-                select(-base_age, -base_year) |> ungroup() |> mutate(
-                  obs_value = case_when(
-                    # Rule A: year <= target_year & year >= last_obs for the target metric
-                    metric == "retirement" & is.na(obs_value) & year <= 2026  & year > last_obs  ~ 0,
-                    # Rule B: year >= target_min_year & year <= first_obs for the target metric
-                    metric == "retirement" & is.na(obs_value) & year > 1997 & year < first_obs ~ 0,
-                    TRUE ~ obs_value
-                  )
-                ) |>
-                select(-first_obs, -last_obs)
+# Posterior + injury merge and train/holdout split (shared with coverage.r;
+# see build_joined_data in diagnostics_utils.r). Only joined_data is needed by
+# the player/paper plots below.
+cov_ctx <- build_joined_data(posterior_data, injury_data, data, posterior_peaks,
+                             model_dir, validation_year)
+joined_data <- cov_ctx$joined_data
 
-# Attach split label — use explicit holdout mask when available (scheme variants),
-# fall back to year-based split for base MCMC models.
-holdout_csv <- file.path(model_dir, "holdout_indices.csv")
-if (file.exists(holdout_csv)) {
-  holdout_idx <- read.csv(holdout_csv) |> mutate(split = "holdout")
-  joined_data <- joined_data |>
-    left_join(holdout_idx, by = c("player", "age")) |>
-    mutate(split = replace_na(split, "train"))
-  # years of training data per player = seasons not in holdout mask
-  train_years_df <- data |>
-    anti_join(holdout_idx, by = c("id" = "player", "age" = "age")) |>
-    group_by(id) |>
-    summarize(years_played = n(), .groups = "drop")
-  # holdout flag for exit-age coverage: player appears in holdout mask
-  holdout_players <- holdout_idx |> distinct(player) |> mutate(exit_split = "holdout")
-} else {
-  joined_data <- joined_data |>
-    mutate(split = if_else(year > validation_year, "holdout", "train"))
-  train_years_df <- data |>
-    filter(year <= validation_year) |>
-    group_by(id) |>
-    summarize(years_played = n(), .groups = "drop")
-  holdout_players <- NULL
-}
+# ── Injury effect decomposition: global offset + type-specific ───────────────
+if (!is.null(injury_global_offset) && !is.null(injury_prior_mean)) {
+  dir.create(file.path(plots_dir, "injury"), recursive = TRUE, showWarnings = FALSE)
 
-validation_coverage_df <- joined_data |> filter(split == "holdout") |> group_by(metric, player, age) |> 
-                          summarize(lower = HDInterval::hdi(value, credMass = 0.95)["lower"], upper = HDInterval::hdi(value, credMass = 0.95)["upper"], obs_value = first(obs_value), year = min(year), posterior_mean = mean(value, na.rm = TRUE) ) |> 
-                          ungroup() |>
-
-    mutate(
-    validation_coverage = between(obs_value, lower, upper)) |> filter(!is.na(obs_value)) |> 
-    mutate(metric = toupper(metric),
-           metric = case_when(metric == "GAMES" ~ "GP%",
-                              metric == "FG2M" ~ "FG2%",
-                              metric == "FG3M" ~ "FG3%",
-                              metric == "FTM" ~ "FT%",
-                              metric == "PCT_MINUTES" ~ "MPG",
-                              .default = metric))
-
-in_sample_coverage_df <- joined_data |> filter(split == "train") |> group_by(metric, player, age) |> summarize(lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
-    upper = HDInterval::hdi(value, credMass = 0.95)["upper"], obs_value = first(obs_value), year = min(year)) |> ungroup() |>  
-    mutate(
-    in_sample_coverage = between(obs_value, lower, upper)) |> ungroup() |> filter(!is.na(obs_value)) |> 
-    mutate(metric = toupper(metric),
-           metric = case_when(metric == "GAMES" ~ "GP%",
-                              metric == "FG2M" ~ "FG2%",
-                              metric == "FG3M" ~ "FG3%",
-                              metric == "FTM" ~ "FT%",
-                              metric == "PCT_MINUTES" ~ "MPG",
-                              .default = metric))
-
-player_exit_meta <- data |> 
-  group_by(id) |> 
-  summarize(observed_exit_year = max(year, na.rm = TRUE),
-            years_played = n(),
-            .groups = "drop")
-
-exit_age_coverage_df <- posterior_retirement_data |>
-  group_by(player) |>
-  summarize(
-    lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
-    upper = HDInterval::hdi(value, credMass = 0.95)["upper"],
-    obs_value = first(observed_exit_age),
-    posterior_mean = mean(value, na.rm = TRUE),
-    .groups = "drop"
-  ) |>
-  inner_join(player_exit_meta, by = c("player" = "id")) |>
-  mutate(
-    metric = "EXIT_AGE",
-    exit_age_coverage = between(obs_value, lower, upper)
-  ) |>
-  (\(df) if (!is.null(holdout_players))
-    left_join(df, holdout_players, by = "player") |> mutate(exit_split = replace_na(exit_split, "train"))
-  else
-    mutate(df, exit_split = if_else(observed_exit_year > validation_year, "holdout", "train"))
-  )()
-
-retirement_validation_summary <- joined_data |>
-  filter(split == "holdout" & metric == "retirement") |>
-  filter(!is.na(obs_value)) |>
-  group_by(metric) |>
-  summarize(validation_coverage = mean(if_else(obs_value == 1, value, 1 - value), na.rm = TRUE), .groups = "drop") |>
-  mutate(metric = toupper(metric))
-
-retirement_in_sample_summary <- joined_data |>
-  filter(split == "train" & metric == "retirement") |>
-  filter(!is.na(obs_value)) |>
-  group_by(metric) |>
-  summarize(in_sample_coverage = mean(if_else(obs_value == 1, value, 1 - value), na.rm = TRUE), .groups = "drop") |>
-  mutate(metric = toupper(metric))
-
-exit_age_validation_summary <- exit_age_coverage_df |>
-  filter(exit_split == "holdout") |>
-  summarize(metric = "EXIT_AGE", validation_coverage = mean(exit_age_coverage, na.rm = TRUE))
-
-exit_age_in_sample_summary <- exit_age_coverage_df |>
-  filter(exit_split == "train") |>
-  summarize(metric = "EXIT_AGE", in_sample_coverage = mean(exit_age_coverage, na.rm = TRUE))
-
-validation_coverage_summary <- validation_coverage_df |>
-  group_by(metric) |>
-  summarize(validation_coverage = mean(validation_coverage, na.rm = TRUE), .groups = "drop") |>
-  bind_rows(retirement_validation_summary, exit_age_validation_summary)
-
-in_sample_coverage_summary <- in_sample_coverage_df |>
-  group_by(metric) |>
-  summarize(in_sample_coverage = mean(in_sample_coverage, na.rm = TRUE), .groups = "drop") |>
-  bind_rows(retirement_in_sample_summary, exit_age_in_sample_summary)
-
-
-
-coverage_plt_basic <- validation_coverage_summary |>
-                      inner_join(in_sample_coverage_summary, by = "metric") |> 
-                      pivot_longer(cols = c(in_sample_coverage,validation_coverage),  names_to = "coverage_type", values_to = "Coverage") |>
-                      mutate(coverage_type = case_when(coverage_type == "in_sample_coverage" ~ "In-Sample Coverage",
-                                                        coverage_type == "validation_coverage" ~ "Validation Coverage")) |>
-                      ggplot(aes(x  = coverage_type, y = Coverage, fill = coverage_type)) + geom_col(position = "dodge") +facet_wrap(~ metric, scales = "fixed") +
-                      coord_cartesian(ylim = c(0, 1)) +
-                      theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Coverage (In-Sample vs. Validation)") + labs(x = NULL, fill = "Coverage Type") + theme(axis.text.x = element_blank())
-ggsave(file.path(plots_dir, "coverage", "coverage_basic.png"), coverage_plt_basic)
-
-latex_code <- validation_coverage_summary |>
-            inner_join(in_sample_coverage_summary, by = "metric") |>
-                      mutate(
-                          in_sample_coverage = paste0(round(in_sample_coverage * 100, 1), "%"),
-                          validation_coverage = paste0(round(validation_coverage * 100, 1), "%")) |> gt() |>
-                        cols_label(
-                          metric = "Metric",
-                          in_sample_coverage = "In-Sample Coverage",
-                          validation_coverage = "Validation Coverage"
-                        ) |>
-                        tab_header(title = "Coverage Summary") |>
-                        as_latex()
-writeLines(latex_code, file.path(plots_dir, "coverage", "coverage_basic.tex"))
-
-# Posterior Bias Table (mean [95% HDI]) — rows: metrics, cols: in-sample / validation
-# Compute per-sample mean bias for continuous metrics
-validation_bias_samples <- joined_data |>
-  filter(split == "holdout", metric != "retirement") |>
-  filter(!is.na(obs_value)) |>
-  group_by(chain, sample, metric) |>
-  summarize(mean_bias = mean(value - obs_value, na.rm = TRUE), .groups = "drop") |>
-  mutate(metric = toupper(metric),
-         metric = case_when(metric == "GAMES" ~ "GP%",
-                            metric == "FG2M" ~ "FG2%",
-                            metric == "FG3M" ~ "FG3%",
-                            metric == "FTM" ~ "FT%",
-                            metric == "PCT_MINUTES" ~ "MPG",
-                            .default = metric))
-
-in_sample_bias_samples <- joined_data |>
-  filter(split == "train", metric != "retirement") |>
-  filter(!is.na(obs_value)) |>
-  group_by(chain, sample, metric) |>
-  summarize(mean_bias = mean(value - obs_value, na.rm = TRUE), .groups = "drop") |>
-  mutate(metric = toupper(metric),
-         metric = case_when(metric == "GAMES" ~ "GP%",
-                            metric == "FG2M" ~ "FG2%",
-                            metric == "FG3M" ~ "FG3%",
-                            metric == "FTM" ~ "FT%",
-                            metric == "PCT_MINUTES" ~ "MPG",
-                            .default = metric))
-
-validation_bias_summary <- validation_bias_samples |>
-  group_by(metric) |>
-  summarize(
-    val_mean  = mean(mean_bias, na.rm = TRUE),
-    val_lower = HDInterval::hdi(mean_bias, credMass = 0.95)["lower"],
-    val_upper = HDInterval::hdi(mean_bias, credMass = 0.95)["upper"],
-    .groups = "drop"
-  ) |>
-  mutate(validation_bias = paste0(round(val_mean, 3), " [", round(val_lower, 3), ", ", round(val_upper, 3), "]")) |>
-  select(metric, validation_bias)
-
-in_sample_bias_summary <- in_sample_bias_samples |>
-  group_by(metric) |>
-  summarize(
-    is_mean  = mean(mean_bias, na.rm = TRUE),
-    is_lower = HDInterval::hdi(mean_bias, credMass = 0.95)["lower"],
-    is_upper = HDInterval::hdi(mean_bias, credMass = 0.95)["upper"],
-    .groups = "drop"
-  ) |>
-  mutate(in_sample_bias = paste0(round(is_mean, 3), " [", round(is_lower, 3), ", ", round(is_upper, 3), "]")) |>
-  select(metric, in_sample_bias)
-
-# Exit age bias (already has posterior_mean and obs_value per player)
-exit_age_bias_validation <- exit_age_coverage_df |>
-  filter(exit_split == "holdout") |>
-  summarize(
-    metric        = "EXIT_AGE",
-    val_mean      = mean(posterior_mean - obs_value, na.rm = TRUE),
-    val_lower     = HDInterval::hdi(posterior_mean - obs_value, credMass = 0.95)["lower"],
-    val_upper     = HDInterval::hdi(posterior_mean - obs_value, credMass = 0.95)["upper"]
-  ) |>
-  mutate(validation_bias = paste0(round(val_mean, 3), " [", round(val_lower, 3), ", ", round(val_upper, 3), "]")) |>
-  select(metric, validation_bias)
-
-exit_age_bias_in_sample <- exit_age_coverage_df |>
-  filter(exit_split == "train") |>
-  summarize(
-    metric    = "EXIT_AGE",
-    is_mean   = mean(posterior_mean - obs_value, na.rm = TRUE),
-    is_lower  = HDInterval::hdi(posterior_mean - obs_value, credMass = 0.95)["lower"],
-    is_upper  = HDInterval::hdi(posterior_mean - obs_value, credMass = 0.95)["upper"]
-  ) |>
-  mutate(in_sample_bias = paste0(round(is_mean, 3), " [", round(is_lower, 3), ", ", round(is_upper, 3), "]")) |>
-  select(metric, in_sample_bias)
-
-bias_latex_code <- in_sample_bias_summary |>
-  bind_rows(exit_age_bias_in_sample) |>
-  inner_join(
-    bind_rows(validation_bias_summary, exit_age_bias_validation),
-    by = "metric"
-  ) |>
-  gt() |>
-  cols_label(
-    metric         = "Metric",
-    in_sample_bias = "In-Sample Bias (95\\% HDI)",
-    validation_bias = "Validation Bias (95\\% HDI)"
-  ) |>
-  tab_header(title = "Posterior Bias Summary: Mean [95\\% HDI]") |>
-  as_latex()
-
-writeLines(bias_latex_code, file.path(plots_dir, "coverage", "coverage_bias.tex"))
-
-coverage_plt_yearly <- validation_coverage_df |> group_by(metric, year) |> summarize(Coverage = mean(validation_coverage, na.rm = TRUE), .groups = "drop") |> 
-                        bind_rows(joined_data %>% filter(split == "holdout" & metric == "retirement") %>% mutate(metric = toupper(metric)) %>% filter(!is.na(obs_value)) %>% group_by(metric, year) %>% summarize(Coverage = mean(if_else(obs_value == 1, value, 1 - value), na.rm = TRUE), .groups = "drop")) |>
-                        bind_rows(exit_age_coverage_df %>% filter(exit_split == "holdout") %>% mutate(year = observed_exit_year, Coverage = as.numeric(exit_age_coverage)) %>% group_by(metric, year) %>% summarize(Coverage = mean(Coverage, na.rm = TRUE), .groups = "drop")) |>
-                        ggplot(aes(x = year, y = Coverage)) +
-                        geom_col() + facet_wrap(~metric, scales = "free_y") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
-                        theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Validation Coverage by Time Horizon") +xlab("Year")
-ggsave(file.path(plots_dir, "coverage", "coverage_validation_yearly.png"), coverage_plt_yearly)
-coverage_plt_minutes <- validation_coverage_df |> inner_join(train_years_df, by = c("player" = "id")) |> group_by(metric, years_played) |> summarize(Coverage = mean(validation_coverage, na.rm = TRUE), .groups = "drop") |> ungroup() |> bind_rows(
-  joined_data %>%
-  filter(split == "holdout" & metric == "retirement") %>%
-  mutate(metric = toupper(metric)) %>%
-  filter(!is.na(obs_value)) %>%
-  inner_join(train_years_df, by = c("player" = "id")) %>%
-  group_by(metric, years_played) %>% summarize(Coverage = mean(if_else(obs_value == 1, value, 1 - value), na.rm = TRUE), .groups = "drop") %>% ungroup()) |>
-                        bind_rows(exit_age_coverage_df %>% filter(exit_split == "holdout") %>% mutate(Coverage = as.numeric(exit_age_coverage)) %>% group_by(metric, years_played) %>% summarize(Coverage = mean(Coverage, na.rm = TRUE), .groups = "drop")) %>%
-                        ggplot(aes(x = years_played, y = Coverage)) + 
-                        geom_point() + facet_wrap(~metric, scales = "free_y") +
-                        theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric Validation Coverage by Years of Training Data Available") + xlab("Years Played")
-ggsave(file.path(plots_dir, "coverage", "coverage_validation_minutes.png"), coverage_plt_minutes)
-
-coverage_plt_minutes <- in_sample_coverage_df |> inner_join(train_years_df, by = c("player" = "id")) |> group_by(metric, years_played) |> summarize(Coverage = mean(in_sample_coverage, na.rm = TRUE), .groups = "drop") |> ungroup() |> bind_rows(
-  joined_data %>%
-  filter(split == "train" & metric == "retirement") %>%
-  mutate(metric = toupper(metric)) %>%
-  filter(!is.na(obs_value)) %>%
-  inner_join(train_years_df, by = c("player" = "id")) %>%
-  group_by(metric, years_played) %>% summarize(Coverage = mean(if_else(obs_value == 1, value, 1 - value), na.rm = TRUE), .groups = "drop") %>% ungroup()) |>
-                        bind_rows(exit_age_coverage_df %>% filter(exit_split == "train") %>% mutate(Coverage = as.numeric(exit_age_coverage)) %>% group_by(metric, years_played) %>% summarize(Coverage = mean(Coverage, na.rm = TRUE), .groups = "drop")) %>%
-                        ggplot(aes(x = years_played, y = Coverage)) + 
-                        geom_point() + facet_wrap(~metric, scales = "free_y") +
-                        theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("Per Metric In-Sample Coverage by Years of Training Data Available") + xlab("Years Played")
-ggsave(file.path(plots_dir, "coverage", "coverage_in_sample_minutes.png"), coverage_plt_minutes)
-
-
-
-
-if (!is.null(latent_space)) {
-
-latent_space_umap <- latent_space %>% select(starts_with("Dim")) %>% umap(n_neighbors = 50, min_dist = 0.001, verbose = TRUE) %>% as_tibble(.name_repair = "unique") %>% cbind(latent_space %>% select(-starts_with("Dim"))) %>% rename(UMAP1 = `...1`, UMAP2 = `...2`)
-
-latent_space_plot  <- latent_space_umap |> ggplot(aes(x = UMAP1, y = UMAP2)) + geom_point(aes(alpha = minutes, color = position_group)) + scale_alpha(range = c(0,1)) +
-                      geom_text_repel(
-                      data = filter(latent_space_umap, name %in% posterior_plot_names),
-                      aes(label = name, x = UMAP1, y = UMAP2),
-                      size = 4,
-                      fontface = "bold",
-                      max.overlaps = 5,
-                      inherit.aes = FALSE) +
-  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("UMAP Visualization of Learned Latent Embedding") + labs(x = "UMAP 1", y = "UMAP 2", alpha = "Minutes", color = "Position Group")
-
-ggsave(file.path(plots_dir, "latent_space", "map", "latent_space_umap.png"), latent_space_plot)
-
-functional_pca_result <-  posterior_mu_data %>% group_by(age, player, metric) %>% summarize(value = mean(value, na.rm = TRUE)) %>% ungroup() %>% pivot_wider(
-  names_from = c(metric, age),
-    values_from = value,
-    names_sep = "_"
-) 
-ids <- functional_pca_result$player 
-
-
-
-
-functional_pca_embedding <- functional_pca_result %>% 
-  select(-player) %>% 
-  prcomp(center = TRUE, scale. = TRUE) %>%       # perform PCA
-  .$x %>%                                       # extract principal component scores
-  as.data.frame() %>%                            # convert to data frame
-  as_tibble(.name_repair = "unique") %>%        # repair names
-  rename(PCA1 = `PC1`, PCA2 = `PC2`)            # rename first two components
-
-functional_pca_embedding$player = ids 
-functional_pca_embedding <- functional_pca_embedding %>% inner_join( latent_space %>% select(id, name, position_group, minutes), by = c("player" = "id"))
-functional_pca_plt <- functional_pca_embedding %>% filter(PCA1 <= 20 & PCA2 <=20) %>%
-                       ggplot(aes(x = PCA1, y = PCA2)) + geom_point(aes(alpha = minutes, color = position_group)) + scale_alpha(range = c(0,1)) +
-                      geom_text_repel(
-                      data = filter(functional_pca_embedding, name %in% posterior_plot_names),
-                      aes(label = name, x = PCA1, y = PCA2),
-                      size = 2,
-                      fontface = "bold",
-                      max.overlaps = 20,
-                      inherit.aes = FALSE) +
-  theme_bw() + scale_colour_brewer(palette = "Set1") + ggtitle("PCA Visualization of Learned Metric Functionals") + labs(x = "PC 1", y = "PC 2", alpha = "Minutes", color = "Position Group")
-ggsave(file.path(plots_dir, "latent_space", "map", "latent_space_functional_pca.png"), functional_pca_plt)
-
-
-
-plot_posterior <- function(grouped_data_set, hold_out_year, plot_obs = TRUE) {
-
-  group_name <- unique(grouped_data_set$name)
-  raw_plt <-
-  grouped_data_set |> mutate(
-    age_of_holdout = if_else(year ==  hold_out_year, age, Inf),
-    age_of_holdout = min(age_of_holdout)
-  ) 
-  
-  validation_label <- "Hold-Out"
-  
-  plt <- raw_plt |>
-    ggplot(aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
-                                       fill = "gray",
-                                       alpha = 0.4) +
-    geom_line(aes(x = age, y = posterior_mean)) +
-    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF", linewidth = 1) + 
-    
-    geom_vline(aes(xintercept = age_of_holdout),
-               linetype = "dashed",
-               color = "red") +
-    facet_wrap( ~ metric, scales = "free_y") + theme_bw() + 
-    labs(x = "Age", y = "Metric Value") + ggtitle(paste("Posterior Predictive Career Trajectory: ", group_name))
-  if (plot_obs) {
-    plt <- plt + geom_point(aes(x = age, y = obs_value), color = "black")
+  rename_injury_metrics <- function(df) {
+    df |> mutate(metric = toupper(metric),
+                 metric = case_when(metric == "GAMES"       ~ "GP%",
+                                    metric == "FG2M"        ~ "FG2%",
+                                    metric == "FG3M"        ~ "FG3%",
+                                    metric == "FTM"         ~ "FT%",
+                                    metric == "PCT_MINUTES" ~ "MPG",
+                                    metric == "EXIT_HAZARD" ~ "Exit Hazard",
+                                    metric == "EXIT_SCALE"  ~ "Exit Scale",
+                                    .default = metric))
   }
+
+  # Global offset: one row per (chain, sample, metric) — HDI per metric
+  global_summary <- injury_global_offset |>
+    rename_injury_metrics() |>
+    group_by(metric) |>
+    summarize(
+      mean  = mean(value, na.rm = TRUE),
+      lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
+      upper = HDInterval::hdi(value, credMass = 0.95)["upper"],
+      .groups = "drop"
+    ) |>
+    mutate(metric = fct_reorder(metric, mean))
+
+  global_plt <- global_summary |>
+    ggplot(aes(x = mean, y = metric)) +
+    geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
+    geom_errorbarh(aes(xmin = lower, xmax = upper), height = 0.3) +
+    geom_point(size = 2) +
+    labs(title = "Global injury offset per metric (95% HDI)",
+         subtitle = "Applied uniformly to all injury types during post-injury seasons",
+         x = "Effect on metric (model units)", y = NULL) +
+    theme_bw(base_size = 14)
+  ggsave(file.path(plots_dir, "injury", "injury_global_offset.png"), global_plt,
+         width = 8, height = 7)
+
+  # Type-specific component: one row per (chain, sample, metric, injury_type)
+  # filter to performance metrics only (exclude exit_hazard/exit_scale — those bake in global already)
+  type_summary <- injury_prior_mean |>
+    filter(!metric %in% c("exit_hazard", "exit_scale")) |>
+    rename_injury_metrics() |>
+    group_by(metric, injury_type) |>
+    summarize(
+      mean  = mean(value, na.rm = TRUE),
+      lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
+      upper = HDInterval::hdi(value, credMass = 0.95)["upper"],
+      .groups = "drop"
+    )
+
+  type_plt <- type_summary |>
+    ggplot(aes(x = injury_type, y = mean, colour = injury_type)) +
+    geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+    geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.3) +
+    geom_point(size = 2) +
+    facet_wrap(~ metric, scales = "free_y") +
+    scale_colour_brewer(palette = "Set1") +
+    labs(title = "Type-specific injury effect per metric (95% HDI)",
+         subtitle = "Factor-model component — incremental over global offset",
+         x = NULL, y = "Effect (model units)", colour = "Injury type") +
+    theme_bw(base_size = 14) +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+          legend.position = "bottom")
+  ggsave(file.path(plots_dir, "injury", "injury_type_specific.png"), type_plt,
+         width = 14, height = 10)
+
+  # Survival-specific: exit_hazard and exit_scale global + type-specific side by side
+  surv_metrics <- c("Exit Hazard", "Exit Scale")
+  surv_global <- global_summary |> filter(metric %in% surv_metrics)
+  surv_type   <- injury_prior_mean |>
+    filter(metric %in% c("exit_hazard", "exit_scale")) |>
+    rename_injury_metrics() |>
+    group_by(metric, injury_type) |>
+    summarize(mean  = mean(value, na.rm = TRUE),
+              lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
+              upper = HDInterval::hdi(value, credMass = 0.95)["upper"],
+              .groups = "drop")
+
+  if (nrow(surv_global) > 0 && nrow(surv_type) > 0) {
+    surv_type_plt <- surv_type |>
+      ggplot(aes(x = injury_type, y = mean, colour = injury_type)) +
+      geom_hline(data = surv_global, aes(yintercept = mean), linetype = "dashed") +
+      geom_hline(yintercept = 0, colour = "grey70") +
+      geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.3) +
+      geom_point(size = 2) +
+      facet_wrap(~ metric, scales = "free_y") +
+      scale_colour_brewer(palette = "Set1") +
+      labs(title = "Survival injury effects: global (dashed) + type-specific (95% HDI)",
+           x = NULL, y = "Effect (log-hazard / log-scale units)", colour = "Injury type") +
+      theme_bw(base_size = 14) +
+      theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+            legend.position = "bottom")
+    ggsave(file.path(plots_dir, "injury", "injury_survival_effects.png"), surv_type_plt,
+           width = 10, height = 6)
+  }
+}
+plot_posterior <- function(grouped_data_set, hold_out_year, plot_obs = TRUE) {
+  group_name <- unique(grouped_data_set$name)
+
+  plt <- grouped_data_set |>
+    ggplot(aes(x = age)) +
+    geom_ribbon(aes(ymin = lower, ymax = upper), fill = "gray", alpha = 0.4) +
+    geom_line(aes(x = age, y = posterior_mean)) +
+    geom_line(aes(x = age, y = mu), color = "#4DAF4AFF", linewidth = 1) +
+    facet_wrap(~ metric, scales = "free_y") + theme_bw(base_size = 14) +
+    labs(x = "Age", y = "Metric Value") +
+    ggtitle(paste("Posterior Predictive Career Trajectory:", group_name))
+
+  # Observed value points for non-survival metrics only
+  if (plot_obs) {
+    non_surv <- filter(grouped_data_set, metric != "EXIT_SURVIVAL")
+    if (nrow(non_surv) > 0)
+      plt <- plt + geom_point(data = non_surv, aes(x = age, y = obs_value), color = "black")
+  }
+
+  # Survival panel: vertical line at exit age (solid = retired, dashed = censored)
+  surv_meta <- grouped_data_set |>
+    filter(metric == "EXIT_SURVIVAL", !is.na(observed_exit_age)) |>
+    slice(1)
+  if (nrow(surv_meta) > 0) {
+    plt <- plt + geom_vline(
+      data = surv_meta |> select(metric, observed_exit_age, exit_censored),
+      aes(xintercept = observed_exit_age),
+      linetype = if_else(surv_meta$exit_censored == 1L, "dashed", "solid"),
+      color = "black"
+    )
+  }
+
   return(plt)
 }
 
 
 plot_posterior_mu_spaghetti <- function(grouped_data_set){
   group_name <- unique(grouped_data_set$name)
-  hold_out_year <- 2021
-  raw_plt <- grouped_data_set |> mutate(
-    age_of_holdout = if_else(year ==  hold_out_year, age, Inf),
-    age_of_holdout = min(age_of_holdout)
-  ) 
-    
-  validation_label <- "Hold-Out"
-    
-  
-  
-  plt <- raw_plt |>
-    ggplot(aes(x = age))  +
-    geom_line(aes(x = age, y = mu, group = interaction(chain, sample), color = factor(chain)),  alpha = .2) +
+
+  plt <- grouped_data_set |>
+    ggplot(aes(x = age)) +
+    geom_line(aes(x = age, y = mu, group = interaction(chain, sample), color = factor(chain)), alpha = .2) +
     scale_color_brewer(palette = "Set1", name = "Chain") +
-    geom_point(aes(x = age, y = obs_value), color = "black") + 
-    geom_vline(aes(xintercept = age_of_holdout),
-               linetype = "dashed",
-               color = "red") + 
-    geom_line(aes(x = age, y = posterior_mean)) + 
-    
-    facet_wrap( ~ metric, scales = "free_y") + theme_bw() + 
-    labs(x = "Age", y = "Metric Value") + ggtitle(paste("Posterior Latent Career Trajectory: ", group_name))
+    geom_point(aes(x = age, y = obs_value), color = "black") +
+    geom_line(aes(x = age, y = posterior_mean)) +
+    facet_wrap(~ metric, scales = "free_y") + theme_bw(base_size = 14) +
+    labs(x = "Age", y = "Metric Value") +
+    ggtitle(paste("Posterior Latent Career Trajectory:", group_name))
   return(plt)
 }
-
 player_age_year_map <- data |> 
   group_by(id) |> 
   summarize(base_year = min(year, na.rm = TRUE),
@@ -931,41 +803,78 @@ metric_plot_df <- joined_data |> filter(metric != "retirement") |>
                             metric == "PCT_MINUTES" ~ "MPG",
                             .default = metric))
 
-survival_plot_df <- posterior_survival_data |>
-  filter(!is.na(value)) |>
+# Wire the exported exit data into the player-trajectory frame: posterior_ar (and thus
+# metric_plot_df) carries no exit info, but posterior_exit_survival.parquet does. Build
+# EXIT_SURVIVAL rows (survival curve summarized over draws + observed exit metadata) so
+# plot_posterior renders the survival facet with an exit-age vline.
+surv_plot_ids <- data |> distinct(id, name) |> filter(name %in% posterior_plot_names) |> pull(id)
+survival_metric_df <- posterior_survival_data |>
+  filter(player %in% surv_plot_ids) |>
   group_by(player, age) |>
-  summarize(lower = HDInterval::hdi(value, credMass = 0.95)["lower"],
-            upper = HDInterval::hdi(value, credMass = 0.95)["upper"],
-            posterior_mean = mean(value, na.rm = TRUE),
-            observed_exit_age = first(observed_exit_age),
-            exit_censored = first(exit_censored),
-            .groups = "drop") |>
-  inner_join(player_age_year_map, by = c("player" = "id")) |>
-  mutate(
-    metric = "EXIT_SURVIVAL",
-    obs_value = case_when(
-      age <= observed_exit_age ~ 1,
-      exit_censored == 1 ~ NA_real_,
-      TRUE ~ 0
-    ),
-    year = base_year + (age - base_age),
-    mu = posterior_mean
+  summarize(
+    lower             = HDInterval::hdi(value, credMass = 0.95)["lower"],
+    upper             = HDInterval::hdi(value, credMass = 0.95)["upper"],
+    posterior_mean    = mean(value, na.rm = TRUE),
+    observed_exit_age = first(observed_exit_age),
+    exit_censored     = first(exit_censored),
+    .groups = "drop"
   ) |>
-  select(metric, player, age, lower, upper, obs_value, year, posterior_mean, mu)
+  mutate(metric = "EXIT_SURVIVAL", mu = posterior_mean,
+         obs_value = NA_real_, year = NA_integer_)
 
-plots_list <- bind_rows(metric_plot_df, survival_plot_df) |>
-  inner_join(latent_space |> filter(name %in% posterior_plot_names) |> select(name,id), by = c("player" = "id")) %>%
+metric_plot_df <- bind_rows(metric_plot_df, survival_metric_df)
+
+# Per-player exit age density: two overlaid curves (entrance-conditioned vs last_observed-conditioned)
+exit_density_splits <- posterior_exit_samples |>
+  inner_join(data |> distinct(id, name) |> filter(name %in% posterior_plot_names),
+             by = c("player" = "id")) |>
+  group_by(player) |>
+  group_split()
+
+exit_density_by_player <- set_names(
+  map(exit_density_splits, ~ {
+    t_obs     <- first(.x$observed_exit_age)
+    exit_cens <- first(.x$exit_censored)
+    ggplot(.x, aes(x = value, fill = conditioning_label, color = conditioning_label)) +
+      geom_density(alpha = 0.35, linewidth = 0.6) +
+      scale_fill_manual(
+        values = c("entrance" = "#2980b9", "last_observed" = "#e74c3c"),
+        labels = c("entrance" = "P(exit | T > entrance)", "last_observed" = glue("P(exit | T > {t_obs})")),
+        name = NULL
+      ) +
+      scale_color_manual(
+        values = c("entrance" = "#2980b9", "last_observed" = "#e74c3c"),
+        labels = c("entrance" = "P(exit | T > entrance)", "last_observed" = glue("P(exit | T > {t_obs})")),
+        name = NULL
+      ) +
+      geom_vline(xintercept = t_obs,
+                 linetype = if_else(exit_cens == 1L, "dashed", "solid"),
+                 color = "black") +
+      labs(x = "Exit Age", y = "Density") +
+      theme_bw(base_size = 14) +
+      theme(legend.position = "bottom")
+  }),
+  map_chr(exit_density_splits, ~ as.character(first(.x$player)))
+)
+
+plots_list <- metric_plot_df |>
+  inner_join(data |> distinct(id, name) |> filter(name %in% posterior_plot_names), by = c("player" = "id")) %>%
   group_by(player) %>%
-  group_split() %>%               # splits into a list of grouped tibbles
+  group_split() %>%
   map(~ {
-    plt <- plot_posterior(.x, 2021)
-    name <- unique(.x$name)
-    # Save the plot to disk (change path as needed)
+    player_id   <- as.character(first(.x$player))
+    name        <- unique(.x$name)
+    plt_metrics <- plot_posterior(.x, 2021)
+    plt_exit    <- exit_density_by_player[[player_id]]
+    plt <- if (!is.null(plt_exit))
+      patchwork::wrap_plots(plt_metrics, plt_exit, ncol = 1, heights = c(3, 1))
+    else
+      plt_metrics
     ggsave(
       filename = file.path(plots_dir, "player_plots", "mcmc", glue("{name}.png")),
       plot = plt
     )
-    })
+  })
 
 
 plots_list <- joined_data |> filter(metric != "retirement") |>
@@ -987,7 +896,7 @@ plots_list <- joined_data |> filter(metric != "retirement") |>
                     metric == "FG3M" ~ "FG3%",
                     metric == "FTM" ~ "FT%",
                     metric == "PCT_MINUTES" ~ "MPG",
-                    .default = metric)) |> inner_join(latent_space |> filter(name %in% posterior_plot_names) |> select(name,id), by = c("player" = "id")) %>%
+                    .default = metric)) |> inner_join(data |> distinct(id, name) |> filter(name %in% posterior_plot_names), by = c("player" = "id")) %>%
   group_by(player) %>%
   group_split() %>%               # splits into a list of grouped tibbles
   map(~ {
@@ -999,41 +908,6 @@ plots_list <- joined_data |> filter(metric != "retirement") |>
       plot = plt
     )
     })
-
-
-
-phi_X_mat <- phi_X |> select(starts_with("Dim")) |> as.matrix()
-
-# 2. Convert to similarity matrix
-K      <- phi_X_mat %*% t(phi_X_mat)
-D_inv  <- 1 / sqrt(diag(K))
-K_corr <- diag(D_inv) %*% K %*% diag(D_inv)
-
-K_subset <- K_corr[phi_X$name %in% posterior_plot_names, phi_X$name %in% posterior_plot_names]
-
-hr <- hclust(as.dist(1 - K_subset))
-
-# Step 2: reorder full matrix by clustering
-mat_subset <- K_subset[hr$order, hr$order]
-
-# Step 5: create subset labels (optional)
-labels_subset <- posterior_plot_names[hr$order]
-
-# Step 6: plot subset matrix, no reclustering
-pheatmap(mat_subset,
-         cluster_rows = FALSE,
-         cluster_cols = FALSE,
-         labels_row = labels_subset,
-         labels_col = labels_subset,
-         main = "Clustered Covariance of the Learned Latent Embedding",
-         filename = file.path(plots_dir, "latent_space", "K_X_heatmap.png"))
-
-
-
-
-
-
-
 ##### ACTUAL PLOTS FOR THE PAPER 
 ### PLAYER PLOT
 injury_summary <- joined_data |>  group_by(player) |> mutate(age_of_holdout = if_else(year ==  2021, age, Inf),
@@ -1063,7 +937,7 @@ player_plot_df <- joined_data |>
                     metric == "FG3M" ~ "FG3%",
                     metric == "FTM" ~ "FT%",
                     metric == "PCT_MINUTES" ~ "MPG",
-                    .default = metric)) |> filter(metric %in% c("GP%", "FTA", "OBPM")) |> inner_join(latent_space |> filter(name %in% c("Stephen Curry", "Kevin Durant", "Derrick Rose")) |> select(name,id), by = c("player" = "id"))  |>
+                    .default = metric)) |> filter(metric %in% c("GP%", "FTA", "OBPM")) |> inner_join(data |> distinct(id, name) |> filter(name %in% c("Stephen Curry", "Kevin Durant", "Derrick Rose")), by = c("player" = "id"))  |>
             inner_join(injury_summary)        
 
 
@@ -1074,546 +948,122 @@ label_df <- player_plot_df |> group_by(metric, player) |> summarize(max_upper = 
 derrick_rose <- player_plot_df |> filter(name == "Derrick Rose") |> ggplot(aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
                                        fill = "gray",
                                        alpha = 0.4) +
-    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF", linewidth = 1) + 
-    
-    geom_vline(aes(xintercept = age_of_holdout),
-               linetype = "dashed",
-               color = "red") +
-    geom_vline(aes(xintercept = age_of_injury), linetype = "dashed", color = "blue") +  
-    geom_point(aes(x = age, y = obs_value), color = "black") + 
+    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF", linewidth = 1) +
+    geom_vline(aes(xintercept = age_of_injury), linetype = "dashed", color = "blue") +
+    geom_point(aes(x = age, y = obs_value), color = "black") +
     geom_text(data = label_df |> filter(name == "Derrick Rose"),
-      size = 3,
-      aes(x = age_of_injury, y = .65*max_upper, label = first_major_injury)) + 
-    geom_text( 
-      data = label_df |> filter(name == "Derrick Rose"),
-      size = 3,
-      aes(x = age_of_holdout, y = .65*min_lower, label = "Hold-Out Year")) + 
-    facet_wrap(~ metric, scales = "free") + theme_bw() +
-    labs(x = "Age", y = "") 
+      size = 6,
+      aes(x = age_of_injury, y = .65*max_upper, label = first_major_injury)) +
+    facet_wrap(~ metric, scales = "free") + theme_bw(base_size = 22) +
+    labs(x = "Age", y = "")
 
 kevin_durant <- player_plot_df |> filter(name == "Kevin Durant") |> ggplot(aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
                                        fill = "gray",
                                        alpha = 0.4) +
-    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF", linewidth = 1) + 
-    
-    geom_vline(aes(xintercept = age_of_holdout),
-               linetype = "dashed",
-               color = "red") +
-    geom_vline(aes(xintercept = age_of_injury), linetype = "dashed", color = "blue") +  
-    geom_point(aes(x = age, y = obs_value), color = "black") + 
+    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF", linewidth = 1) +
+    geom_vline(aes(xintercept = age_of_injury), linetype = "dashed", color = "blue") +
+    geom_point(aes(x = age, y = obs_value), color = "black") +
     geom_text(data = label_df |> filter(name == "Kevin Durant"),
-      size = 3,
-      aes(x = age_of_injury, y = .65*max_upper, label = first_major_injury)) + 
-    geom_text( 
-      data = label_df |> filter(name == "Kevin Durant"),
-      size = 3,
-      aes(x = age_of_holdout, y = .65*min_lower, label = "Hold-Out Year")) + 
-    facet_wrap(~ metric, scales = "free") + theme_bw() +
-    labs(x = "Age", y = "")  
+      size = 6,
+      aes(x = age_of_injury, y = .65*max_upper, label = first_major_injury)) +
+    facet_wrap(~ metric, scales = "free") + theme_bw(base_size = 22) +
+    labs(x = "Age", y = "")
 
 stephen_curry <- player_plot_df |> filter(name == "Stephen Curry") |> ggplot(aes(x = age)) + geom_ribbon(aes(ymin = lower, ymax = upper),
                                        fill = "gray",
                                        alpha = 0.4) +
-    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF", linewidth = 1) + 
-    
-    geom_vline(aes(xintercept = age_of_holdout),
-               linetype = "dashed",
-               color = "red") +
-    geom_vline(aes(xintercept = age_of_injury), linetype = "dashed", color = "blue") +  
-    geom_point(aes(x = age, y = obs_value), color = "black") + 
+    geom_line(aes(x = age, y = mu),  color = "#4DAF4AFF", linewidth = 1) +
+    geom_vline(aes(xintercept = age_of_injury), linetype = "dashed", color = "blue") +
+    geom_point(aes(x = age, y = obs_value), color = "black") +
     geom_text(data = label_df |> filter(name == "Stephen Curry"),
-      size = 3,
-      aes(x = age_of_injury, y = .65*max_upper, label = first_major_injury)) + 
-    geom_text( 
-      data = label_df |> filter(name == "Stephen Curry"),
-      size = 3,
-      aes(x = age_of_holdout, y = .65*min_lower, label = "Hold-Out Year")) + 
-    facet_wrap(~ metric, scales = "free") + theme_bw() +
-    labs(x = "Age", y = "") 
+      size = 6,
+      aes(x = age_of_injury, y = .65*max_upper, label = first_major_injury)) +
+    facet_wrap(~ metric, scales = "free") + theme_bw(base_size = 22) +
+    labs(x = "Age", y = "")
 
 player_plots <- (derrick_rose / kevin_durant / stephen_curry) + plot_annotation(title = "Posterior Predictive Production Curves", tag_levels = list(c("Derrick Rose", "Kevin Durant", "Stephen Curry")))
 
+ggsave(file.path(plots_dir, "player_plots", "mcmc", "KD_Rose_Curry_comparison.png"),
+       player_plots, width = 14, height = 18)
 
-##### LOG POSTERIOR TRACE PLOT
 
-lp_trace_plt <- log_posterior |>
-  mutate(chain = factor(chain)) |>
-  ggplot(aes(x = draw, y = log_joint, color = chain, group = chain)) +
-  geom_line(alpha = 0.7, linewidth = 0.4) +
-  theme_bw() +
-  scale_colour_brewer(palette = "Set1") +
-  labs(title = "Log Joint Trace by Chain", x = "Draw", y = "Log Joint", color = "Chain")
 
-ggsave(file.path(plots_dir, "mcmc", "log_posterior_trace.png"), lp_trace_plt)
+### Jokic / Curry side-by-side posterior predictive (mu uncertainty only)
 
-##### LATENT SPACE MCMC DIAGNOSTICS (trace plots per player colored by chain)
+jc_player_ids <- data |> distinct(id, name) |> filter(name %in% c("Nikola Jokic", "Stephen Curry"))
+jc_metrics    <- c("obpm", "fg2m", "fg2a", "fta")
 
-# Helper: compute R-hat (Gelman-Rubin) for a single parameter
-compute_rhat <- function(chain, value) {
-  chains <- split(value, chain)
-  n <- min(lengths(chains))
-  chains <- lapply(chains, function(x) x[seq_len(n)])
-  W <- mean(sapply(chains, var))
-  B <- n * var(sapply(chains, mean))
-  sqrt(((n - 1) / n * W + B / n) / W)
+jokic_curry_mu_df <- posterior_mu_data |>
+  filter(metric %in% jc_metrics) |>
+  inner_join(jc_player_ids, by = c("player" = "id")) |>
+  mutate(mu_t = case_when(
+    metric %in% c("fg2m", "ftm", "games", "fg3m") ~ plogis(value),
+    metric %in% c("obpm", "dbpm")                  ~ value,
+    metric %in% c("pct_minutes")                   ~ plogis(value) * 48,
+    metric %in% c("usg")                           ~ plogis(value),
+    .default                                        = exp(value) * 36
+  )) |>
+  mutate(metric = toupper(metric), metric = if_else(metric == "FG2M", "FG2%", metric)) |>
+  group_by(metric, player, name, age) |>
+  summarize(
+    lower = HDInterval::hdi(mu_t, credMass = 0.95)["lower"],
+    upper = HDInterval::hdi(mu_t, credMass = 0.95)["upper"],
+    mu    = mean(mu_t, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+jokic_curry_obs_df <- joined_data |>
+  filter(metric %in% jc_metrics) |>
+  inner_join(jc_player_ids, by = c("player" = "id")) |>
+  mutate(metric = toupper(metric), metric = if_else(metric == "FG2M", "FG2%", metric)) |>
+  distinct(player, metric, age, obs_value)
+
+jokic_curry_plot_df <- jokic_curry_mu_df |>
+  left_join(jokic_curry_obs_df, by = c("player", "metric", "age"))
+
+# Grid layout: players are rows, metrics are columns (one panel per player x metric).
+jc_metric_order <- c("OBPM", "FG2%", "FG2A", "FTA")
+jc_player_order <- c("Nikola Jokic", "Stephen Curry")
+
+# Shared y-range per metric (across both players) so the two player rows are
+# directly comparable within a metric column; OBPM is clamped to a fixed window.
+jc_ylims <- jokic_curry_plot_df |>
+  group_by(metric) |>
+  summarize(ymin = min(c(lower, obs_value), na.rm = TRUE),
+            ymax = max(c(upper, obs_value), na.rm = TRUE), .groups = "drop")
+
+jc_cell <- function(player_name, m) {
+  yl       <- jc_ylims |> filter(metric == m)
+  ylim_use <- if (m == "OBPM") c(-10, 10) else c(yl$ymin, yl$ymax)
+  top_row  <- player_name == jc_player_order[1]
+  bot_row  <- player_name == jc_player_order[length(jc_player_order)]
+  left_col <- m == jc_metric_order[1]
+
+  ggplot(jokic_curry_plot_df |> filter(name == player_name, metric == m), aes(x = age)) +
+    geom_ribbon(aes(ymin = lower, ymax = upper), fill = "gray", alpha = 0.4) +
+    geom_line(aes(y = mu), color = "#4DAF4AFF", linewidth = 1) +
+    geom_point(aes(y = obs_value), color = "black") +
+    coord_cartesian(ylim = ylim_use) +
+    theme_bw(base_size = 22) +
+    labs(
+      title = if (top_row)  m           else NULL,  # metric column headers (top row)
+      x     = if (bot_row)  "Age"       else NULL,  # Age label (bottom row)
+      y     = if (left_col) player_name else NULL   # player row labels (left column)
+    ) +
+    theme(plot.title = element_text(hjust = 0.5))
 }
 
-# 1. Pivot long, filter to players of interest
-trace_df <- posterior_latent_X |>
-  filter(name %in% posterior_plot_names) |>
-  mutate(chain = factor(chain)) |>
-  pivot_longer(cols = starts_with("Dim"), names_to = "dimension", values_to = "value")
+jc_plot <- wrap_plots(
+  lapply(jc_player_order, function(pl)
+    wrap_plots(lapply(jc_metric_order, function(m) jc_cell(pl, m)), nrow = 1)),
+  ncol = 1
+)
 
-# 2. Compute R-hat per player x dimension, build strip label
-rhat_df <- trace_df |>
-  group_by(name, id, dimension) |>
-  summarise(rhat = compute_rhat(chain, value), .groups = "drop") |>
-  mutate(strip_label = glue("{dimension} (R-hat = {round(rhat, 3)})"))
-
-trace_df <- trace_df |>
-  left_join(rhat_df |> select(name, dimension, strip_label), by = c("name", "dimension")) |>
-  mutate(strip_label = factor(strip_label, levels = unique(rhat_df$strip_label)))
-
-# 3. Plot function: trace plots faceted by dimension for a single player
-plt_trace <- function(player_trace_df) {
-  player_name <- unique(player_trace_df$name)
-  ggplot(player_trace_df, aes(x = sample, y = value, color = chain)) +
-    geom_line(alpha = 0.6, linewidth = 0.3) +
-    facet_wrap(~ strip_label, scales = "free_y", ncol = 3) +
-    theme_bw() +
-    theme(strip.text = element_text(size = 7)) +
-    labs(title = glue("MCMC Trace Plots: {player_name}"), x = "Sample", y = "Value", color = "Chain")
-}
-
-# 4. Generate and save plots for all posterior_plot_names
-
-trace_df |>
-  group_by(id) |>
-  group_split() |>
-  walk(~ {
-    plt <- plt_trace(.x)
-    player_name <- unique(.x$name)
-    ggsave(
-      filename = file.path(plots_dir, "latent_space", "mcmc", glue("trace_{player_name}.png")),
-      plot = plt,
-      width = 14,
-      height = 18
-    )
-  })
-
-
-##### PEAK AGE / PEAK VALUE MCMC TRACE PLOTS
-
-rename_metrics <- function(df) {
-  df |>
-    mutate(
-      metric = toupper(metric),
-      metric = case_when(
-        metric == "GAMES"        ~ "GP%",
-        metric == "FG2M"         ~ "FG2%",
-        metric == "FG3M"         ~ "FG3%",
-        metric == "FTM"          ~ "FT%",
-        metric == "PCT_MINUTES"  ~ "MPG",
-        .default = metric
-      )
-    )
-}
-
-player_lookup <- data |>
-  group_by(id) |>
-  summarize(name = first(name), .groups = "drop")
-
-peaks_trace_df <- posterior_peaks |>
-  inner_join(player_lookup, by = c("player" = "id")) |>
-  filter(name %in% posterior_plot_names) |>
-  mutate(chain = factor(chain)) |>
-  rename_metrics()
-
-peak_vals_trace_df <- posterior_peak_vals |>
-  inner_join(player_lookup, by = c("player" = "id")) |>
-  filter(name %in% posterior_plot_names) |>
-  mutate(chain = factor(chain)) |>
-  rename_metrics()
-
-# R-hat per player x metric
-rhat_peaks_df <- peaks_trace_df |>
-  group_by(name, player, metric) |>
-  summarise(rhat = compute_rhat(chain, value), .groups = "drop") |>
-  mutate(strip_label = glue("{metric} (R-hat = {round(rhat, 3)})"))
-
-rhat_peak_vals_df <- peak_vals_trace_df |>
-  group_by(name, player, metric) |>
-  summarise(rhat = compute_rhat(chain, value), .groups = "drop") |>
-  mutate(strip_label = glue("{metric} (R-hat = {round(rhat, 3)})"))
-
-peaks_trace_df <- peaks_trace_df |>
-  left_join(rhat_peaks_df |> select(name, metric, strip_label), by = c("name", "metric"))
-
-peak_vals_trace_df <- peak_vals_trace_df |>
-  left_join(rhat_peak_vals_df |> select(name, metric, strip_label), by = c("name", "metric"))
-
-plt_peaks_trace <- function(player_df, title_suffix) {
-  player_name <- unique(player_df$name)
-  ordered_labels <- player_df |>
-    distinct(metric, strip_label) |>
-    arrange(metric) |>
-    pull(strip_label)
-  player_df <- player_df |>
-    mutate(strip_label = factor(strip_label, levels = ordered_labels))
-  ggplot(player_df, aes(x = sample, y = value, color = chain)) +
-    geom_line(alpha = 0.6, linewidth = 0.3) +
-    facet_wrap(~ strip_label, scales = "free_y", ncol = 3) +
-    theme_bw() +
-    theme(strip.text = element_text(size = 7)) +
-    labs(title = glue("{title_suffix}: {player_name}"), x = "Sample", y = "Value", color = "Chain")
-}
-
-
-peaks_trace_df |>
-  group_by(player) |>
-  group_split() |>
-  walk(~ {
-    plt <- plt_peaks_trace(.x, "Peak Age Trace")
-    player_name <- unique(.x$name)
-    ggsave(
-      filename = file.path(plots_dir, "peaks", "mcmc", "trace", glue("peak_age_{player_name}.png")),
-      plot = plt, width = 14, height = 18
-    )
-  })
-
-peak_vals_trace_df |>
-  group_by(player) |>
-  group_split() |>
-  walk(~ {
-    plt <- plt_peaks_trace(.x, "Peak Value Trace")
-    player_name <- unique(.x$name)
-    ggsave(
-      filename = file.path(plots_dir, "peaks", "mcmc", "trace", glue("peak_val_{player_name}.png")),
-      plot = plt, width = 14, height = 18
-    )
-  })
-
-##### PROCRUSTES-ALIGNED TRACE PLOTS
-
-dim_cols <- names(posterior_latent_X)[startsWith(names(posterior_latent_X), "Dim")]
-
-# phi_X is the MAP estimate — use it as the Procrustes reference target.
-# Order rows by id to ensure correspondence with posterior snapshots.
-phi_ref_ordered <- phi_X |>
-  arrange(id) |>
-  select(all_of(dim_cols)) |>
-  as.matrix()
-
-# Helper: find orthogonal R minimising ||B %*% R - A||_F
-procrustes_rotation <- function(B, A) {
-  sv <- svd(t(B) %*% A)
-  sv$u %*% t(sv$v)
-}
-
-# Align every (chain, sample) snapshot to phi_ref_ordered
-rotated_posterior_df <- posterior_latent_X |>
-  mutate(chain = factor(chain)) |>
-  group_by(chain, sample) |>
-  group_modify(~ {
-    B <- .x |> arrange(id) |> select(all_of(dim_cols)) |> as.matrix()
-    R <- procrustes_rotation(B, phi_ref_ordered)
-    B_rot <- B %*% R
-    colnames(B_rot) <- dim_cols
-    .x |>
-      arrange(id) |>
-      select(-all_of(dim_cols)) |>
-      bind_cols(as_tibble(B_rot))
-  }) |>
-  ungroup()
-
-# Pivot long, filter to players of interest
-rotated_trace_df <- rotated_posterior_df |>
-  filter(name %in% posterior_plot_names) |>
-  pivot_longer(cols = all_of(dim_cols), names_to = "dimension", values_to = "value")
-
-# R-hat on aligned samples
-rhat_rotated_df <- rotated_trace_df |>
-  group_by(name, id, dimension) |>
-  summarise(rhat = compute_rhat(chain, value), .groups = "drop") |>
-  mutate(strip_label = glue("{dimension} (R-hat = {round(rhat, 3)})"))
-
-rotated_trace_df <- rotated_trace_df |>
-  left_join(rhat_rotated_df |> select(name, dimension, strip_label), by = c("name", "dimension"))
-
-# Save aligned trace plots (reuses plt_trace which handles strip label ordering)
-rotated_trace_df |>
-  group_by(id) |>
-  group_split() |>
-  walk(~ {
-    plt <- plt_trace(.x)
-    player_name <- unique(.x$name)
-    ggsave(
-      filename = file.path(plots_dir, "latent_space", "mcmc", glue("rotated_trace_{player_name}.png")),
-      plot = plt,
-      width = 14,
-      height = 18
-    )
-  })
-
-##### ARCHETYPE CLUSTERING + NEAREST-NEIGHBOR TABLES + UNCERTAINTY
-
-library(cluster)  # silhouette — part of base R recommended packages
-
-# ── 1. Posterior mean of Procrustes-aligned samples ──────────────────────────
-posterior_mean_latent <- rotated_posterior_df |>
-  group_by(id, name) |>
-  summarise(across(all_of(dim_cols), mean), .groups = "drop")
-
-phi_mat   <- posterior_mean_latent |> arrange(id) |> select(all_of(dim_cols)) |> as.matrix()
-rownames(phi_mat) <- posterior_mean_latent |> arrange(id) |> pull(name)
-phi_mat   <- scale(phi_mat)
-phi_dist  <- dist(phi_mat)
-hc_latent <- hclust(phi_dist, method = "ward.D2")
-
-# ── 2. k diagnostics (WSS + silhouette, k = 2..10) ──────────────────────────
-wss_sil <- map_dfr(2:10, function(k) {
-  labs <- cutree(hc_latent, k)
-  wss  <- sum(sapply(unique(labs), function(cl) {
-    sub <- phi_mat[labs == cl, , drop = FALSE]
-    sum(scale(sub, scale = FALSE)^2)
-  }))
-  sil <- mean(silhouette(labs, phi_dist)[, "sil_width"])
-  tibble(k = k, wss = wss, silhouette = sil)
-})
-
-wss_plt <- ggplot(wss_sil, aes(x = k, y = wss)) +
-  geom_line() + geom_point() +
-  labs(title = "Within-cluster SS vs. k", x = "k", y = "WSS") + theme_bw()
-sil_plt <- ggplot(wss_sil, aes(x = k, y = silhouette)) +
-  geom_line() + geom_point() +
-  labs(title = "Mean silhouette vs. k", x = "k", y = "Avg silhouette") + theme_bw()
-ggsave(file.path(plots_dir, "latent_space", "map", "archetype_k_diagnostics.png"),
-       wss_plt + sil_plt, width = 12, height = 5)
-
-# ── 3. Dendrogram (base R — no ggdendro dependency) ─────────────────────────
-png(file.path(plots_dir, "latent_space", "map", "archetype_dendrogram.png"),
-    width = 1200, height = 2000, res = 120)
-par(mar = c(4, 1, 2, 8))
-plot(as.dendrogram(hc_latent), horiz = TRUE,
-     main = "Ward hierarchical clustering — posterior mean latent dims",
-     xlab = "Height")
-dev.off()
-
-# ── 4. Cut tree and assign archetypes ────────────────────────────────────────
-k_archetypes <- 4L
-message(glue("Optimal k by silhouette: {k_archetypes}"))
-
-archetype_labels <- cutree(hc_latent, k = k_archetypes)
-
-posterior_mean_latent <- posterior_mean_latent |>
-  arrange(id) |>
-  mutate(archetype = factor(unname(archetype_labels)))
-
-phi_X        <- phi_X        |> left_join(posterior_mean_latent |> select(id, archetype), by = "id")
-latent_space <- latent_space |> left_join(posterior_mean_latent |> select(id, archetype), by = "id")
-
-archetype_reps <- latent_space |>
-  filter(!is.na(archetype)) |>
-  group_by(archetype) |>
-  slice_max(minutes, n = 5) |>
-  select(archetype, name, position_group, minutes)
-print(archetype_reps)
-
-# ── 5. Archetype characterization heatmaps ───────────────────────────────────
-archetype_peak_ages <- peaks_plt_df |>
-  left_join(posterior_mean_latent |> select(id, archetype), by = c("player" = "id")) |>
-  filter(!is.na(archetype)) |>
-  group_by(archetype, metric) |>
-  summarise(mean_peak_age = mean(value, na.rm = TRUE), .groups = "drop")
-
-archetype_peak_vals <- peak_vals_plt_df |>
-  left_join(posterior_mean_latent |> select(id, archetype), by = c("player" = "id")) |>
-  filter(!is.na(archetype)) |>
-  group_by(archetype, metric) |>
-  summarise(mean_peak_val = mean(value, na.rm = TRUE), .groups = "drop")
-
-archetype_age_heatmap <- archetype_peak_ages |>
-  ggplot(aes(x = metric, y = archetype, fill = mean_peak_age)) +
-  geom_tile() + scale_fill_viridis_c() +
-  labs(title = "Mean posterior peak age by archetype × metric",
-       x = NULL, y = "Archetype", fill = "Mean peak age") +
-  theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-archetype_val_heatmap <- archetype_peak_vals |>
-  ggplot(aes(x = metric, y = archetype, fill = mean_peak_val)) +
-  geom_tile() + scale_fill_viridis_c() +
-  labs(title = "Mean posterior peak value by archetype × metric",
-       x = NULL, y = "Archetype", fill = "Mean peak value") +
-  theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-ggsave(file.path(plots_dir, "latent_space", "map", "archetype_peak_age_heatmap.png"),
-       archetype_age_heatmap, width = 14, height = 5)
-ggsave(file.path(plots_dir, "latent_space", "map", "archetype_peak_val_heatmap.png"),
-       archetype_val_heatmap, width = 14, height = 5)
-
-# ── 6. Archetype-coloured functional PCA plot ────────────────────────────────
-fpc_arch <- functional_pca_embedding |>
-  left_join(posterior_mean_latent |> select(id, archetype), by = c("player" = "id"))
-
-functional_pca_plt_archetype <- fpc_arch |>
-  filter(PCA1 <= 20 & PCA2 <= 20) |>
-  ggplot(aes(x = PCA1, y = PCA2, color = archetype)) +
-  geom_point(aes(alpha = minutes)) +
-  scale_alpha(range = c(0, 1)) +
-  geom_text_repel(
-    data = fpc_arch |> filter(name %in% posterior_plot_names),
-    aes(label = name, x = PCA1, y = PCA2),
-    size = 2, fontface = "bold", max.overlaps = 20,
-    inherit.aes = FALSE
-  ) +
-  theme_bw() + scale_colour_brewer(palette = "Set1") +
-  labs(title = "Latent Space — Archetype Clusters",
-       x = "PC 1", y = "PC 2", color = "Archetype", alpha = "Minutes")
-ggsave(file.path(plots_dir, "latent_space", "map", "latent_space_archetypes.png"),
-       functional_pca_plt_archetype, width = 12, height = 8)
-
-# ── 6b. PCA of posterior mean latent coords, coloured by archetype ───────────
-latent_pca        <- prcomp(phi_mat, center = FALSE, scale. = FALSE)  # phi_mat already scaled
-latent_pca_df     <- as_tibble(latent_pca$x[, 1:2]) |>
-  bind_cols(posterior_mean_latent |> arrange(id) |> select(id, name, archetype)) |>
-  left_join(latent_space |> select(id, position_group, minutes), by = "id")
-
-latent_pca_plt <- latent_pca_df |>
-  ggplot(aes(x = PC1, y = PC2, color = archetype)) +
-  geom_point(aes(alpha = minutes)) +
-  scale_alpha(range = c(0, 1)) +
-  geom_text_repel(
-    data = latent_pca_df |> filter(name %in% posterior_plot_names),
-    aes(label = name),
-    size = 2, fontface = "bold", max.overlaps = 20
-  ) +
-  theme_bw() + scale_colour_brewer(palette = "Set1") +
-  labs(title = "PCA of Posterior Mean Latent Coordinates — Archetype Clusters",
-       x = glue("PC 1 ({round(summary(latent_pca)$importance[2,1]*100,1)}% var)"),
-       y = glue("PC 2 ({round(summary(latent_pca)$importance[2,2]*100,1)}% var)"),
-       color = "Archetype", alpha = "Minutes")
-
-ggsave(file.path(plots_dir, "latent_space", "map", "latent_pca_archetypes.png"),
-       latent_pca_plt, width = 12, height = 8)
-
-# ── 7. Embedding uncertainty from aligned MCMC samples ───────────────────────
-map_positions <- phi_X |> arrange(id) |> select(id, all_of(dim_cols))
-
-embedding_uncertainty <- rotated_posterior_df |>
-  group_by(id, name) |>
-  group_modify(~ {
-    samp_mat <- .x |> select(all_of(dim_cols)) |> as.matrix()
-    map_pos  <- map_positions |> filter(id == .y$id) |> select(all_of(dim_cols)) |> as.matrix()
-    dists    <- sqrt(rowSums(sweep(samp_mat, 2, map_pos)^2))
-    cov_mat  <- cov(samp_mat)
-    tibble(
-      mean_dist_to_map = mean(dists),
-      sd_dist_to_map   = sd(dists),
-      cov_vol          = det(cov_mat)^(1 / ncol(samp_mat))
-    )
-  }) |>
-  ungroup() |>
-  left_join(latent_space |> select(id, position_group, archetype, minutes), by = "id")
-
-uncertainty_gt <- embedding_uncertainty |>
-  filter(name %in% posterior_plot_names) |>
-  arrange(desc(mean_dist_to_map)) |>
-  select(name, position_group, archetype, mean_dist_to_map, sd_dist_to_map) |>
-  gt() |>
-  fmt_number(columns = c(mean_dist_to_map, sd_dist_to_map), decimals = 3) |>
-  cols_label(
-    name             = "Player",
-    position_group   = "Position",
-    archetype        = "Archetype",
-    mean_dist_to_map = "Mean dist to MAP",
-    sd_dist_to_map   = "SD"
-  ) |>
-  tab_header(title = "Latent Embedding Uncertainty (Procrustes-aligned MCMC samples)")
-
-writeLines(as.character(as_latex(uncertainty_gt)),
-           file.path(plots_dir, "latent_space", "tables", "embedding_uncertainty.tex"))
-
-# ── 8. Nearest-neighbor tables ────────────────────────────────────────────────
-focal_ids <- latent_space |> filter(name %in% posterior_plot_names) |> pull(id)
-
-# 8A: Point-estimate neighbors from posterior mean positions
-pm_mat <- posterior_mean_latent |> arrange(id) |> select(all_of(dim_cols)) |> as.matrix()
-pm_ids <- posterior_mean_latent |> arrange(id) |> pull(id)
-D_mean <- as.matrix(dist(pm_mat))
-rownames(D_mean) <- colnames(D_mean) <- as.character(pm_ids)
-
-nn_mean <- map_dfr(focal_ids, function(fi) {
-  drow <- D_mean[as.character(fi), ]
-  drow[as.character(fi)] <- Inf
-  top5_ids   <- names(sort(drow)[1:5])
-  top5_dists <- as.numeric(sort(drow)[1:5])
-  tibble(focal_id    = fi,
-         neighbor_id = top5_ids,
-         rank_mean   = 1:5,
-         dist_mean   = top5_dists)
-}) |>
-  left_join(latent_space |> select(id, focal_name = name),
-            by = c("focal_id" = "id")) |>
-  left_join(latent_space |> select(id, neighbor_name = name,
-                                    neighbor_pos = position_group, archetype),
-            by = c("neighbor_id" = "id"))
-
-# 8B: Per-sample neighbor frequency across aligned MCMC snapshots
-n_snapshots <- rotated_posterior_df |> distinct(chain, sample) |> nrow()
-
-nn_freq_raw <- rotated_posterior_df |>
-  group_by(chain, sample) |>
-  group_modify(~ {
-    mat  <- .x |> arrange(id) |> select(all_of(dim_cols)) |> as.matrix()
-    ids  <- .x |> arrange(id) |> pull(id)
-    fidx <- which(ids %in% focal_ids)
-    D    <- as.matrix(dist(mat))
-    map_dfr(fidx, function(i) {
-      drow    <- D[i, ]
-      drow[i] <- Inf
-      top5    <- ids[order(drow)[1:5]]
-      tibble(focal_id = ids[i], neighbor_id = top5)
-    })
-  }) |>
-  ungroup()
-
-nn_freq <- nn_freq_raw |>
-  group_by(focal_id, neighbor_id) |>
-  summarise(freq_top5 = n() / n_snapshots, .groups = "drop")
-
-# 8C: Join point-estimate + frequency
-nn_top5 <- nn_mean |>
-  left_join(nn_freq, by = c("focal_id", "neighbor_id")) |>
-  mutate(freq_top5 = replace_na(freq_top5, 0))
-
-# 8D: Save one .tex file per focal player
-nn_top5 |>
-  group_by(focal_id, focal_name) |>
-  group_walk(~ {
-    tbl <- .x |>
-      arrange(rank_mean) |>
-      select(neighbor_name, neighbor_pos, archetype, rank_mean, dist_mean, freq_top5) |>
-      gt() |>
-      fmt_percent(columns = freq_top5, decimals = 0) |>
-      fmt_number(columns = c(rank_mean, dist_mean), decimals = 2) |>
-      cols_label(
-        neighbor_name = "Player",
-        neighbor_pos  = "Position",
-        archetype     = "Archetype",
-        rank_mean     = "Rank (mean)",
-        dist_mean     = "Distance (mean)",
-        freq_top5     = "% samples in top 5"
-      ) |>
-      tab_header(
-        title    = glue("5 Nearest Neighbors: {.y$focal_name}"),
-        subtitle = "Procrustes-aligned MCMC samples"
-      )
-    fname <- gsub("[^A-Za-z0-9_]", "_", .y$focal_name)
-    writeLines(as.character(as_latex(tbl)),
-               file.path(plots_dir, "latent_space", "tables", glue("{fname}_neighbors.tex")))
-  })
-
-} # end if (!is.null(latent_space))
+ggsave(
+  file.path(plots_dir, "player_plots", "mcmc", "Jokic_Curry_comparison.png"),
+  jc_plot,
+  width = 18, height = 9, dpi = 150
+)
 
 
 ### Causal Gap Plot: ATT by time-since-treatment (Injury vs Non-Injured control)
@@ -1695,7 +1145,7 @@ nn_top5 |>
 #       color = "black", linewidth = 1.0
 #     ) +
 #     facet_wrap(~metric, scales = "free_y") +
-#     theme_bw() +
+#     theme_bw(base_size = 14) +
 #     labs(
 #       x        = "Years Since Treatment Onset",
 #       y        = "Observed − Posterior Mean (ATT)",
@@ -1747,7 +1197,7 @@ nn_top5 |>
 #   geom_line(data = median_all_injured, aes(x = years_since, y = gap),
 #             color = "black", linewidth = 1.0) +
 #   facet_wrap(~metric, scales = "free_y") +
-#   theme_bw() +
+#   theme_bw(base_size = 14) +
 #   labs(
 #     x        = "Years Since Treatment Onset",
 #     y        = "Observed - Posterior Mean (ATT)",
@@ -1803,7 +1253,7 @@ nn_top5 |>
 #   geom_pointrange(aes(ymin = lower, ymax = upper), size = 0.4, linewidth = 0.7) +
 #   facet_grid(first_major_injury ~ metric, scales = "free_y") +
 #   scale_color_manual(values = c("Injured" = "#E41A1C", "Non-Injured" = "grey40")) +
-#   theme_bw() +
+#   theme_bw(base_size = 14) +
 #   theme(
 #     axis.text.x  = element_text(angle = 45, hjust = 1, size = 7),
 #     strip.text.x = element_text(size = 6),
@@ -1891,7 +1341,7 @@ nn_top5 |>
 #   geom_pointrange(aes(xmin = lower, xmax = upper), size = 0.35, linewidth = 0.6) +
 #   facet_wrap(~ metric, scales = "free_x") +
 #   scale_color_manual(values = c("p < 0.05" = "#E41A1C", "n.s." = "grey50")) +
-#   theme_bw() +
+#   theme_bw(base_size = 14) +
 #   theme(legend.position = "bottom") +
 #   labs(
 #     x        = "Conditional ATT (gap | player archetype X)",
@@ -2013,7 +1463,7 @@ nn_top5 |>
 #   geom_pointrange(aes(xmin = lower, xmax = upper), size = 0.35, linewidth = 0.6) +
 #   facet_wrap(~ metric, scales = "free_x") +
 #   scale_color_manual(values = c("p < 0.05" = "#E41A1C", "n.s." = "grey50")) +
-#   theme_bw() +
+#   theme_bw(base_size = 14) +
 #   theme(legend.position = "bottom") +
 #   labs(
 #     x        = "Conditional ATT (gap | player archetype X + injury timing)",
@@ -2055,7 +1505,7 @@ nn_top5 |>
 #   geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.3, color = "black") +
 #   geom_pointrange(aes(xmin = lower, xmax = upper), size = 0.4, linewidth = 0.7) +
 #   scale_color_manual(values = c("p < 0.05" = "#E41A1C", "n.s." = "grey50")) +
-#   theme_bw() +
+#   theme_bw(base_size = 14) +
 #   theme(legend.position = "bottom") +
 #   labs(
 #     x        = "Coefficient on injury_time (pre-peak vs post-peak)",
@@ -2121,7 +1571,7 @@ nn_top5 |>
 #   scale_color_gradient2(low = "#2166AC", mid = "#D9D9D9", high = "#D6604D", midpoint = 0,
 #                         limits = c(-1, 1), name = "X-predicted\ngap\n(scaled)") +
 #   facet_wrap(~ metric) +
-#   theme_bw() +
+#   theme_bw(base_size = 14) +
 #   theme(
 #     strip.text      = element_text(size = 8),
 #     legend.position = "right"

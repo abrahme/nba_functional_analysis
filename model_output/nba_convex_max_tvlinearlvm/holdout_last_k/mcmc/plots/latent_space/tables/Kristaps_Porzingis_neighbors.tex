@@ -1,19 +1,17 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Kristaps Porzingis} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Jay Huff & C & 3 & 1.00 & 2.49 & 21\% \\ 
-Chet Holmgren & C & 3 & 2.00 & 2.50 & 20\% \\ 
-Branden Carlson & C & 3 & 3.00 & 2.54 & 7\% \\ 
-Davis Bertans & F & 3 & 4.00 & 2.84 & 5\% \\ 
-Josh Minott & F & 3 & 5.00 & 2.85 & 3\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Dirk Nowitzki & F & 3 \\
+    2 & Jermaine O'Neal & F & 3 \\
+    3 & Wilson Chandler & G & 3 \\
+    4 & Al Jefferson & F & 2 \\
+    5 & P.J. Washington & F & 3 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Kristaps Porzingis in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
+  \label{tab:Kristaps_Porzingis_neighbors}
 \end{table}
 

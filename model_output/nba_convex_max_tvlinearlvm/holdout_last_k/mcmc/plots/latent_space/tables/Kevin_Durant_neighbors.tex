@@ -1,19 +1,17 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Kevin Durant} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Kristaps Porzingis & F & 3 & 1.00 & 3.16 & 94\% \\ 
-Tristan Vukcevic & C & 3 & 2.00 & 3.71 & 20\% \\ 
-Dirk Nowitzki & F & 3 & 3.00 & 3.74 & 42\% \\ 
-Lou Williams & G & 1 & 4.00 & 3.83 & 35\% \\ 
-Jay Huff & C & 3 & 5.00 & 3.83 & 10\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Jalen Green & G & 1 \\
+    2 & Tyrese Maxey & G & 1 \\
+    3 & James Harden & G & 1 \\
+    4 & Zach LaVine & G & 1 \\
+    5 & Brandon Miller & F & 4 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Kevin Durant in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
+  \label{tab:Kevin_Durant_neighbors}
 \end{table}
 

@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Derrick Rose} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Bradley Beal & G & 3 & 1.00 & 1.22 & 52\% \\ 
-Jamal Murray & G & 3 & 2.00 & 1.31 & 29\% \\ 
-Isaiah Thomas & G & 3 & 3.00 & 1.31 & 16\% \\ 
-Jerry Stackhouse & G & 3 & 4.00 & 1.31 & 53\% \\ 
-Zach LaVine & G & 3 & 5.00 & 1.38 & 24\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Jerry Stackhouse & G & 2 \\
+    2 & Jamal Murray & G & 2 \\
+    3 & Brandon Roy & G & 2 \\
+    4 & Zach LaVine & G & 2 \\
+    5 & Gilbert Arenas & G & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Derrick Rose in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

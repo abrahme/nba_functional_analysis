@@ -1,19 +1,17 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: James Harden} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Stephen Curry & G & 3 & 1.00 & 2.58 & 29\% \\ 
-Jeremy Lin & G & 3 & 2.00 & 2.80 & 4\% \\ 
-Dalano Banton & G & 3 & 3.00 & 2.83 & 0\% \\ 
-Tristan Vukcevic & C & 3 & 4.00 & 2.83 & 4\% \\ 
-Jayson Tatum & F & 3 & 5.00 & 2.85 & 6\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & LeBron James & G & 2 \\
+    2 & Anthony Edwards & G & 2 \\
+    3 & Shai Gilgeous-Alexander & G & 2 \\
+    4 & Kobe Bryant & G & 2 \\
+    5 & Jayson Tatum & F & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of James Harden in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
+  \label{tab:James_Harden_neighbors}
 \end{table}
 

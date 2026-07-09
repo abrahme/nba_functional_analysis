@@ -1,19 +1,16 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Shawn Marion} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Nikola Vucevic & C & 3 & 1.00 & 1.12 & 84\% \\ 
-Rasheed Wallace & F & 3 & 2.00 & 1.25 & 83\% \\ 
-Al Horford & C & 3 & 3.00 & 1.25 & 87\% \\ 
-Paul Millsap & F & 3 & 4.00 & 1.31 & 74\% \\ 
-Lamar Odom & F & 3 & 5.00 & 1.48 & 49\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Nikola Vucevic & C & 2 \\
+    2 & Rasheed Wallace & F & 2 \\
+    3 & Al Horford & C & 2 \\
+    4 & Paul Millsap & F & 2 \\
+    5 & Lamar Odom & F & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Shawn Marion in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
 \end{table}
 

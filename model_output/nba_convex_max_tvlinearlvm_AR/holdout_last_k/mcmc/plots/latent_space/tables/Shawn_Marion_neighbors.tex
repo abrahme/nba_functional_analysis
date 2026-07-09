@@ -1,19 +1,17 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Shawn Marion} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Linton Johnson & F & 1 & 1.00 & 2.53 & 22\% \\ 
-Scott Williams & F & 3 & 2.00 & 2.60 & 27\% \\ 
-Langston Galloway & G & 2 & 3.00 & 2.67 & 21\% \\ 
-James Singleton & F & 3 & 4.00 & 2.83 & 13\% \\ 
-De'Anthony Melton & G & 4 & 5.00 & 2.88 & 16\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Paul Millsap & F & 4 \\
+    2 & Gorgui Dieng & F & 4 \\
+    3 & John Butler & C & 4 \\
+    4 & Ersan Ilyasova & F & 4 \\
+    5 & Donyell Marshall & F & 1 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Shawn Marion in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
+  \label{tab:Shawn_Marion_neighbors}
 \end{table}
 

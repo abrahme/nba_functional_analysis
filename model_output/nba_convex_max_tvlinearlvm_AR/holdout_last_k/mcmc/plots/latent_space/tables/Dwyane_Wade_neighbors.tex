@@ -1,19 +1,17 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Dwyane Wade} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Chris Wright & F & 1 & 1.00 & 2.56 & 6\% \\ 
-Devin Robinson & F & 1 & 2.00 & 2.60 & 3\% \\ 
-David Robinson & C & 4 & 3.00 & 2.60 & 11\% \\ 
-Jalen Williams & G & 4 & 4.00 & 2.62 & 9\% \\ 
-Jeremiah Martin & G & 1 & 5.00 & 2.64 & 3\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Shai Gilgeous-Alexander & G & 1 \\
+    2 & John Wall & G & 1 \\
+    3 & Kobe Bryant & G & 1 \\
+    4 & Anfernee Hardaway & G & 1 \\
+    5 & Michael Jordan & G & 1 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Dwyane Wade in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
+  \label{tab:Dwyane_Wade_neighbors}
 \end{table}
 

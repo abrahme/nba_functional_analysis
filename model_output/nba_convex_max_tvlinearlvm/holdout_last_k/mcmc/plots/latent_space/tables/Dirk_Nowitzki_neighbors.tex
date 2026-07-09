@@ -1,19 +1,17 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Dirk Nowitzki} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Gordon Hayward & F & 2 & 1.00 & 3.21 & 54\% \\ 
-Davis Bertans & F & 3 & 2.00 & 3.24 & 10\% \\ 
-Kevin Garnett & F & 3 & 3.00 & 3.48 & 43\% \\ 
-Tobias Harris & F & 2 & 4.00 & 3.48 & 32\% \\ 
-Immanuel Quickley & G & 2 & 5.00 & 3.59 & 25\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Kristaps Porzingis & F & 3 \\
+    2 & Tobias Harris & F & 3 \\
+    3 & Danilo Gallinari & G & 2 \\
+    4 & Zaccharie Risacher & F & 3 \\
+    5 & Al Jefferson & F & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Dirk Nowitzki in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
+  \label{tab:Dirk_Nowitzki_neighbors}
 \end{table}
 

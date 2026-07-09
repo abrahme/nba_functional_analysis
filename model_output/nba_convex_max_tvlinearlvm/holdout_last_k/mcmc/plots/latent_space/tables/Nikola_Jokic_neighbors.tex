@@ -1,19 +1,17 @@
-\begin{table}[t]
-\caption*{
-{\large 5 Nearest Neighbors: Nikola Jokic} \\ 
-{\small Procrustes-aligned MCMC samples}
-} 
-\fontsize{12.0pt}{14.4pt}\selectfont
-\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llcrrr}
-\toprule
-Player & Position & Archetype & Rank (mean) & Distance (mean) & \% samples in top 5 \\ 
-\midrule\addlinespace[2.5pt]
-Giannis Antetokounmpo & G & 3 & 1.00 & 3.46 & 100\% \\ 
-Arvydas Sabonis & C & 2 & 2.00 & 3.72 & 92\% \\ 
-Manu Ginobili & G & 2 & 3.00 & 4.55 & 41\% \\ 
-Luka Doncic & G & 3 & 4.00 & 4.63 & 6\% \\ 
-Franz Wagner & F & 3 & 5.00 & 4.67 & 18\% \\ 
-\bottomrule
-\end{tabular*}
+\begin{table}[htbp]
+  \centering\small
+  \begin{tabular}{rllc}
+    \toprule
+    Rank & Player & Position & Archetype \\
+    \midrule
+    1 & Mark Williams & C & 2 \\
+    2 & Bam Adebayo & F & 2 \\
+    3 & Luka Doncic & G & 3 \\
+    4 & Jayson Tatum & F & 3 \\
+    5 & Scottie Barnes & G & 3 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Five nearest neighbors of Nikola Jokic in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}
+  \label{tab:Nikola_Jokic_neighbors}
 \end{table}
 
