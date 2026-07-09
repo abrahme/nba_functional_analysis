@@ -1,139 +1,263 @@
-\begin{thebibliography}{19}
-\providecommand{\natexlab}[1]{#1}
-\providecommand{\url}[1]{\texttt{#1}}
-\expandafter\ifx\csname urlstyle\endcsname\relax
-  \providecommand{\doi}[1]{doi: #1}\else
-  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+\begin{thebibliography}{21}
+% BibTex style file: imsart-nameyear.bst, 2017-11-03
+% Default style options (sort=1,type=nameyear).
+% Used options (sort=1,type=nameyear).
 
-\bibitem[Andersen et~al.(2018)Andersen, Siivola, Riutort-Mayol, and
-  Vehtari]{convexityconstraints}
-Michael~Riis Andersen, Eero Siivola, Gabriel Riutort-Mayol, and Aki Vehtari.
-\newblock A non-parametric probabilistic model for monotonic functions, 2018.
-\newblock URL
-  \url{https://drive.google.com/file/d/19kHhfuYC22ymNt3a3BlYgW0vWexOmbNy/view}.
+\bibitem[\protect\citeauthoryear{Andersen et~al.}{2018}]{convexityconstraints}
+\begin{bmisc}[author]
+\bauthor{\bsnm{Andersen},~\bfnm{Michael~Riis}\binits{M.~R.}},
+  \bauthor{\bsnm{Siivola},~\bfnm{Eero}\binits{E.}},
+  \bauthor{\bsnm{Riutort-Mayol},~\bfnm{Gabriel}\binits{G.}} \AND
+  \bauthor{\bsnm{Vehtari},~\bfnm{Aki}\binits{A.}}
+(\byear{2018}).
+\btitle{A non-parametric probabilistic model for monotonic functions}.
+\end{bmisc}
+\endbibitem
 
-\bibitem[Bodin et~al.(2017)Bodin, Campbell, and
-  Ek]{bodin2017latentgaussianprocessregression}
-Erik Bodin, Neill D.~F. Campbell, and Carl~Henrik Ek.
-\newblock Latent gaussian process regression, 2017.
-\newblock URL \url{https://arxiv.org/abs/1707.05534}.
+\bibitem[\protect\citeauthoryear{Aßmann, Boysen-Hogrefe and
+  Pape}{2016}]{procrustes}
+\begin{barticle}[author]
+\bauthor{\bsnm{Aßmann},~\bfnm{Christian}\binits{C.}},
+  \bauthor{\bsnm{Boysen-Hogrefe},~\bfnm{Jens}\binits{J.}} \AND
+  \bauthor{\bsnm{Pape},~\bfnm{Markus}\binits{M.}}
+(\byear{2016}).
+\btitle{Bayesian analysis of static and dynamic factor models: An ex-post
+  approach towards the rotation problem}.
+\bjournal{Journal of Econometrics}
+\bvolume{192}
+\bpages{190-206}.
+\bdoi{https://doi.org/10.1016/j.jeconom.2015.10.010}
+\end{barticle}
+\endbibitem
 
-\bibitem[Chessa et~al.(2023)Chessa, D’Urso, De~Giovanni,
-  et~al.]{chessa2023complex}
-Antonio Chessa, Pierpaolo D’Urso, Luigi De~Giovanni, et~al.
-\newblock Complex networks for community detection of basketball players.
-\newblock \emph{Annals of Operations Research}, 325:\penalty0 363--389, 2023.
-\newblock \doi{10.1007/s10479-022-04647-x}.
-\newblock URL \url{https://doi.org/10.1007/s10479-022-04647-x}.
+\bibitem[\protect\citeauthoryear{Chessa et~al.}{2023}]{chessa2023complex}
+\begin{barticle}[author]
+\bauthor{\bsnm{Chessa},~\bfnm{Antonio}\binits{A.}},
+  \bauthor{\bsnm{D’Urso},~\bfnm{Pierpaolo}\binits{P.}},
+  \bauthor{\bsnm{De~Giovanni},~\bfnm{Luigi}\binits{L.}} \betal{et~al.}
+(\byear{2023}).
+\btitle{Complex networks for community detection of basketball players}.
+\bjournal{Annals of Operations Research}
+\bvolume{325}
+\bpages{363--389}.
+\bdoi{10.1007/s10479-022-04647-x}
+\end{barticle}
+\endbibitem
 
-\bibitem[Elmore(2019)]{ballr}
-Ryan Elmore.
-\newblock \emph{ballr: Access to Current and Historical Basketball Data}, 2019.
-\newblock URL \url{https://CRAN.R-project.org/package=ballr}.
-\newblock R package version 0.2.4.
+\bibitem[\protect\citeauthoryear{Elmore}{2019}]{ballr}
+\begin{bmanual}[author]
+\bauthor{\bsnm{Elmore},~\bfnm{Ryan}\binits{R.}}
+(\byear{2019}).
+\btitle{ballr: Access to Current and Historical Basketball Data}
+\bnote{R package version 0.2.4}.
+\end{bmanual}
+\endbibitem
 
-\bibitem[Isserlis(1918)]{isserlis}
-L.~Isserlis.
-\newblock On a formula for the product-moment coefficient of any order of a
-  normal frequency distribution in any number of variables.
-\newblock \emph{Biometrika}, 12\penalty0 (1/2):\penalty0 134--139, 1918.
-\newblock ISSN 00063444, 14643510.
-\newblock URL \url{http://www.jstor.org/stable/2331932}.
+\bibitem[\protect\citeauthoryear{Gundersen, Zhang and
+  Engelhardt}{2021}]{gundersen2021latent}
+\begin{binproceedings}[author]
+\bauthor{\bsnm{Gundersen},~\bfnm{Gregory~W.}\binits{G.~W.}},
+  \bauthor{\bsnm{Zhang},~\bfnm{Michael~Minyi}\binits{M.~M.}} \AND
+  \bauthor{\bsnm{Engelhardt},~\bfnm{Barbara~E.}\binits{B.~E.}}
+(\byear{2021}).
+\btitle{Latent Variable Modeling with Random Features}.
+In \bbooktitle{Proceedings of the 24th International Conference on Artificial
+  Intelligence and Statistics (AISTATS)}.
+\bseries{Proceedings of Machine Learning Research}
+\bvolume{130}.
+\bpublisher{PMLR}.
+\end{binproceedings}
+\endbibitem
 
-\bibitem[Lawrence(2005)]{JMLR:v6:lawrence05a}
-Neil Lawrence.
-\newblock Probabilistic non-linear principal component analysis with gaussian
-  process latent variable models.
-\newblock \emph{Journal of Machine Learning Research}, 6\penalty0
-  (60):\penalty0 1783--1816, 2005.
-\newblock URL \url{http://jmlr.org/papers/v6/lawrence05a.html}.
+\bibitem[\protect\citeauthoryear{Isserlis}{1918}]{isserlis}
+\begin{barticle}[author]
+\bauthor{\bsnm{Isserlis},~\bfnm{L.}\binits{L.}}
+(\byear{1918}).
+\btitle{On a Formula for the Product-Moment Coefficient of any Order of a
+  Normal Frequency Distribution in any Number of Variables}.
+\bjournal{Biometrika}
+\bvolume{12}
+\bpages{134--139}.
+\end{barticle}
+\endbibitem
 
-\bibitem[Mauri and
-  Dunson(2025)]{mauri2025factorpretrainingbayesianmultivariate}
-Lorenzo Mauri and David~B. Dunson.
-\newblock Factor pre-training in bayesian multivariate logistic models, 2025.
-\newblock URL \url{https://arxiv.org/abs/2409.17441}.
+\bibitem[\protect\citeauthoryear{Lawrence}{2005}]{JMLR:v6:lawrence05a}
+\begin{barticle}[author]
+\bauthor{\bsnm{Lawrence},~\bfnm{Neil}\binits{N.}}
+(\byear{2005}).
+\btitle{Probabilistic Non-linear Principal Component Analysis with Gaussian
+  Process Latent Variable Models}.
+\bjournal{Journal of Machine Learning Research}
+\bvolume{6}
+\bpages{1783--1816}.
+\end{barticle}
+\endbibitem
 
-\bibitem[Page et~al.(2007)Page, Fellingham, and Reese]{page2007using}
-Garritt~L Page, Gilbert~W Fellingham, and C~Shane Reese.
-\newblock Using box-scores to determine a position's contribution to winning
-  basketball games.
-\newblock \emph{Journal of Quantitative Analysis in Sports}, 3\penalty0 (4),
-  2007.
+\bibitem[\protect\citeauthoryear{{Sports Reference LLC}}{2019}]{bballref}
+\begin{bmisc}[author]
+\bauthor{\bsnm{{Sports Reference LLC}}}
+(\byear{2019}).
+\btitle{{Basketball-Reference.com} - Basketball Statistics and History}.
+\bhowpublished{\url{http://www.basketball-reference.com/}}.
+\end{bmisc}
+\endbibitem
 
-\bibitem[Rahimi and Recht(2007)]{rffs}
-Ali Rahimi and Benjamin Recht.
-\newblock Random features for large-scale kernel machines.
-\newblock In J.~Platt, D.~Koller, Y.~Singer, and S.~Roweis, editors,
-  \emph{Advances in Neural Information Processing Systems}, volume~20. Curran
-  Associates, Inc., 2007.
-\newblock URL
-  \url{https://proceedings.neurips.cc/paper_files/paper/2007/file/013a006f03dbc5392effeb8f18fda755-Paper.pdf}.
+\bibitem[\protect\citeauthoryear{Page, Fellingham and
+  Reese}{2007}]{page2007using}
+\begin{barticle}[author]
+\bauthor{\bsnm{Page},~\bfnm{Garritt~L}\binits{G.~L.}},
+  \bauthor{\bsnm{Fellingham},~\bfnm{Gilbert~W}\binits{G.~W.}} \AND
+  \bauthor{\bsnm{Reese},~\bfnm{C~Shane}\binits{C.~S.}}
+(\byear{2007}).
+\btitle{Using box-scores to determine a position's contribution to winning
+  basketball games}.
+\bjournal{Journal of Quantitative Analysis in Sports}
+\bvolume{3}.
+\end{barticle}
+\endbibitem
 
-\bibitem[Silver(2015)]{natesilver538_2015}
-Nate Silver.
-\newblock We're predicting the career of every {NBA} player. {H}ere's how.
-\newblock
-  \url{https://fivethirtyeight.com/features/how-were-predicting-NBA-player-career/},
-  Oct 2015.
+\bibitem[\protect\citeauthoryear{Phan, Pradhan and Jankowiak}{2019}]{numpyro}
+\begin{barticle}[author]
+\bauthor{\bsnm{Phan},~\bfnm{Du}\binits{D.}},
+  \bauthor{\bsnm{Pradhan},~\bfnm{Neeraj}\binits{N.}} \AND
+  \bauthor{\bsnm{Jankowiak},~\bfnm{Martin}\binits{M.}}
+(\byear{2019}).
+\btitle{Composable Effects for Flexible and Accelerated Probabilistic
+  Programming in NumPyro}.
+\bjournal{arXiv preprint arXiv:1912.11554}.
+\end{barticle}
+\endbibitem
 
-\bibitem[Silver(2019)]{natesilver538_2019}
-Nate Silver.
-\newblock How our {RAPTOR} metric works.
-\newblock
-  \url{https://fivethirtyeight.com/features/how-our-raptor-metric-works/}, Oct
-  2019.
+\bibitem[\protect\citeauthoryear{Poworoznek
+  et~al.}{2024}]{poworoznek2024efficientlyresolvingrotationalambiguity}
+\begin{bmisc}[author]
+\bauthor{\bsnm{Poworoznek},~\bfnm{Evan}\binits{E.}},
+  \bauthor{\bsnm{Anceschi},~\bfnm{Niccolo}\binits{N.}},
+  \bauthor{\bsnm{Ferrari},~\bfnm{Federico}\binits{F.}} \AND
+  \bauthor{\bsnm{Dunson},~\bfnm{David}\binits{D.}}
+(\byear{2024}).
+\btitle{Efficiently resolving rotational ambiguity in Bayesian matrix sampling
+  with matching}.
+\end{bmisc}
+\endbibitem
 
-\bibitem[Solin and Särkkä(2019)]{Solin_2019}
-Arno Solin and Simo Särkkä.
-\newblock Hilbert space methods for reduced-rank gaussian process regression.
-\newblock \emph{Statistics and Computing}, 30\penalty0 (2):\penalty0 419–446,
-  August 2019.
-\newblock ISSN 1573-1375.
-\newblock \doi{10.1007/s11222-019-09886-w}.
-\newblock URL \url{http://dx.doi.org/10.1007/s11222-019-09886-w}.
+\bibitem[\protect\citeauthoryear{Rahimi and Recht}{2007}]{rffs}
+\begin{binproceedings}[author]
+\bauthor{\bsnm{Rahimi},~\bfnm{Ali}\binits{A.}} \AND
+  \bauthor{\bsnm{Recht},~\bfnm{Benjamin}\binits{B.}}
+(\byear{2007}).
+\btitle{Random Features for Large-Scale Kernel Machines}.
+In \bbooktitle{Advances in Neural Information Processing Systems}
+(\beditor{\bfnm{J.}\binits{J.}~\bsnm{Platt}},
+  \beditor{\bfnm{D.}\binits{D.}~\bsnm{Koller}},
+  \beditor{\bfnm{Y.}\binits{Y.}~\bsnm{Singer}} \AND
+  \beditor{\bfnm{S.}\binits{S.}~\bsnm{Roweis}}, eds.)
+\bvolume{20}.
+\bpublisher{Curran Associates, Inc.}
+\end{binproceedings}
+\endbibitem
 
-\bibitem[{Sports Reference LLC}(2019)]{bballref}
-{Sports Reference LLC}.
-\newblock {Basketball-Reference.com} - basketball statistics and history.
-\newblock \url{http://www.basketball-reference.com/}, 2019.
+\bibitem[\protect\citeauthoryear{Silver}{2015}]{natesilver538_2015}
+\begin{bmisc}[author]
+\bauthor{\bsnm{Silver},~\bfnm{Nate}\binits{N.}}
+(\byear{2015}).
+\btitle{We're Predicting The Career Of Every {NBA} Player. {H}ere's How.}
+\bhowpublished{\url{https://fivethirtyeight.com/features/how-were-predicting-NBA-player-career/}}.
+\end{bmisc}
+\endbibitem
 
-\bibitem[Terner and Franks(2020)]{terner2020modeling}
-Zachary Terner and Alexander Franks.
-\newblock Modeling player and team performance in basketball.
-\newblock \emph{Annual Review of Statistics and Its Application}, 8, 2020.
+\bibitem[\protect\citeauthoryear{Silver}{2019}]{natesilver538_2019}
+\begin{bmisc}[author]
+\bauthor{\bsnm{Silver},~\bfnm{Nate}\binits{N.}}
+(\byear{2019}).
+\btitle{How Our {RAPTOR} Metric Works}.
+\bhowpublished{\url{https://fivethirtyeight.com/features/how-our-raptor-metric-works/}}.
+\end{bmisc}
+\endbibitem
 
-\bibitem[Vaci et~al.(2019)Vaci, Coci{\'c}, Gula, and
-  Bilali{\'c}]{vaci2019large}
-Nemanja Vaci, Dijana Coci{\'c}, Bartosz Gula, and Merim Bilali{\'c}.
-\newblock Large data and bayesian modeling—aging curves of {NBA} players.
-\newblock \emph{Behavior {R}esearch {M}ethods}, pages 1--21, 2019.
+\bibitem[\protect\citeauthoryear{Solin and Särkkä}{2019}]{Solin_2019}
+\begin{barticle}[author]
+\bauthor{\bsnm{Solin},~\bfnm{Arno}\binits{A.}} \AND
+  \bauthor{\bsnm{Särkkä},~\bfnm{Simo}\binits{S.}}
+(\byear{2019}).
+\btitle{Hilbert space methods for reduced-rank Gaussian process regression}.
+\bjournal{Statistics and Computing}
+\bvolume{30}
+\bpages{419–446}.
+\bdoi{10.1007/s11222-019-09886-w}
+\end{barticle}
+\endbibitem
 
-\bibitem[Vinu{\'e} and Epifanio(2019)]{vinue2019forecasting}
-Guillermo Vinu{\'e} and Irene Epifanio.
-\newblock Forecasting basketball players' performance using sparse functional
-  data.
-\newblock \emph{Statistical Analysis and Data Mining: The ASA Data Science
-  Journal}, 2019.
+\bibitem[\protect\citeauthoryear{Terner and Franks}{2020}]{terner2020modeling}
+\begin{barticle}[author]
+\bauthor{\bsnm{Terner},~\bfnm{Zachary}\binits{Z.}} \AND
+  \bauthor{\bsnm{Franks},~\bfnm{Alexander}\binits{A.}}
+(\byear{2020}).
+\btitle{Modeling player and team performance in basketball}.
+\bjournal{Annual Review of Statistics and Its Application}
+\bvolume{8}.
+\end{barticle}
+\endbibitem
 
-\bibitem[Vinu{\'e} et~al.(2015)Vinu{\'e}, Epifanio, and
-  Alemany]{vinue2015archetypoids}
-Guillermo Vinu{\'e}, Irene Epifanio, and Sandra Alemany.
-\newblock Archetypoids: A new approach to define representative archetypal
-  data.
-\newblock \emph{Computational Statistics \& Data Analysis}, 87:\penalty0
-  102--115, 2015.
+\bibitem[\protect\citeauthoryear{Vaci et~al.}{2019}]{vaci2019large}
+\begin{barticle}[author]
+\bauthor{\bsnm{Vaci},~\bfnm{Nemanja}\binits{N.}},
+  \bauthor{\bsnm{Coci{\'c}},~\bfnm{Dijana}\binits{D.}},
+  \bauthor{\bsnm{Gula},~\bfnm{Bartosz}\binits{B.}} \AND
+  \bauthor{\bsnm{Bilali{\'c}},~\bfnm{Merim}\binits{M.}}
+(\byear{2019}).
+\btitle{Large data and Bayesian modeling—aging curves of {NBA} players}.
+\bjournal{Behavior {R}esearch {M}ethods}
+\bpages{1--21}.
+\end{barticle}
+\endbibitem
 
-\bibitem[Wakim and Jin(2014)]{wakim2014functional}
-Alexander Wakim and Jimmy Jin.
-\newblock Functional data analysis of aging curves in sports.
-\newblock \emph{arXiv preprint arXiv:1403.7548}, 2014.
+\bibitem[\protect\citeauthoryear{Vinu{\'e}, Epifanio and
+  Alemany}{2015}]{vinue2015archetypoids}
+\begin{barticle}[author]
+\bauthor{\bsnm{Vinu{\'e}},~\bfnm{Guillermo}\binits{G.}},
+  \bauthor{\bsnm{Epifanio},~\bfnm{Irene}\binits{I.}} \AND
+  \bauthor{\bsnm{Alemany},~\bfnm{Sandra}\binits{S.}}
+(\byear{2015}).
+\btitle{Archetypoids: A new approach to define representative archetypal data}.
+\bjournal{Computational Statistics \& Data Analysis}
+\bvolume{87}
+\bpages{102--115}.
+\end{barticle}
+\endbibitem
 
-\bibitem[Zhang et~al.(2023)Zhang, Gundersen, and
-  Engelhardt]{zhang2023bayesiannonlinearlatentvariable}
-Michael~Minyi Zhang, Gregory~W. Gundersen, and Barbara~E. Engelhardt.
-\newblock Bayesian non-linear latent variable modeling via random fourier
-  features, 2023.
-\newblock URL \url{https://arxiv.org/abs/2306.08352}.
+\bibitem[\protect\citeauthoryear{Vinu{\'e} and
+  Epifanio}{2019}]{vinue2019forecasting}
+\begin{barticle}[author]
+\bauthor{\bsnm{Vinu{\'e}},~\bfnm{Guillermo}\binits{G.}} \AND
+  \bauthor{\bsnm{Epifanio},~\bfnm{Irene}\binits{I.}}
+(\byear{2019}).
+\btitle{Forecasting basketball players' performance using sparse functional
+  data}.
+\bjournal{Statistical Analysis and Data Mining: The ASA Data Science Journal}.
+\end{barticle}
+\endbibitem
+
+\bibitem[\protect\citeauthoryear{Wakim and Jin}{2014}]{wakim2014functional}
+\begin{barticle}[author]
+\bauthor{\bsnm{Wakim},~\bfnm{Alexander}\binits{A.}} \AND
+  \bauthor{\bsnm{Jin},~\bfnm{Jimmy}\binits{J.}}
+(\byear{2014}).
+\btitle{Functional data analysis of aging curves in sports}.
+\bjournal{arXiv preprint arXiv:1403.7548}.
+\end{barticle}
+\endbibitem
+
+\bibitem[\protect\citeauthoryear{Zhang, Gundersen and
+  Engelhardt}{2023}]{zhang2023bayesiannonlinearlatentvariable}
+\begin{bmisc}[author]
+\bauthor{\bsnm{Zhang},~\bfnm{Michael~Minyi}\binits{M.~M.}},
+  \bauthor{\bsnm{Gundersen},~\bfnm{Gregory~W.}\binits{G.~W.}} \AND
+  \bauthor{\bsnm{Engelhardt},~\bfnm{Barbara~E.}\binits{B.~E.}}
+(\byear{2023}).
+\btitle{Bayesian Non-linear Latent Variable Modeling via Random Fourier
+  Features}.
+\end{bmisc}
+\endbibitem
 
 \end{thebibliography}
