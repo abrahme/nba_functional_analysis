@@ -1,11 +1,24 @@
 \relax 
+\providecommand\hyper@newdestlabel[2]{}
 \providecommand\babel@aux[2]{}
 \@nameuse{bbl@beforestart}
-\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyperFirstAtBeginDocument{\AtBeginDocument}
+\HyperFirstAtBeginDocument{\ifx\hyper@anchor\@undefined
+\global\let\oldcontentsline\contentsline
+\gdef\contentsline#1#2#3#4{\oldcontentsline{#1}{#2}{#3}}
+\global\let\oldnewlabel\newlabel
+\gdef\newlabel#1#2{\newlabelxx{#1}#2}
+\gdef\newlabelxx#1#2#3#4#5#6{\oldnewlabel{#1}{{#2}{#3}}}
+\AtEndDocument{\ifx\hyper@anchor\@undefined
+\let\contentsline\oldcontentsline
+\let\newlabel\oldnewlabel
+\fi}
+\fi}
+\global\let\hyper@last\relax 
+\gdef\HyperFirstAtBeginDocument#1{#1}
 \providecommand\HyField@AuxAddToFields[1]{}
 \providecommand\HyField@AuxAddToCoFields[2]{}
 \citation{wakim2014functional}
-\citation{vaci2019large}
 \citation{page2007using,vaci2019large,wakim2014functional}
 \citation{natesilver538_2015,natesilver538_2019}
 \citation{vaci2019large}
@@ -14,327 +27,423 @@
 \citation{vinue2019forecasting}
 \citation{vinue2015archetypoids}
 \babel@aux{english}{}
+\gdef\hy@title{Concave Processes for Multi-Task Career Trajectories: Evaluating Aging Across Multiple Measures of NBA Performance }
+\thanksnewlabel{t1thanks}{{1}{1}}
+\thanksnewlabel{t2thanks}{{2}{1}}
+\thanksnewlabel{t3thanks}{{3}{1}}
+\thanksnewlabel{e1@email}{{abhijitbrahme@ucsb.edu}{1}}
+\thanksnewlabel{e2@email}{{darbour@adobe.com}{1}}
+\thanksnewlabel{e3@email}{{afranks@ucsb.edu}{1}}
+\gdef\hy@author{Abhijit Brahme, David Arbour and Alexander Franks}
+\gdef\hy@subject{Submitted to the Annals of Applied Statistics }
+\gdef\hy@keywords{Bayesian nonparametrics, Gaussian process latent variable model, concavity constraints, production curves, sports analytics, survival analysis}
+\gdef\author@num{3}
 \@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {1.1}Contributions}{2}{subsection.1.1}\protected@file@percent }
+\citation{vaci2019large}
 \newlabel{sec:contributions}{{1.1}{2}{Contributions}{subsection.1.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.1}Contributions}{2}{subsection.1.1}\protected@file@percent }
 \citation{bballref}
 \citation{ballr}
 \citation{terner2020modeling}
 \citation{chessa2023complex}
+\newlabel{sec:data}{{2}{3}{Data and Exploratory Analysis}{section.2}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {2}Data and Exploratory Analysis}{3}{section.2}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces This plot illustrates the average value of production by age, across a variety of different metrics, smoothed by a LOESS estimator. Note that for a specific individual, we see metrics heavily adhere to prior beliefs of aging. There still exist upward ticks for certain metrics, but players tend to have lower minutes played toward the end of their careers, so those upticks could be due to random chance, illustrating the need to model heteroscedasticity. We see the wide variety in peak location, peak value, and pre/post-peak behavior across metrics, as well as across players. Rate metrics are presented on a per 36 minutes basis for easier interpretation. }}{5}{figure.caption.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces This plot illustrates the average value of production by age, across a variety of different metrics, smoothed by a LOESS estimator. Note that for a specific individual, we see metrics heavily adhere to prior beliefs of aging. There still exist upward ticks for certain metrics, but players tend to have lower minutes played toward the end of their careers, so those upticks could be due to random chance, illustrating the need to model heteroscedasticity. We see the wide variety in peak location, peak value, and pre/post-peak behavior across metrics, as well as across players. Rate metrics are presented on a per 36 minutes basis for easier interpretation. \relax }}{4}{figure.caption.1}\protected@file@percent }
 \providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
-\newlabel{fig:empirical_production_players}{{1}{5}{This plot illustrates the average value of production by age, across a variety of different metrics, smoothed by a LOESS estimator. Note that for a specific individual, we see metrics heavily adhere to prior beliefs of aging. There still exist upward ticks for certain metrics, but players tend to have lower minutes played toward the end of their careers, so those upticks could be due to random chance, illustrating the need to model heteroscedasticity. We see the wide variety in peak location, peak value, and pre/post-peak behavior across metrics, as well as across players. Rate metrics are presented on a per 36 minutes basis for easier interpretation}{figure.caption.1}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {3}Proposed Model}{5}{section.3}\protected@file@percent }
-\newlabel{sec:proposed_model}{{3}{5}{Proposed Model}{section.3}{}}
+\newlabel{fig:empirical_production_players}{{1}{4}{This plot illustrates the average value of production by age, across a variety of different metrics, smoothed by a LOESS estimator. Note that for a specific individual, we see metrics heavily adhere to prior beliefs of aging. There still exist upward ticks for certain metrics, but players tend to have lower minutes played toward the end of their careers, so those upticks could be due to random chance, illustrating the need to model heteroscedasticity. We see the wide variety in peak location, peak value, and pre/post-peak behavior across metrics, as well as across players. Rate metrics are presented on a per 36 minutes basis for easier interpretation. \relax }{figure.caption.1}{}}
+\newlabel{sec:proposed_model}{{3}{4}{Proposed Model}{section.3}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Proposed Model}{4}{section.3}\protected@file@percent }
+\newlabel{sec:likelihoods}{{3.1}{5}{Likelihood}{subsection.3.1}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Likelihood}{5}{subsection.3.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Mean Model}{7}{subsection.3.2}\protected@file@percent }
-\newlabel{eq:structured_prior}{{8}{7}{Mean Model}{equation.3.8}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Career Duration Model}{8}{subsection.3.3}\protected@file@percent }
-\newlabel{sec:survival}{{3.3}{8}{Career Duration Model}{subsection.3.3}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.3.1}Weibull Proportional-Hazard Formulation}{8}{subsubsection.3.3.1}\protected@file@percent }
-\newlabel{eq:weibull}{{10}{8}{Weibull Proportional-Hazard Formulation}{equation.3.10}{}}
-\@writefile{toc}{\contentsline {paragraph}{Parameter maps.}{8}{section*.2}\protected@file@percent }
-\newlabel{eq:eta}{{11}{8}{Parameter maps}{equation.3.11}{}}
-\newlabel{eq:gamma}{{12}{8}{Parameter maps}{equation.3.12}{}}
-\citation{vaci2019large}
-\citation{convexityconstraints}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.3.2}Truncated Likelihood and Censoring}{9}{subsubsection.3.3.2}\protected@file@percent }
-\newlabel{eq:surv_lik}{{14}{9}{Truncated Likelihood and Censoring}{equation.3.14}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}A Non-Parametric Prior for Concave Functions}{9}{subsection.3.4}\protected@file@percent }
-\newlabel{sec:concave_prior}{{3.4}{9}{A Non-Parametric Prior for Concave Functions}{subsection.3.4}{}}
-\newlabel{eqn:concave_process_uni}{{15}{10}{Concave Gaussian process prior}{equation.3.15}{}}
-\citation{convexityconstraints}
-\citation{Solin_2019}
-\newlabel{prop:concave_uni_gp}{{2}{11}{}{proposition.2}{}}
-\newlabel{eq:final_uni_gp}{{17}{11}{}{equation.3.17}{}}
-\newlabel{eq:phi}{{18}{11}{}{equation.3.18}{}}
-\citation{Solin_2019}
-\newlabel{theorem:concave_max_approx}{{1}{13}{}{theorem.1}{}}
-\newlabel{eq:max_constraint_gp}{{20}{13}{}{equation.3.20}{}}
-\@writefile{toc}{\contentsline {paragraph}{Prior moment properties.}{13}{section*.3}\protected@file@percent }
-\newlabel{eq:f_peak_rep}{{21}{13}{Prior moment properties}{equation.3.21}{}}
-\newlabel{eq:var_quartic}{{22}{13}{Prior moment properties}{equation.3.22}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.4.1}Modeling Dependence Across Concave Processes}{13}{subsubsection.3.4.1}\protected@file@percent }
-\newlabel{eq:concave_multi_rep}{{23}{14}{Modeling Dependence Across Concave Processes}{equation.3.23}{}}
-\newlabel{prop:concave_multi_gp}{{4}{14}{}{proposition.4}{}}
-\newlabel{eq:final_gp}{{25}{14}{}{equation.3.25}{}}
-\newlabel{theorem:covariance_f(x,t)}{{2}{14}{}{theorem.2}{}}
-\newlabel{eq:cov_gp}{{26}{14}{}{equation.3.26}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces \relax }}{5}{table.caption.2}\protected@file@percent }
+\newlabel{tab:glm_framework}{{1}{5}{\relax }{table.caption.2}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces For notational brevity in the Binomial and Poisson case, we assume that the dispersion term from their overdispersed counterparts $\rightarrow \infty $.\relax }}{5}{table.caption.2}\protected@file@percent }
 \citation{JMLR:v6:lawrence05a}
-\citation{JMLR:v6:lawrence05a}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}Modeling Player Similarity}{15}{subsection.3.5}\protected@file@percent }
-\newlabel{sec:player_similarity}{{3.5}{15}{Modeling Player Similarity}{subsection.3.5}{}}
-\citation{bodin2017latentgaussianprocessregression}
-\@writefile{toc}{\contentsline {paragraph}{Identifiability.}{16}{section*.4}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Directed acyclic graph of the complete generative model. Shaded nodes are observed; unshaded nodes are latent. $Z_p, W$: structured prior mean $Z_p^\top W$ anchoring $X_p$ to draft position, height, and positional role. $\nu ^k, w^k$: weight vectors for peak age $t^*_{pk}$ and peak value $f^*_{pk}$. $\beta $: HSGP spectral weights for the concave trajectory $f^k(X_p,t)$. $\rho ^k, \sigma ^k_{AR}$: AR(1) parameters for the player-metric residual $r^k_{pt}$. $F_m, L_k$: injury-type factors and metric loadings for the injury offset $\tau ^k_{ptm}$. $Y^k_{pt}$: observed statistic (Gaussian, Negative-Binomial, Beta, or Beta-Binomial, per Table~\ref {tab:metric_description}).}}{16}{figure.caption.5}\protected@file@percent }
-\newlabel{fig:graphical_model}{{2}{16}{Directed acyclic graph of the complete generative model. Shaded nodes are observed; unshaded nodes are latent. $Z_p, W$: structured prior mean $Z_p^\top W$ anchoring $X_p$ to draft position, height, and positional role. $\nu ^k, w^k$: weight vectors for peak age $t^*_{pk}$ and peak value $f^*_{pk}$. $\beta $: HSGP spectral weights for the concave trajectory $f^k(X_p,t)$. $\rho ^k, \sigma ^k_{AR}$: AR(1) parameters for the player-metric residual $r^k_{pt}$. $F_m, L_k$: injury-type factors and metric loadings for the injury offset $\tau ^k_{ptm}$. $Y^k_{pt}$: observed statistic (Gaussian, Negative-Binomial, Beta, or Beta-Binomial, per Table~\ref {tab:metric_description})}{figure.caption.5}{}}
-\citation{mauri2025factorpretrainingbayesianmultivariate}
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Prior specification for key model parameters. $\mathcal  {IG}(\alpha , \beta )$ denotes an Inverse-Gamma with shape $\alpha $ and scale $\beta $; $S_k$ is the spectral density matrix of the squared-exponential kernel evaluated at the HSGP eigenvalues for metric $k$.}}{17}{table.caption.6}\protected@file@percent }
-\newlabel{tab:prior_spec}{{1}{17}{Prior specification for key model parameters. $\mathcal {IG}(\alpha , \beta )$ denotes an Inverse-Gamma with shape $\alpha $ and scale $\beta $; $S_k$ is the spectral density matrix of the squared-exponential kernel evaluated at the HSGP eigenvalues for metric $k$}{table.caption.6}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {4}Inference}{17}{section.4}\protected@file@percent }
-\newlabel{sec:inference}{{4}{17}{Inference}{section.4}{}}
-\@writefile{toc}{\contentsline {paragraph}{Procrustes alignment for posterior analysis.}{18}{section*.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Posterior predictive generation.}{18}{section*.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {5}Results And Discussion}{18}{section.5}\protected@file@percent }
-\newlabel{sec:results}{{5}{18}{Results And Discussion}{section.5}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Example Posterior Curves}{18}{subsection.5.1}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Posterior production curves for Stephen Curry (joint model). Green line = posterior mean concave curve; red dashed line = training cutoff.}}{19}{figure.caption.9}\protected@file@percent }
-\newlabel{fig:posterior_curves}{{3}{19}{Posterior production curves for Stephen Curry (joint model). Green line = posterior mean concave curve; red dashed line = training cutoff}{figure.caption.9}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}The Benefits of Joint Modeling}{19}{subsection.5.2}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Posterior production curves for Nikola Joki\'{c} (joint model). Green line = posterior mean; red dashed line = training cutoff.}}{20}{figure.caption.10}\protected@file@percent }
-\newlabel{fig:jokic_comparison}{{4}{20}{Posterior production curves for Nikola Joki\'{c} (joint model). Green line = posterior mean; red dashed line = training cutoff}{figure.caption.10}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Five nearest neighbors of Nikola Jokic in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance.}}{21}{table.caption.11}\protected@file@percent }
-\newlabel{tab:Nikola_Jokic_neighbors}{{2}{21}{Five nearest neighbors of Nikola Jokic in the Procrustes-aligned posterior latent space. Rank is by posterior mean embedding distance}{table.caption.11}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Posterior mean trajectories for Nikola Joki\'{c} (solid line) and his five nearest latent-space neighbors. Neighbors are identified from Procrustes-aligned posterior mean coordinates; rank labels indicate distance ordering.}}{21}{figure.caption.12}\protected@file@percent }
-\newlabel{fig:jokic_neighbor_curves}{{5}{21}{Posterior mean trajectories for Nikola Joki\'{c} (solid line) and his five nearest latent-space neighbors. Neighbors are identified from Procrustes-aligned posterior mean coordinates; rank labels indicate distance ordering}{figure.caption.12}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Five nearest neighbors of Nikola Jokic by mean Fr\'{e}chet curve distance across metrics. Identified purely from trajectory shape without dimensionality reduction.}}{22}{table.caption.13}\protected@file@percent }
-\newlabel{tab:Nikola_Jokic_frechet_curve_neighbors}{{3}{22}{Five nearest neighbors of Nikola Jokic by mean Fr\'{e}chet curve distance across metrics. Identified purely from trajectory shape without dimensionality reduction}{table.caption.13}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Model Validation}{22}{subsection.5.3}\protected@file@percent }
-\newlabel{sec:validation}{{5.3}{22}{Model Validation}{subsection.5.3}{}}
-\@writefile{toc}{\contentsline {paragraph}{Coverage.}{22}{section*.15}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Predictive accuracy.}{22}{section*.17}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Posterior mean trajectories for Nikola Joki\'{c} (solid line) and his five nearest Fr\'{e}chet curve neighbors. Fr\'{e}chet neighbors are identified from trajectory arc shape and share Joki\'{c}'s early emergence and prolonged plateau, despite having guard- or wing-specific production profiles that differ markedly from his rebounding-and-playmaking output.}}{23}{figure.caption.14}\protected@file@percent }
-\newlabel{fig:jokic_frechet_neighbor_curves}{{6}{23}{Posterior mean trajectories for Nikola Joki\'{c} (solid line) and his five nearest Fr\'{e}chet curve neighbors. Fr\'{e}chet neighbors are identified from trajectory arc shape and share Joki\'{c}'s early emergence and prolonged plateau, despite having guard- or wing-specific production profiles that differ markedly from his rebounding-and-playmaking output}{figure.caption.14}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces 95\% HDI holdout validation coverage by metric across model variants (Hold-out Last $k$ scheme, 727 player-seasons). \textbf  {Bold} indicates the model closest to the nominal 95\% level per metric.}}{24}{table.caption.16}\protected@file@percent }
-\newlabel{tab:coverage_basic}{{4}{24}{95\% HDI holdout validation coverage by metric across model variants (Hold-out Last $k$ scheme, 727 player-seasons). \textbf {Bold} indicates the model closest to the nominal 95\% level per metric}{table.caption.16}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Holdout evaluation schemes. All schemes select 20\% of players at random; $k=2$ for first/last schemes.}}{25}{table.caption.18}\protected@file@percent }
-\newlabel{tab:holdout_schemes}{{5}{25}{Holdout evaluation schemes. All schemes select 20\% of players at random; $k=2$ for first/last schemes}{table.caption.18}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Uncovering Metric Relationships}{26}{subsection.5.4}\protected@file@percent }
-\newlabel{sec:uncovering_metrics}{{5.4}{26}{Uncovering Metric Relationships}{subsection.5.4}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces PCA on posterior mean peak ages by metric. Higher PC1 / lower PC2 corresponds to later-peaking players (e.g.\ Nash, Curry); lower PC1 / higher PC2 to earlier-peaking players (e.g.\ Steve Francis).}}{27}{figure.caption.19}\protected@file@percent }
-\newlabel{fig:metric_loadings}{{7}{27}{PCA on posterior mean peak ages by metric. Higher PC1 / lower PC2 corresponds to later-peaking players (e.g.\ Nash, Curry); lower PC1 / higher PC2 to earlier-peaking players (e.g.\ Steve Francis)}{figure.caption.19}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces Posterior estimates of peak age by metric (left) and the first two PCA loadings of the peak-age matrix (right). Athleticism metrics (Group 1) peak earlier; skill metrics (Group 3) peak later; Group 2 blends both.}}{28}{figure.caption.20}\protected@file@percent }
-\newlabel{fig:peaks}{{8}{28}{Posterior estimates of peak age by metric (left) and the first two PCA loadings of the peak-age matrix (right). Athleticism metrics (Group 1) peak earlier; skill metrics (Group 3) peak later; Group 2 blends both}{figure.caption.20}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Posterior estimates of peak value by metric (left) and the first two PCA loadings of the peak-value matrix (right). The cluster structure mirrors the peak-age grouping, confirming that athleticism-reliant metrics not only peak earlier but also reach lower absolute ceilings relative to skill-based metrics.}}{28}{figure.caption.21}\protected@file@percent }
-\newlabel{fig:peaks_vals}{{9}{28}{Posterior estimates of peak value by metric (left) and the first two PCA loadings of the peak-value matrix (right). The cluster structure mirrors the peak-age grouping, confirming that athleticism-reliant metrics not only peak earlier but also reach lower absolute ceilings relative to skill-based metrics}{figure.caption.21}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.5}Archetype Discovery via Hierarchical Clustering}{29}{subsection.5.5}\protected@file@percent }
-\newlabel{sec:latent_space}{{5.5}{29}{Archetype Discovery via Hierarchical Clustering}{subsection.5.5}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {10}{\ignorespaces PCA of the posterior mean latent coordinates colored by discovered archetype ($k=4$, Ward clustering on Procrustes-aligned posterior mean coordinates). PC1 and PC2 explain 11.2\% and 10.6\% of variance respectively. Point size scales with career minutes. The four archetypes partition the space in a way that transcends traditional positional labels.}}{29}{figure.caption.22}\protected@file@percent }
-\newlabel{fig:latent_archetypes}{{10}{29}{PCA of the posterior mean latent coordinates colored by discovered archetype ($k=4$, Ward clustering on Procrustes-aligned posterior mean coordinates). PC1 and PC2 explain 11.2\% and 10.6\% of variance respectively. Point size scales with career minutes. The four archetypes partition the space in a way that transcends traditional positional labels}{figure.caption.22}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {11}{\ignorespaces Frechet archetype mean curves across metrics. Each panel shows the archetype-level mean trajectory, summarizing curve shape and timing differences that distinguish player types.}}{30}{figure.caption.23}\protected@file@percent }
-\newlabel{fig:archetype_frechet_curves}{{11}{30}{Frechet archetype mean curves across metrics. Each panel shows the archetype-level mean trajectory, summarizing curve shape and timing differences that distinguish player types}{figure.caption.23}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces Posterior mean peak age and peak value (in parentheses) by archetype and metric.}}{30}{table.caption.24}\protected@file@percent }
-\newlabel{tab:archetype_summary}{{6}{30}{Posterior mean peak age and peak value (in parentheses) by archetype and metric}{table.caption.24}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.6}Modality-Specific Archetype Clustering}{31}{subsection.5.6}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {12}{\ignorespaces PCA of the modality-specific Procrustes-aligned posterior mean latent coordinates, coloured by discovered archetype ($k=4$).}}{31}{figure.caption.25}\protected@file@percent }
-\newlabel{fig:modality_pca}{{12}{31}{PCA of the modality-specific Procrustes-aligned posterior mean latent coordinates, coloured by discovered archetype ($k=4$)}{figure.caption.25}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {13}{\ignorespaces Cluster-selection diagnostics (within-cluster SS and mean silhouette) for modality-specific archetype clustering.}}{32}{figure.caption.26}\protected@file@percent }
-\newlabel{fig:modality_k_diagnostics}{{13}{32}{Cluster-selection diagnostics (within-cluster SS and mean silhouette) for modality-specific archetype clustering}{figure.caption.26}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {14}{\ignorespaces Ward dendrograms for modality-specific archetype clustering using peak-age and peak-value summaries. Ward clustering uses the unscaled modality-specific coordinates so that the modality weights are preserved.}}{32}{figure.caption.27}\protected@file@percent }
-\newlabel{fig:modality_dendrograms}{{14}{32}{Ward dendrograms for modality-specific archetype clustering using peak-age and peak-value summaries. Ward clustering uses the unscaled modality-specific coordinates so that the modality weights are preserved}{figure.caption.27}{}}
-\newlabel{fig:dim_var_peak_age}{{15a}{33}{Peak-age modality}{figure.caption.28}{}}
-\newlabel{sub@fig:dim_var_peak_age}{{a}{33}{Peak-age modality}{figure.caption.28}{}}
-\newlabel{fig:dim_var_peak_value}{{15b}{33}{Peak-value modality}{figure.caption.28}{}}
-\newlabel{sub@fig:dim_var_peak_value}{{b}{33}{Peak-value modality}{figure.caption.28}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {15}{\ignorespaces Per-dimension variance in unscaled modality-specific posterior mean coordinates. Dimensions with high variance are both variable across players and strongly weighted by the modality's $\gamma $ coefficients, making them the primary drivers of archetype separation.}}{33}{figure.caption.28}\protected@file@percent }
-\newlabel{fig:modality_dim_variance}{{15}{33}{Per-dimension variance in unscaled modality-specific posterior mean coordinates. Dimensions with high variance are both variable across players and strongly weighted by the modality's $\gamma $ coefficients, making them the primary drivers of archetype separation}{figure.caption.28}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.7}Early Identification of Peak Performers and Draft Evaluation}{33}{subsection.5.7}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces Top 5 players by career minutes per archetype --- peak-age modality ($k=4$ archetypes). Top-3 latent dimensions by variance across players in this modality: Dim 2, Dim 5, Dim 4.}}{34}{table.caption.29}\protected@file@percent }
-\newlabel{tab:arch_reps_peak_age}{{7}{34}{Top 5 players by career minutes per archetype --- peak-age modality ($k=4$ archetypes). Top-3 latent dimensions by variance across players in this modality: Dim 2, Dim 5, Dim 4}{table.caption.29}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {8}{\ignorespaces Top 5 players by career minutes per archetype --- peak-value modality ($k=4$ archetypes). Top-3 latent dimensions by variance across players in this modality: Dim 2, Dim 7, Dim 6.}}{35}{table.caption.30}\protected@file@percent }
-\newlabel{tab:arch_reps_peak_value}{{8}{35}{Top 5 players by career minutes per archetype --- peak-value modality ($k=4$ archetypes). Top-3 latent dimensions by variance across players in this modality: Dim 2, Dim 7, Dim 6}{table.caption.30}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {16}{\ignorespaces Distribution of posterior mean peak OBPM by player entry cohort. Each violin summarises the full player-level posterior mean peak OBPM distribution. Narrowing spread from earlier to later cohorts reflects posterior contraction as more seasons of data are observed.}}{36}{figure.caption.32}\protected@file@percent }
-\newlabel{fig:breakout_cohort_dist}{{16}{36}{Distribution of posterior mean peak OBPM by player entry cohort. Each violin summarises the full player-level posterior mean peak OBPM distribution. Narrowing spread from earlier to later cohorts reflects posterior contraction as more seasons of data are observed}{figure.caption.32}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {9}{\ignorespaces Top 5 players by posterior mean peak OBPM per entry cohort. P($>$2), P($>$3), P($>$4) are posterior probabilities that peak OBPM exceeds the threshold; empirically, OBPM\,$=$\,2 is the 81th percentile, OBPM\,$=$\,3 the 88th, and OBPM\,$=$\,4 the 93th (career peak per player). Yrs to Peak is the posterior mean OBPM peak age minus last observed age ($<$1 = already at or within one year of peak).}}{37}{table.caption.31}\protected@file@percent }
-\newlabel{tab:breakout_cohort}{{9}{37}{Top 5 players by posterior mean peak OBPM per entry cohort. P($>$2), P($>$3), P($>$4) are posterior probabilities that peak OBPM exceeds the threshold; empirically, OBPM\,$=$\,2 is the 81th percentile, OBPM\,$=$\,3 the 88th, and OBPM\,$=$\,4 the 93th (career peak per player). Yrs to Peak is the posterior mean OBPM peak age minus last observed age ($<$1 = already at or within one year of peak)}{table.caption.31}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.8}Counterfactual NBA Career Trajectories for Injury Analysis}{38}{subsection.5.8}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {18}{\ignorespaces Comparison between Kevin Durant (L) and Brandon Jennings (R). The dashed red line indicates the timing of the Achilles injury}}{38}{figure.caption.34}\protected@file@percent }
-\newlabel{fig:kd_bj}{{18}{38}{Comparison between Kevin Durant (L) and Brandon Jennings (R). The dashed red line indicates the timing of the Achilles injury}{figure.caption.34}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {17}{\ignorespaces Percent change in peak metric value comparing post- to pre-injury periods, averaged across all injured players who returned to play. Each bar represents a metric; negative values indicate post-injury decline. Age-related decline is a confound in this raw comparison, motivating the counterfactual model.}}{39}{figure.caption.33}\protected@file@percent }
-\newlabel{fig:inuries}{{17}{39}{Percent change in peak metric value comparing post- to pre-injury periods, averaged across all injured players who returned to play. Each bar represents a metric; negative values indicate post-injury decline. Age-related decline is a confound in this raw comparison, motivating the counterfactual model}{figure.caption.33}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {19}{\ignorespaces Comparison between Kevin Durant (L) and Brandon Jennings (R). The dashed blue line indicates the avg. observed value of the metric post Achilles injury, while the curve represents the posterior distribution of the counterfactual values.}}{40}{figure.caption.35}\protected@file@percent }
-\newlabel{fig:kd_bj_metrics}{{19}{40}{Comparison between Kevin Durant (L) and Brandon Jennings (R). The dashed blue line indicates the avg. observed value of the metric post Achilles injury, while the curve represents the posterior distribution of the counterfactual values}{figure.caption.35}{}}
-\newlabel{fig:dr_acl}{{\caption@xref {fig:dr_acl}{ on input line 1120}}{41}{Counterfactual NBA Career Trajectories for Injury Analysis}{figure.caption.36}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {20}{\ignorespaces Comparison between John Wall (L) and Derrick Rose (R). The dashed red vertical line indicates the timing of the respective injuries.}}{41}{figure.caption.36}\protected@file@percent }
-\newlabel{fig:player_comparison}{{20}{41}{Comparison between John Wall (L) and Derrick Rose (R). The dashed red vertical line indicates the timing of the respective injuries}{figure.caption.36}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {21}{\ignorespaces Comparison between John Wall (L) and Derrick Rose (R). The dashed blue line indicates the avg. observed value of the metric post injury, while the curve represents the posterior distribution of the counterfactual values.}}{41}{figure.caption.37}\protected@file@percent }
-\newlabel{fig:player_comparison_metrics}{{21}{41}{Comparison between John Wall (L) and Derrick Rose (R). The dashed blue line indicates the avg. observed value of the metric post injury, while the curve represents the posterior distribution of the counterfactual values}{figure.caption.37}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.9}Injury Effect Estimation}{41}{subsection.5.9}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {22}{\ignorespaces Posterior distribution of the global injury offset $\bar  {\tau }$ averaged over metrics and injury subtypes. The mass below zero confirms a systematic post-injury production decline beyond age-related aging.}}{42}{figure.caption.38}\protected@file@percent }
-\newlabel{fig:injury_global}{{22}{42}{Posterior distribution of the global injury offset $\bar {\tau }$ averaged over metrics and injury subtypes. The mass below zero confirms a systematic post-injury production decline beyond age-related aging}{figure.caption.38}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {23}{\ignorespaces Injury-subtype-specific posterior offsets by metric. Each panel shows the posterior interval for $\tau ^k_{m}$ for a given injury subtype; metrics are ordered by athleticism-to-skill spectrum from Section~\ref {sec:uncovering_metrics}. Achilles and ACL injuries produce the largest and most consistent declines in athleticism metrics.}}{43}{figure.caption.39}\protected@file@percent }
-\newlabel{fig:injury_type}{{23}{43}{Injury-subtype-specific posterior offsets by metric. Each panel shows the posterior interval for $\tau ^k_{m}$ for a given injury subtype; metrics are ordered by athleticism-to-skill spectrum from Section~\ref {sec:uncovering_metrics}. Achilles and ACL injuries produce the largest and most consistent declines in athleticism metrics}{figure.caption.39}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {24}{\ignorespaces Posterior survival curves by injury subtype. Injured players have shorter modeled career durations; Achilles and ACL injuries shift the survival curve most substantially relative to the uninjured baseline.}}{43}{figure.caption.40}\protected@file@percent }
-\newlabel{fig:injury_survival}{{24}{43}{Posterior survival curves by injury subtype. Injured players have shorter modeled career durations; Achilles and ACL injuries shift the survival curve most substantially relative to the uninjured baseline}{figure.caption.40}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {25}{\ignorespaces Posterior ATT (observed minus counterfactual) per metric, averaged across all injured players. Negative values indicate that actual post-injury production fell below the model's counterfactual aging curve. Athleticism metrics (BLK, STL, FTA) show the largest deficits.}}{44}{figure.caption.41}\protected@file@percent }
-\newlabel{fig:att_by_metric}{{25}{44}{Posterior ATT (observed minus counterfactual) per metric, averaged across all injured players. Negative values indicate that actual post-injury production fell below the model's counterfactual aging curve. Athleticism metrics (BLK, STL, FTA) show the largest deficits}{figure.caption.41}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {6}Conclusion and Future Work}{45}{section.6}\protected@file@percent }
-\newlabel{sec:conclusion}{{6}{45}{Conclusion and Future Work}{section.6}{}}
-\@writefile{toc}{\contentsline {paragraph}{Key quantitative findings.}{45}{section*.42}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Limitations.}{45}{section*.43}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Future directions.}{46}{section*.44}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {A}Appendix}{47}{appendix.A}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {A.1}AR Baseline Comparison}{47}{subsection.A.1}\protected@file@percent }
-\newlabel{sec:ar_comparison}{{A.1}{47}{AR Baseline Comparison}{subsection.A.1}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {26}{\ignorespaces Joint model (left) vs.\ Naive AR baseline (right) for Stephen Curry (top) and Nikola Joki\'{c} (bottom). Green line = posterior mean; red dashed line = training cutoff.}}{47}{figure.caption.45}\protected@file@percent }
-\newlabel{fig:ar_comparison}{{26}{47}{Joint model (left) vs.\ Naive AR baseline (right) for Stephen Curry (top) and Nikola Joki\'{c} (bottom). Green line = posterior mean; red dashed line = training cutoff}{figure.caption.45}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {A.2}Model Validation}{48}{subsection.A.2}\protected@file@percent }
-\newlabel{sec:appendix_validation}{{A.2}{48}{Model Validation}{subsection.A.2}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {10}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric — Hold-out Last $k$ scheme.}}{49}{table.caption.46}\protected@file@percent }
-\newlabel{tab:coverage_holdout_last_k}{{10}{49}{Holdout RMSE and bias (in parentheses) by metric — Hold-out Last $k$ scheme}{table.caption.46}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {11}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric — Hold-out First $k$ scheme.}}{49}{table.caption.47}\protected@file@percent }
-\newlabel{tab:coverage_holdout_first_k}{{11}{49}{Holdout RMSE and bias (in parentheses) by metric — Hold-out First $k$ scheme}{table.caption.47}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {12}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric — Random Interior scheme.}}{50}{table.caption.48}\protected@file@percent }
-\newlabel{tab:coverage_random_interior}{{12}{50}{Holdout RMSE and bias (in parentheses) by metric — Random Interior scheme}{table.caption.48}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {13}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric — Hold-out Peak scheme.}}{50}{table.caption.49}\protected@file@percent }
-\newlabel{tab:coverage_holdout_peak}{{13}{50}{Holdout RMSE and bias (in parentheses) by metric — Hold-out Peak scheme}{table.caption.49}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {14}{\ignorespaces Holdout average log-loss by metric — Hold-out Last $k$ scheme.}}{51}{table.caption.50}\protected@file@percent }
-\newlabel{tab:logloss_holdout_last_k}{{14}{51}{Holdout average log-loss by metric — Hold-out Last $k$ scheme}{table.caption.50}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {15}{\ignorespaces Holdout average log-loss by metric — Hold-out First $k$ scheme.}}{51}{table.caption.51}\protected@file@percent }
-\newlabel{tab:logloss_holdout_first_k}{{15}{51}{Holdout average log-loss by metric — Hold-out First $k$ scheme}{table.caption.51}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {16}{\ignorespaces Holdout average log-loss by metric — Random Interior scheme.}}{52}{table.caption.52}\protected@file@percent }
-\newlabel{tab:logloss_random_interior}{{16}{52}{Holdout average log-loss by metric — Random Interior scheme}{table.caption.52}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {17}{\ignorespaces Holdout average log-loss by metric — Hold-out Peak scheme.}}{52}{table.caption.53}\protected@file@percent }
-\newlabel{tab:logloss_holdout_peak}{{17}{52}{Holdout average log-loss by metric — Hold-out Peak scheme}{table.caption.53}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {18}{\ignorespaces Holdout (val) and in-sample 95\% HDI coverage by metric --- Hold-out Last $k$ scheme. Best validation coverage per metric in bold.}}{53}{table.caption.54}\protected@file@percent }
-\newlabel{tab:hdi_coverage_holdout_last_k}{{18}{53}{Holdout (val) and in-sample 95\% HDI coverage by metric --- Hold-out Last $k$ scheme. Best validation coverage per metric in bold}{table.caption.54}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {19}{\ignorespaces Posterior bias (mean [95\% HDI]) by metric --- Hold-out Last $k$ scheme. Validation interval shown; in-sample in parentheses. Best-calibrated model (smallest $|$bias$|$) per metric in bold.}}{53}{table.caption.55}\protected@file@percent }
-\newlabel{tab:bias_interval_holdout_last_k}{{19}{53}{Posterior bias (mean [95\% HDI]) by metric --- Hold-out Last $k$ scheme. Validation interval shown; in-sample in parentheses. Best-calibrated model (smallest $|$bias$|$) per metric in bold}{table.caption.55}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {20}{\ignorespaces Posterior average negative log-likelihood (mean [95\% HDI]) by metric --- Hold-out Last $k$ scheme. Per-family NLL: Gaussian NLL for OBPM/DBPM/USG/MPG, Poisson NLL for count metrics, Binomial NLL for FT\%/FG2\%/FG3\%, NB NLL for FTA/FG2A/FG3A, Beta-Binomial NLL for GP\%. Validation interval shown; in-sample in parentheses. Best model (lowest validation NLL) per metric in bold.}}{54}{table.caption.56}\protected@file@percent }
-\newlabel{tab:log_loss_interval_holdout_last_k}{{20}{54}{Posterior average negative log-likelihood (mean [95\% HDI]) by metric --- Hold-out Last $k$ scheme. Per-family NLL: Gaussian NLL for OBPM/DBPM/USG/MPG, Poisson NLL for count metrics, Binomial NLL for FT\%/FG2\%/FG3\%, NB NLL for FTA/FG2A/FG3A, Beta-Binomial NLL for GP\%. Validation interval shown; in-sample in parentheses. Best model (lowest validation NLL) per metric in bold}{table.caption.56}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {21}{\ignorespaces ELPPD per observation difference vs.\ best model (holdout) --- Hold-out Last $k$ scheme. Higher is better; 0 = best model. $\dagger $ = significantly different at 95\% ($|\Delta |>1.96\times \mathrm  {SE}$).}}{55}{table.caption.57}\protected@file@percent }
-\newlabel{tab:elppd_holdout_last_k}{{21}{55}{ELPPD per observation difference vs.\ best model (holdout) --- Hold-out Last $k$ scheme. Higher is better; 0 = best model. $\dagger $ = significantly different at 95\% ($|\Delta |>1.96\times \mathrm {SE}$)}{table.caption.57}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {A.3}Latent Dimension Ablation}{55}{subsection.A.3}\protected@file@percent }
-\newlabel{sec:ablation_q}{{A.3}{55}{Latent Dimension Ablation}{subsection.A.3}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {22}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Hold-out Last $k$ scheme. Best $q$ per metric in bold.}}{56}{table.caption.58}\protected@file@percent }
-\newlabel{tab:ablation_rmse_holdout_last_k}{{22}{56}{Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Hold-out Last $k$ scheme. Best $q$ per metric in bold}{table.caption.58}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {23}{\ignorespaces Holdout average log-loss by metric and latent dimension $q$ --- Hold-out Last $k$ scheme. Best $q$ per metric in bold.}}{57}{table.caption.59}\protected@file@percent }
-\newlabel{tab:ablation_logloss_holdout_last_k}{{23}{57}{Holdout average log-loss by metric and latent dimension $q$ --- Hold-out Last $k$ scheme. Best $q$ per metric in bold}{table.caption.59}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {24}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Hold-out First $k$ scheme. Best $q$ per metric in bold.}}{58}{table.caption.60}\protected@file@percent }
-\newlabel{tab:ablation_rmse_holdout_first_k}{{24}{58}{Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Hold-out First $k$ scheme. Best $q$ per metric in bold}{table.caption.60}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {25}{\ignorespaces Holdout average log-loss by metric and latent dimension $q$ --- Hold-out First $k$ scheme. Best $q$ per metric in bold.}}{59}{table.caption.61}\protected@file@percent }
-\newlabel{tab:ablation_logloss_holdout_first_k}{{25}{59}{Holdout average log-loss by metric and latent dimension $q$ --- Hold-out First $k$ scheme. Best $q$ per metric in bold}{table.caption.61}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {26}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Random Interior scheme. Best $q$ per metric in bold.}}{60}{table.caption.62}\protected@file@percent }
-\newlabel{tab:ablation_rmse_random_interior}{{26}{60}{Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Random Interior scheme. Best $q$ per metric in bold}{table.caption.62}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {27}{\ignorespaces Holdout average log-loss by metric and latent dimension $q$ --- Random Interior scheme. Best $q$ per metric in bold.}}{61}{table.caption.63}\protected@file@percent }
-\newlabel{tab:ablation_logloss_random_interior}{{27}{61}{Holdout average log-loss by metric and latent dimension $q$ --- Random Interior scheme. Best $q$ per metric in bold}{table.caption.63}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {28}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Hold-out Peak scheme. Best $q$ per metric in bold.}}{62}{table.caption.64}\protected@file@percent }
-\newlabel{tab:ablation_rmse_holdout_peak}{{28}{62}{Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Hold-out Peak scheme. Best $q$ per metric in bold}{table.caption.64}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {29}{\ignorespaces Holdout average log-loss by metric and latent dimension $q$ --- Hold-out Peak scheme. Best $q$ per metric in bold.}}{63}{table.caption.65}\protected@file@percent }
-\newlabel{tab:ablation_logloss_holdout_peak}{{29}{63}{Holdout average log-loss by metric and latent dimension $q$ --- Hold-out Peak scheme. Best $q$ per metric in bold}{table.caption.65}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {A.4}Latent PCA Diagnostics}{63}{subsection.A.4}\protected@file@percent }
-\newlabel{sec:latent_appendix}{{A.4}{63}{Latent PCA Diagnostics}{subsection.A.4}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {A.5}Curvature-Modality Archetype Clustering}{63}{subsection.A.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {A.6}MCMC Convergence Diagnostics}{63}{subsection.A.6}\protected@file@percent }
-\newlabel{sec:convergence}{{A.6}{63}{MCMC Convergence Diagnostics}{subsection.A.6}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {27}{\ignorespaces Eigenvalue scree plot for the posterior mean latent coordinate PCA. Bars show individual variance explained per component; the red line shows cumulative variance explained.}}{64}{figure.caption.66}\protected@file@percent }
-\newlabel{fig:pca_scree}{{27}{64}{Eigenvalue scree plot for the posterior mean latent coordinate PCA. Bars show individual variance explained per component; the red line shows cumulative variance explained}{figure.caption.66}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {28}{\ignorespaces PC3 vs.\ PC4 of the Procrustes-aligned posterior mean latent coordinates, coloured by archetype. The separation of archetype clusters confirms that the four-archetype structure extends beyond the first two principal components.}}{64}{figure.caption.67}\protected@file@percent }
-\newlabel{fig:latent_pca_pc34}{{28}{64}{PC3 vs.\ PC4 of the Procrustes-aligned posterior mean latent coordinates, coloured by archetype. The separation of archetype clusters confirms that the four-archetype structure extends beyond the first two principal components}{figure.caption.67}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {29}{\ignorespaces PCA of modality-specific Procrustes-aligned posterior mean latent coordinates, coloured by archetype ($k=4$), for curvature modalities $m=1\ldots  5$.}}{65}{figure.caption.68}\protected@file@percent }
-\newlabel{fig:curvature_modality_pca}{{29}{65}{PCA of modality-specific Procrustes-aligned posterior mean latent coordinates, coloured by archetype ($k=4$), for curvature modalities $m=1\ldots 5$}{figure.caption.68}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {30}{\ignorespaces Cluster-selection diagnostics (WSS and mean silhouette vs.\ $k$) for curvature-based modality clustering.}}{65}{figure.caption.69}\protected@file@percent }
-\newlabel{fig:curvature_modality_k_diagnostics}{{30}{65}{Cluster-selection diagnostics (WSS and mean silhouette vs.\ $k$) for curvature-based modality clustering}{figure.caption.69}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {31}{\ignorespaces Ward dendrograms for curvature-based modality clustering.}}{66}{figure.caption.70}\protected@file@percent }
-\newlabel{fig:curvature_modality_dendrograms}{{31}{66}{Ward dendrograms for curvature-based modality clustering}{figure.caption.70}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {30}{\ignorespaces Top 5 players by career minutes per archetype --- curvature-m1 modality ($k=4$ archetypes). Top-3 latent dimensions by variance across players in this modality: Dim 6, Dim 2, Dim 7.}}{67}{table.caption.72}\protected@file@percent }
-\newlabel{tab:arch_reps_curvature_m1}{{30}{67}{Top 5 players by career minutes per archetype --- curvature-m1 modality ($k=4$ archetypes). Top-3 latent dimensions by variance across players in this modality: Dim 6, Dim 2, Dim 7}{table.caption.72}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {31}{\ignorespaces Top 5 players by career minutes per archetype --- curvature-m2 modality ($k=4$ archetypes). Top-3 latent dimensions by variance across players in this modality: Dim 6, Dim 2, Dim 8.}}{68}{table.caption.73}\protected@file@percent }
-\newlabel{tab:arch_reps_curvature_m2}{{31}{68}{Top 5 players by career minutes per archetype --- curvature-m2 modality ($k=4$ archetypes). Top-3 latent dimensions by variance across players in this modality: Dim 6, Dim 2, Dim 8}{table.caption.73}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {32}{\ignorespaces Top 5 players by career minutes per archetype --- curvature-m3 modality ($k=6$ archetypes). Top-3 latent dimensions by variance across players in this modality: Dim 6, Dim 7, Dim 2.}}{69}{table.caption.74}\protected@file@percent }
-\newlabel{tab:arch_reps_curvature_m3}{{32}{69}{Top 5 players by career minutes per archetype --- curvature-m3 modality ($k=6$ archetypes). Top-3 latent dimensions by variance across players in this modality: Dim 6, Dim 7, Dim 2}{table.caption.74}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {33}{\ignorespaces Top 5 players by career minutes per archetype --- curvature-m4 modality ($k=5$ archetypes). Top-3 latent dimensions by variance across players in this modality: Dim 2, Dim 8, Dim 7.}}{70}{table.caption.75}\protected@file@percent }
-\newlabel{tab:arch_reps_curvature_m4}{{33}{70}{Top 5 players by career minutes per archetype --- curvature-m4 modality ($k=5$ archetypes). Top-3 latent dimensions by variance across players in this modality: Dim 2, Dim 8, Dim 7}{table.caption.75}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {34}{\ignorespaces Top 5 players by career minutes per archetype --- curvature-m5 modality ($k=4$ archetypes). Top-3 latent dimensions by variance across players in this modality: Dim 6, Dim 3, Dim 1.}}{71}{table.caption.76}\protected@file@percent }
-\newlabel{tab:arch_reps_curvature_m5}{{34}{71}{Top 5 players by career minutes per archetype --- curvature-m5 modality ($k=4$ archetypes). Top-3 latent dimensions by variance across players in this modality: Dim 6, Dim 3, Dim 1}{table.caption.76}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {32}{\ignorespaces Per-dimension variance in unscaled modality-specific coordinates for curvature modalities $m=1\ldots  5$.}}{72}{figure.caption.71}\protected@file@percent }
-\newlabel{fig:curvature_modality_dim_variance}{{32}{72}{Per-dimension variance in unscaled modality-specific coordinates for curvature modalities $m=1\ldots 5$}{figure.caption.71}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {33}{\ignorespaces Log joint posterior trace by chain for the injury variant (4 chains, 50 retained draws each after thinning). Stationarity and chain overlap indicate adequate mixing given the scale of the model.}}{73}{figure.caption.77}\protected@file@percent }
-\newlabel{fig:log_post_trace}{{33}{73}{Log joint posterior trace by chain for the injury variant (4 chains, 50 retained draws each after thinning). Stationarity and chain overlap indicate adequate mixing given the scale of the model}{figure.caption.77}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {34}{\ignorespaces Fraction of (player $\times $ age) cells with $\hat  {R} > 1.05$ for the latent embedding and AR components, by metric.}}{73}{figure.caption.78}\protected@file@percent }
-\newlabel{fig:rhat_latent}{{34}{73}{Fraction of (player $\times $ age) cells with $\hat {R} > 1.05$ for the latent embedding and AR components, by metric}{figure.caption.78}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {35}{\ignorespaces Fraction of (player $\times $ age) cells with $\hat  {R} > 1.05$ for the predictive mean $\mu _{ptk}$, by metric.}}{74}{figure.caption.79}\protected@file@percent }
-\newlabel{fig:rhat_mu}{{35}{74}{Fraction of (player $\times $ age) cells with $\hat {R} > 1.05$ for the predictive mean $\mu _{ptk}$, by metric}{figure.caption.79}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {A.7}Graphical Model}{74}{subsection.A.7}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {36}{\ignorespaces Procrustes-aligned MCMC trace plots for Stephen Curry's latent embedding (one panel per dimension, colors = chains). After aligning each draw to the MAP reference frame, the chains mix well within each coordinate.}}{75}{figure.caption.80}\protected@file@percent }
-\newlabel{fig:rotated_trace}{{36}{75}{Procrustes-aligned MCMC trace plots for Stephen Curry's latent embedding (one panel per dimension, colors = chains). After aligning each draw to the MAP reference frame, the chains mix well within each coordinate}{figure.caption.80}{}}
-\citation{Solin_2019}
-\citation{Solin_2019}
-\@writefile{toc}{\contentsline {subsection}{\numberline {A.8}Distributional Assumptions for Observation Model}{76}{subsection.A.8}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {35}{\ignorespaces Observational model description. We group metrics into different observation models: Gaussian ($\mathcal  {G}$), Binomial ($\mathcal  {B}$), Poisson ($\mathcal  {C}$), Negative-Binomial ($\mathcal  {R}$), Beta ($\mathcal  {P}$), and Beta-Binomial. $\mathcal  {G} =$ \{OBPM, DBPM\}, $\mathcal  {B} =$ \{FG2M, FG3M, FTM\}, $\mathcal  {C} =$ \{BLK, STL, AST, DREB, OREB, TOV\}, $\mathcal  {R} =$ \{FTA, FG2A, FG3A\}, $\mathcal  {P} =$ \{USG, PCT\_MIN\}; games played is Beta-Binomial and minutes-per-game is scaled Beta.}}{76}{table.caption.81}\protected@file@percent }
-\newlabel{tab:metric_description}{{35}{76}{Observational model description. We group metrics into different observation models: Gaussian ($\mathcal {G}$), Binomial ($\mathcal {B}$), Poisson ($\mathcal {C}$), Negative-Binomial ($\mathcal {R}$), Beta ($\mathcal {P}$), and Beta-Binomial. $\mathcal {G} =$ \{OBPM, DBPM\}, $\mathcal {B} =$ \{FG2M, FG3M, FTM\}, $\mathcal {C} =$ \{BLK, STL, AST, DREB, OREB, TOV\}, $\mathcal {R} =$ \{FTA, FG2A, FG3A\}, $\mathcal {P} =$ \{USG, PCT\_MIN\}; games played is Beta-Binomial and minutes-per-game is scaled Beta}{table.caption.81}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {A.9}Hilbert Space Gaussian Processes}{76}{subsection.A.9}\protected@file@percent }
-\newlabel{appendix:HSGPs}{{A.9}{76}{Hilbert Space Gaussian Processes}{subsection.A.9}{}}
-\citation{Solin_2019}
-\citation{Solin_2019}
-\citation{Solin_2019}
-\@writefile{toc}{\contentsline {subsection}{\numberline {A.10}Approximating a Separable Kernel}{77}{subsection.A.10}\protected@file@percent }
-\newlabel{appendix:separability_properties}{{A.10}{77}{Approximating a Separable Kernel}{subsection.A.10}{}}
-\newlabel{eq:cov_separable}{{31}{77}{Approximating a Separable Kernel}{equation.A.31}{}}
-\newlabel{eq:cov_separable_2}{{35}{77}{Approximating a Separable Kernel}{equation.A.35}{}}
+\newlabel{eq:gompertz}{{5}{6}{Likelihood}{equation.3.5}{}}
+\newlabel{sec:player_similarity}{{3.2}{6}{Player Specific Latent Variables}{subsection.3.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Player Specific Latent Variables}{6}{subsection.3.2}\protected@file@percent }
 \citation{convexityconstraints}
 \citation{convexityconstraints}
-\@writefile{toc}{\contentsline {subsection}{\numberline {A.11}Enforcing Concavity}{78}{subsection.A.11}\protected@file@percent }
-\newlabel{appendix:convexity}{{A.11}{78}{Enforcing Concavity}{subsection.A.11}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.11.1}Univariate Case}{78}{subsubsection.A.11.1}\protected@file@percent }
-\newlabel{appendix:univariate_concavity}{{A.11.1}{78}{Univariate Case}{subsubsection.A.11.1}{}}
-\newlabel{eq:concave_uni_rep}{{37}{78}{Univariate Case}{equation.A.37}{}}
-\newlabel{eq:deriv_approx_uni_gp}{{38}{78}{Univariate Case}{equation.A.38}{}}
-\newlabel{eq:final_gp_app_uni}{{40}{78}{Univariate Case}{equation.A.40}{}}
-\newlabel{eq:phi_app}{{41}{78}{Univariate Case}{equation.A.41}{}}
-\citation{convexityconstraints}
-\citation{convexityconstraints}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.11.2}Multivariate Case}{79}{subsubsection.A.11.2}\protected@file@percent }
-\newlabel{appendix:multivariate_concavity}{{A.11.2}{79}{Multivariate Case}{subsubsection.A.11.2}{}}
-\newlabel{eq:concave_multi_rep_app}{{42}{79}{Multivariate Case}{equation.A.42}{}}
-\newlabel{eq:deriv_approx_gp}{{43}{80}{Multivariate Case}{equation.A.43}{}}
-\newlabel{eq:final_gp_app}{{45}{80}{Multivariate Case}{equation.A.45}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.11.3}Controlling the Peak Behavior}{80}{subsubsection.A.11.3}\protected@file@percent }
-\newlabel{appendix:peak_value}{{A.11.3}{80}{Controlling the Peak Behavior}{subsubsection.A.11.3}{}}
-\newlabel{eq:first_deriv_constraint}{{46}{80}{Controlling the Peak Behavior}{equation.A.46}{}}
-\citation{isserlis}
-\newlabel{eq:peak_value_constraint}{{47}{81}{Controlling the Peak Behavior}{equation.A.47}{}}
-\newlabel{eq:max_constraint_gp_app}{{48}{81}{Controlling the Peak Behavior}{equation.A.48}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {A.12}Convexity Formulation Properties}{81}{subsection.A.12}\protected@file@percent }
-\newlabel{appendix:convexity_properties}{{A.12}{81}{Convexity Formulation Properties}{subsection.A.12}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.12.1}Separability}{81}{subsubsection.A.12.1}\protected@file@percent }
-\newlabel{eq:cov_1}{{49}{81}{Separability}{equation.A.49}{}}
-\newlabel{eq:cov_2}{{50}{81}{Separability}{equation.A.50}{}}
-\newlabel{eq:cov_3}{{51}{81}{Separability}{equation.A.51}{}}
-\newlabel{eq:cov_integral}{{52}{82}{Separability}{equation.A.52}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.12.2}Expectation}{82}{subsubsection.A.12.2}\protected@file@percent }
-\newlabel{eq:cov_integral_interchange}{{53}{82}{Expectation}{equation.A.53}{}}
-\newlabel{eq:expectation}{{54}{82}{Expectation}{equation.A.54}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {A.12.3}Variance}{83}{subsubsection.A.12.3}\protected@file@percent }
-\newlabel{eq:variance_process}{{56}{83}{Variance}{equation.A.56}{}}
-\newlabel{eq:final_integral}{{59}{84}{Variance}{equation.A.59}{}}
-\newlabel{eq:conditional_variance}{{65}{85}{Variance}{equation.A.65}{}}
-\newlabel{eq:expectation_k}{{68}{86}{Variance}{equation.A.68}{}}
-\newlabel{eq:expectation_simple}{{69}{86}{Variance}{equation.A.69}{}}
-\newlabel{eq:variance_k}{{70}{86}{Variance}{equation.A.70}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {A.13}Additional Figures and Tables}{86}{subsection.A.13}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {37}{\ignorespaces We can see the hold-out coverage as we move further from the end of our in-sample dataset. We see that coverage slightly dips as we move further into the future, but not significantly.}}{87}{figure.caption.82}\protected@file@percent }
-\newlabel{fig:coverage_yearly}{{37}{87}{We can see the hold-out coverage as we move further from the end of our in-sample dataset. We see that coverage slightly dips as we move further into the future, but not significantly}{figure.caption.82}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {38}{\ignorespaces Hold-out coverage by metric does not seem to significantly differ by number of in-sample seasons available. Note that the lone observation for number of seasons is LeBron James, which we fail to project well as his career arc is anomalous.}}{88}{figure.caption.83}\protected@file@percent }
-\newlabel{fig:coverage_minutes}{{38}{88}{Hold-out coverage by metric does not seem to significantly differ by number of in-sample seasons available. Note that the lone observation for number of seasons is LeBron James, which we fail to project well as his career arc is anomalous}{figure.caption.83}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {39}{\ignorespaces This plot illustrates a clustered correlation matrix of the metrics, according to max values players accrued over their careers. }}{89}{figure.caption.84}\protected@file@percent }
-\newlabel{fig:metric_corr}{{39}{89}{This plot illustrates a clustered correlation matrix of the metrics, according to max values players accrued over their careers}{figure.caption.84}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {36}{\ignorespaces Major NBA Injuries Causing Extended Time Loss, Categorized by Tissue Type and Body Region}}{89}{table.caption.85}\protected@file@percent }
-\newlabel{tab:injury_categories}{{36}{89}{Major NBA Injuries Causing Extended Time Loss, Categorized by Tissue Type and Body Region}{table.caption.85}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {40}{\ignorespaces We see that there is a separation of players by position type, much like the PCA plot. }}{91}{figure.caption.88}\protected@file@percent }
-\newlabel{fig:cov_matrix}{{40}{91}{We see that there is a separation of players by position type, much like the PCA plot}{figure.caption.88}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {41}{\ignorespaces This plot illustrates the average value of production by age, across a variety of different metrics, smoothed by a LOESS estimator. Note that some of these estimates do not respect aging beliefs (i.e some metrics indicate infinite improvement with respect to age, as well as a decrease then improvement). This observation can be explained by selection bias; players who are more successful are likely to play later in their careers, and tend to have higher values of production, biasing curves upwards. }}{92}{figure.caption.89}\protected@file@percent }
-\newlabel{fig:empirical_production}{{41}{92}{This plot illustrates the average value of production by age, across a variety of different metrics, smoothed by a LOESS estimator. Note that some of these estimates do not respect aging beliefs (i.e some metrics indicate infinite improvement with respect to age, as well as a decrease then improvement). This observation can be explained by selection bias; players who are more successful are likely to play later in their careers, and tend to have higher values of production, biasing curves upwards}{figure.caption.89}{}}
-\bibstyle{plainnat}
+\citation{Solin_2019}
+\newlabel{sec:concave_prior}{{3.3}{7}{A Non-Parametric Prior for Concave Functions}{subsection.3.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}A Non-Parametric Prior for Concave Functions}{7}{subsection.3.3}\protected@file@percent }
+\newlabel{eqn:concave_process_uni}{{6}{7}{Concave Gaussian process prior}{equation.3.6}{}}
+\newlabel{prop:concave_uni_gp}{{2}{7}{}{proposition.2}{}}
+\newlabel{eq:final_uni_gp}{{8}{7}{}{equation.3.8}{}}
+\newlabel{eq:phi}{{9}{8}{}{equation.3.9}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.3.1}Reparameterizing the Concave Process}{8}{subsubsection.3.3.1}\protected@file@percent }
+\newlabel{theorem:concave_max_approx}{{1}{8}{}{theorem.1}{}}
+\newlabel{eq:max_constraint_gp}{{11}{8}{}{equation.3.11}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.3.2}Modeling Dependence Across Concave Processes}{8}{subsubsection.3.3.2}\protected@file@percent }
+\citation{numpyro}
+\citation{numpyro}
+\newlabel{eq:concave_multi_rep}{{12}{9}{Modeling Dependence Across Concave Processes}{equation.3.12}{}}
+\newlabel{prop:concave_multi_gp}{{3}{9}{}{proposition.3}{}}
+\newlabel{eq:final_gp}{{14}{9}{}{equation.3.14}{}}
+\newlabel{sec:inference}{{4}{9}{Inference and Hyperparameter Selection}{section.4}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Inference and Hyperparameter Selection}{9}{section.4}\protected@file@percent }
+\citation{procrustes,poworoznek2024efficientlyresolvingrotationalambiguity}
+\@writefile{toc}{\contentsline {paragraph}{\numberline {4.0.0.1}Procrustes alignment for Latent Space Posterior Analysis}{10}{paragraph.4.0.0.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\numberline {4.0.0.2}Posterior Predictive Generation}{10}{paragraph.4.0.0.2}\protected@file@percent }
+\newlabel{sec:results}{{5}{10}{Results}{section.5}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Results}{10}{section.5}\protected@file@percent }
+\newlabel{sec:validation}{{5.1}{10}{Model Validation}{subsection.5.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Model Validation}{10}{subsection.5.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Overall predictive performance (all metrics pooled) across holdout schemes and model variants. \textbf  {Coverage}: holdout 95\% HDI coverage. \textbf  {ELPPD}: $\Delta $ELPPD per observation vs.\ best model; $\dagger $ = significantly different at 95\%.\relax }}{11}{table.caption.3}\protected@file@percent }
+\newlabel{tab:all_summary}{{3}{11}{Overall predictive performance (all metrics pooled) across holdout schemes and model variants. \textbf {Coverage}: holdout 95\% HDI coverage. \textbf {ELPPD}: $\Delta $ELPPD per observation vs.\ best model; $\dagger $ = significantly different at 95\%.\relax }{table.caption.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Example Posterior Curves}{11}{subsection.5.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Posterior mean production curves (joint model) for Nikola Joki\'{c} (top row) and Stephen Curry (bottom row), with the four representative metrics (OBPM, FG2\%, FG2A, FTA) as columns. Posterior mean of $f_k(X_p, t)$ (green) with 95\% credible band on the mean (gray) and observed values (black points).\relax }}{12}{figure.caption.4}\protected@file@percent }
+\newlabel{fig:posterior_curves}{{2}{12}{Posterior mean production curves (joint model) for Nikola Joki\'{c} (top row) and Stephen Curry (bottom row), with the four representative metrics (OBPM, FG2\%, FG2A, FTA) as columns. Posterior mean of $f_k(X_p, t)$ (green) with 95\% credible band on the mean (gray) and observed values (black points).\relax }{figure.caption.4}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Posterior mean trajectories for Nikola Joki\'{c} (solid line) and his five nearest latent-space neighbors. Neighbors are identified from Procrustes-aligned posterior mean coordinates; rank labels indicate distance ordering.\relax }}{13}{figure.caption.5}\protected@file@percent }
+\newlabel{fig:jokic_neighbor_curves}{{3}{13}{Posterior mean trajectories for Nikola Joki\'{c} (solid line) and his five nearest latent-space neighbors. Neighbors are identified from Procrustes-aligned posterior mean coordinates; rank labels indicate distance ordering.\relax }{figure.caption.5}{}}
+\newlabel{sec:uncovering_metrics}{{5.3}{13}{Uncovering Metric Relationships}{subsection.5.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Uncovering Metric Relationships}{13}{subsection.5.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces PCA on posterior mean peak ages by metric; four representative players are labelled per quadrant. The horizontal axis (PC1) captures overall peak timing --- all metric loadings share the same sign, so players toward the right peak later across the board (e.g.\ Nash, Stockton) and those toward the left peak earlier (e.g.\ Jonny Flynn, O.J.\ Mayo). The vertical axis (PC2) is a contrast in \emph  {relative} timing: players near the top have their defense and rebounding peak later (largely interior bigs, e.g.\ Gobert, Mutombo), while those near the bottom have their scoring and usage peak later (largely lead guards, e.g.\ Ginobili, Hornacek).\relax }}{14}{figure.caption.6}\protected@file@percent }
+\newlabel{fig:metric_loadings}{{4}{14}{PCA on posterior mean peak ages by metric; four representative players are labelled per quadrant. The horizontal axis (PC1) captures overall peak timing --- all metric loadings share the same sign, so players toward the right peak later across the board (e.g.\ Nash, Stockton) and those toward the left peak earlier (e.g.\ Jonny Flynn, O.J.\ Mayo). The vertical axis (PC2) is a contrast in \emph {relative} timing: players near the top have their defense and rebounding peak later (largely interior bigs, e.g.\ Gobert, Mutombo), while those near the bottom have their scoring and usage peak later (largely lead guards, e.g.\ Ginobili, Hornacek).\relax }{figure.caption.6}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Posterior estimates of peak age by metric (left) and the first two PCA loadings of the peak-age matrix (right). Athleticism metrics (green) peak earlier; skill metrics (red) peak later; the ``both'' group (blue) blends the two. The analogous peak-value decomposition is provided in Appendix~\ref  {fig:peaks_vals}.\relax }}{15}{figure.caption.7}\protected@file@percent }
+\newlabel{fig:peaks}{{5}{15}{Posterior estimates of peak age by metric (left) and the first two PCA loadings of the peak-age matrix (right). Athleticism metrics (green) peak earlier; skill metrics (red) peak later; the ``both'' group (blue) blends the two. The analogous peak-value decomposition is provided in Appendix~\ref {fig:peaks_vals}.\relax }{figure.caption.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Early Identification of Peak Performers and Draft Evaluation}{15}{subsection.5.4}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Top 5 players by posterior mean peak OBPM per entry cohort. P($>$2), P($>$3), P($>$4) are posterior probabilities that peak OBPM exceeds the threshold; empirically, 19\% of players peaked above OBPM\,$=$\,2, 12\% above OBPM\,$=$\,3, and 7\% above OBPM\,$=$\,4 (career peak per player). Yrs to Peak is the posterior mean OBPM peak age minus last observed age ($<$1 = already at or within one year of peak).\relax }}{17}{table.caption.8}\protected@file@percent }
+\newlabel{tab:breakout_cohort}{{4}{17}{Top 5 players by posterior mean peak OBPM per entry cohort. P($>$2), P($>$3), P($>$4) are posterior probabilities that peak OBPM exceeds the threshold; empirically, 19\% of players peaked above OBPM\,$=$\,2, 12\% above OBPM\,$=$\,3, and 7\% above OBPM\,$=$\,4 (career peak per player). Yrs to Peak is the posterior mean OBPM peak age minus last observed age ($<$1 = already at or within one year of peak).\relax }{table.caption.8}{}}
+\newlabel{sec:conclusion}{{6}{18}{Conclusion and Future Work}{section.6}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Conclusion and Future Work}{18}{section.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\numberline {6.0.0.1}Future directions}{18}{paragraph.6.0.0.1}\protected@file@percent }
+\bibstyle{imsart-nameyear}
 \bibdata{references}
-\bibcite{convexityconstraints}{{1}{2018}{{Andersen et~al.}}{{Andersen, Siivola, Riutort-Mayol, and Vehtari}}}
-\bibcite{bodin2017latentgaussianprocessregression}{{2}{2017}{{Bodin et~al.}}{{Bodin, Campbell, and Ek}}}
-\bibcite{chessa2023complex}{{3}{2023}{{Chessa et~al.}}{{Chessa, D’Urso, De~Giovanni, et~al.}}}
+\bibcite{convexityconstraints}{{1}{2018}{{Andersen et~al.}}{{}}}
+\bibcite{procrustes}{{2}{2016}{{Aßmann, Boysen-Hogrefe and Pape}}{{}}}
+\bibcite{chessa2023complex}{{3}{2023}{{Chessa et~al.}}{{}}}
 \bibcite{ballr}{{4}{2019}{{Elmore}}{{}}}
-\bibcite{isserlis}{{5}{1918}{{Isserlis}}{{}}}
-\bibcite{JMLR:v6:lawrence05a}{{6}{2005}{{Lawrence}}{{}}}
-\bibcite{mauri2025factorpretrainingbayesianmultivariate}{{7}{2025}{{Mauri and Dunson}}{{}}}
-\bibcite{page2007using}{{8}{2007}{{Page et~al.}}{{Page, Fellingham, and Reese}}}
-\bibcite{rffs}{{9}{2007}{{Rahimi and Recht}}{{}}}
-\bibcite{natesilver538_2015}{{10}{2015}{{Silver}}{{}}}
-\bibcite{natesilver538_2019}{{11}{2019}{{Silver}}{{}}}
-\bibcite{Solin_2019}{{12}{2019}{{Solin and Särkkä}}{{}}}
-\bibcite{bballref}{{13}{2019}{{Sports Reference LLC}}{{}}}
-\bibcite{terner2020modeling}{{14}{2020}{{Terner and Franks}}{{}}}
-\bibcite{vaci2019large}{{15}{2019}{{Vaci et~al.}}{{Vaci, Coci{\'c}, Gula, and Bilali{\'c}}}}
-\bibcite{vinue2019forecasting}{{16}{2019}{{Vinu{\'e} and Epifanio}}{{}}}
-\bibcite{vinue2015archetypoids}{{17}{2015}{{Vinu{\'e} et~al.}}{{Vinu{\'e}, Epifanio, and Alemany}}}
-\bibcite{wakim2014functional}{{18}{2014}{{Wakim and Jin}}{{}}}
-\bibcite{zhang2023bayesiannonlinearlatentvariable}{{19}{2023}{{Zhang et~al.}}{{Zhang, Gundersen, and Engelhardt}}}
-\gdef \@abspage@last{94}
+\bibcite{gundersen2021latent}{{5}{2021}{{Gundersen, Zhang and Engelhardt}}{{}}}
+\bibcite{isserlis}{{6}{1918}{{Isserlis}}{{}}}
+\bibcite{JMLR:v6:lawrence05a}{{7}{2005}{{Lawrence}}{{}}}
+\bibcite{bballref}{{8}{2019}{{{Sports Reference LLC}}}{{}}}
+\bibcite{page2007using}{{9}{2007}{{Page, Fellingham and Reese}}{{}}}
+\bibcite{numpyro}{{10}{2019}{{Phan, Pradhan and Jankowiak}}{{}}}
+\bibcite{poworoznek2024efficientlyresolvingrotationalambiguity}{{11}{2024}{{Poworoznek et~al.}}{{}}}
+\bibcite{rffs}{{12}{2007}{{Rahimi and Recht}}{{}}}
+\bibcite{natesilver538_2015}{{13}{2015}{{Silver}}{{}}}
+\bibcite{natesilver538_2019}{{14}{2019}{{Silver}}{{}}}
+\bibcite{Solin_2019}{{15}{2019}{{Solin and Särkkä}}{{}}}
+\bibcite{terner2020modeling}{{16}{2020}{{Terner and Franks}}{{}}}
+\bibcite{vaci2019large}{{17}{2019}{{Vaci et~al.}}{{}}}
+\bibcite{vinue2015archetypoids}{{18}{2015}{{Vinu{\'e}, Epifanio and Alemany}}{{}}}
+\bibcite{vinue2019forecasting}{{19}{2019}{{Vinu{\'e} and Epifanio}}{{}}}
+\bibcite{wakim2014functional}{{20}{2014}{{Wakim and Jin}}{{}}}
+\bibcite{zhang2023bayesiannonlinearlatentvariable}{{21}{2023}{{Zhang, Gundersen and Engelhardt}}{{}}}
+\@writefile{toc}{\contentsline {section}{References}{20}{section*.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Appendix}{20}{section.7}\protected@file@percent }
+\newlabel{sec:latent_space}{{7.1}{20}{Archetype Discovery via Hierarchical Clustering}{subsection.7.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1}Archetype Discovery via Hierarchical Clustering}{20}{subsection.7.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces PCA of the posterior mean latent coordinates colored by discovered archetype ($k=4$, Ward clustering on Procrustes-aligned posterior mean coordinates). PC1 and PC2 explain 29.9\% and 15.6\% of variance respectively. Point size scales with career minutes. The four archetypes partition the space in a way that transcends traditional positional labels.\relax }}{21}{figure.caption.11}\protected@file@percent }
+\newlabel{fig:latent_archetypes}{{6}{21}{PCA of the posterior mean latent coordinates colored by discovered archetype ($k=4$, Ward clustering on Procrustes-aligned posterior mean coordinates). PC1 and PC2 explain 29.9\% and 15.6\% of variance respectively. Point size scales with career minutes. The four archetypes partition the space in a way that transcends traditional positional labels.\relax }{figure.caption.11}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Frechet archetype mean curves across metrics. Each panel shows the archetype-level mean trajectory, summarizing curve shape and timing differences that distinguish player types.\relax }}{22}{figure.caption.12}\protected@file@percent }
+\newlabel{fig:archetype_frechet_curves}{{7}{22}{Frechet archetype mean curves across metrics. Each panel shows the archetype-level mean trajectory, summarizing curve shape and timing differences that distinguish player types.\relax }{figure.caption.12}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2}Peak-Value Principal Components}{22}{subsection.7.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Posterior mean peak age and peak value (in parentheses) by archetype and metric.\relax }}{23}{table.caption.13}\protected@file@percent }
+\newlabel{tab:archetype_summary}{{5}{23}{Posterior mean peak age and peak value (in parentheses) by archetype and metric.\relax }{table.caption.13}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {10}{\ignorespaces Posterior estimates of peak value by player (top) and the first two PCA loadings of the peak-value matrix (bottom). The same athleticism/skill grouping is reflected here, confirming that athleticism-reliant metrics not only peak earlier but also reach lower absolute ceilings relative to skill-based metrics.\relax }}{23}{figure.caption.16}\protected@file@percent }
+\newlabel{fig:peaks_vals}{{10}{23}{Posterior estimates of peak value by player (top) and the first two PCA loadings of the peak-value matrix (bottom). The same athleticism/skill grouping is reflected here, confirming that athleticism-reliant metrics not only peak earlier but also reach lower absolute ceilings relative to skill-based metrics.\relax }{figure.caption.16}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces Posterior mean GP first derivative before (left) and after (right) the peak age, by archetype and metric. Points show the mean over posterior draws; intervals are 80\% credible intervals. Slopes are in latent-space units per year; positive post-peak values indicate skill-based metrics that continue growing or plateau after the nominal peak.\relax }}{24}{figure.caption.14}\protected@file@percent }
+\newlabel{fig:archetype_slopes}{{8}{24}{Posterior mean GP first derivative before (left) and after (right) the peak age, by archetype and metric. Points show the mean over posterior draws; intervals are 80\% credible intervals. Slopes are in latent-space units per year; positive post-peak values indicate skill-based metrics that continue growing or plateau after the nominal peak.\relax }{figure.caption.14}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.3}Prior Specifications}{24}{subsection.7.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {7.3.1}Generative Model}{24}{subsubsection.7.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {7.3.2}Model Priors}{24}{table.caption.18}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {7.3.3}Latent Embedding Prior}{24}{subsubsection.7.3.3}\protected@file@percent }
+\newlabel{eq:structured_prior}{{15}{24}{Latent Embedding Prior}{equation.7.15}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Career arc asymmetry by archetype and metric: pre-peak slope divided by the absolute post-peak slope. The dashed line at 1 marks symmetric careers. Ratios above 1 indicate faster decline than ascent (common for athleticism metrics); ratios below 1 indicate faster ascent than decline (common for skill-acquisition metrics such as three-point shooting and playmaking).\relax }}{25}{figure.caption.15}\protected@file@percent }
+\newlabel{fig:archetype_slope_ratio}{{9}{25}{Career arc asymmetry by archetype and metric: pre-peak slope divided by the absolute post-peak slope. The dashed line at 1 marks symmetric careers. Ratios above 1 indicate faster decline than ascent (common for athleticism metrics); ratios below 1 indicate faster ascent than decline (common for skill-acquisition metrics such as three-point shooting and playmaking).\relax }{figure.caption.15}{}}
+\newlabel{sec:survival_linear_map}{{7.4}{25}{Career Duration Formulation}{subsection.7.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4}Career Duration Formulation}{25}{subsection.7.4}\protected@file@percent }
+\newlabel{eq:surv_lik}{{17}{25}{Career Duration Formulation}{equation.7.17}{}}
+\citation{rffs}
+\citation{gundersen2021latent}
+\citation{zhang2023bayesiannonlinearlatentvariable}
+\@writefile{lof}{\contentsline {figure}{\numberline {11}{\ignorespaces Directed acyclic graph of the complete generative model. Shaded nodes are observed; unshaded nodes are latent. $Z_p, W$: structured prior mean $Z_p^\top W$ anchoring $X_p$ to draft position, height, and positional role. $\phi (\cdot )$: feature-map projection applied to the embedding before it enters the concave process, chosen so that $\phi (X_p)^\top \phi (X_{p'})\approx \mathcal  {K}(X_p,X_{p'})$ --- the identity map $\phi (X_p)=X_p$ recovers the linear GPLVM, while random Fourier features (or another feature map) approximate a nonlinear kernel; $\theta _\phi $ collects its hyperparameters (kernel lengthscale and, for random features, the sampled frequencies). $\nu ^k, w^k$: weight vectors reading peak age $t^*_{pk}$ and peak value $f^*_{pk}$ from the embedding. $\beta $: HSGP spectral weights for the concave trajectory $f^k(\phi (X_p),t)$. $\rho ^k, \sigma ^k_{AR}$: AR(1) parameters for the player-metric residual $r^k_{pt}$. $F_m, L_k$: injury-type factors and metric loadings for the injury offset $\tau ^k_{ptm}$. $Y^k_{pt}$: observed statistic (Gaussian, Negative-Binomial, Beta, or Beta-Binomial, per Table~\ref  {tab:metric_description}).\relax }}{26}{figure.caption.17}\protected@file@percent }
+\newlabel{fig:graphical_model}{{11}{26}{Directed acyclic graph of the complete generative model. Shaded nodes are observed; unshaded nodes are latent. $Z_p, W$: structured prior mean $Z_p^\top W$ anchoring $X_p$ to draft position, height, and positional role. $\phi (\cdot )$: feature-map projection applied to the embedding before it enters the concave process, chosen so that $\phi (X_p)^\top \phi (X_{p'})\approx \mathcal {K}(X_p,X_{p'})$ --- the identity map $\phi (X_p)=X_p$ recovers the linear GPLVM, while random Fourier features (or another feature map) approximate a nonlinear kernel; $\theta _\phi $ collects its hyperparameters (kernel lengthscale and, for random features, the sampled frequencies). $\nu ^k, w^k$: weight vectors reading peak age $t^*_{pk}$ and peak value $f^*_{pk}$ from the embedding. $\beta $: HSGP spectral weights for the concave trajectory $f^k(\phi (X_p),t)$. $\rho ^k, \sigma ^k_{AR}$: AR(1) parameters for the player-metric residual $r^k_{pt}$. $F_m, L_k$: injury-type factors and metric loadings for the injury offset $\tau ^k_{ptm}$. $Y^k_{pt}$: observed statistic (Gaussian, Negative-Binomial, Beta, or Beta-Binomial, per Table~\ref {tab:metric_description}).\relax }{figure.caption.17}{}}
+\newlabel{eq:eta}{{18}{26}{Career Duration Formulation}{equation.7.18}{}}
+\newlabel{eq:gamma}{{19}{26}{Career Duration Formulation}{equation.7.19}{}}
+\newlabel{sec:rff}{{7.5}{26}{Random Fourier Feature Latent Projection}{subsection.7.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.5}Random Fourier Feature Latent Projection}{26}{subsection.7.5}\protected@file@percent }
+\citation{rffs}
+\citation{gundersen2021latent,zhang2023bayesiannonlinearlatentvariable}
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces Prior specification for key model parameters. $\mathcal  {IG}(\alpha , \beta )$ denotes an Inverse-Gamma with shape $\alpha $ and scale $\beta $; $S_k$ is the spectral density matrix of the squared-exponential kernel evaluated at the HSGP eigenvalues for metric $k$.\relax }}{27}{table.caption.18}\protected@file@percent }
+\newlabel{tab:prior_spec}{{6}{27}{Prior specification for key model parameters. $\mathcal {IG}(\alpha , \beta )$ denotes an Inverse-Gamma with shape $\alpha $ and scale $\beta $; $S_k$ is the spectral density matrix of the squared-exponential kernel evaluated at the HSGP eigenvalues for metric $k$.\relax }{table.caption.18}{}}
+\newlabel{eq:rff_features}{{20}{27}{Random Fourier Feature Latent Projection}{equation.7.20}{}}
+\newlabel{eq:rff_kernel}{{21}{27}{Random Fourier Feature Latent Projection}{equation.7.21}{}}
+\newlabel{eq:rff_surv}{{22}{27}{Random Fourier Feature Latent Projection}{equation.7.22}{}}
+\newlabel{sec:ar_comparison}{{7.6}{28}{AR Baseline Comparison}{subsection.7.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.6}AR Baseline Comparison}{28}{subsection.7.6}\protected@file@percent }
+\newlabel{sec:full_comparison_tables}{{7.7}{28}{Full Model Comparison Tables}{subsection.7.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.7}Full Model Comparison Tables}{28}{subsection.7.7}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric — Hold-out Last $k$ scheme.\relax }}{28}{table.caption.20}\protected@file@percent }
+\newlabel{tab:coverage_holdout_last_k}{{7}{28}{Holdout RMSE and bias (in parentheses) by metric — Hold-out Last $k$ scheme.\relax }{table.caption.20}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {12}{\ignorespaces Joint model (left) vs.\ Naive AR baseline (right) for Stephen Curry (top) and Nikola Joki\'{c} (bottom). Green line = posterior mean; red dashed line = training cutoff.\relax }}{29}{figure.caption.19}\protected@file@percent }
+\newlabel{fig:ar_comparison}{{12}{29}{Joint model (left) vs.\ Naive AR baseline (right) for Stephen Curry (top) and Nikola Joki\'{c} (bottom). Green line = posterior mean; red dashed line = training cutoff.\relax }{figure.caption.19}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {8}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric — Hold-out First $k$ scheme.\relax }}{29}{table.caption.21}\protected@file@percent }
+\newlabel{tab:coverage_holdout_first_k}{{8}{29}{Holdout RMSE and bias (in parentheses) by metric — Hold-out First $k$ scheme.\relax }{table.caption.21}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {9}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric — Random Interior scheme.\relax }}{30}{table.caption.22}\protected@file@percent }
+\newlabel{tab:coverage_random_interior}{{9}{30}{Holdout RMSE and bias (in parentheses) by metric — Random Interior scheme.\relax }{table.caption.22}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {10}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric — Hold-out Peak scheme.\relax }}{30}{table.caption.23}\protected@file@percent }
+\newlabel{tab:coverage_holdout_peak}{{10}{30}{Holdout RMSE and bias (in parentheses) by metric — Hold-out Peak scheme.\relax }{table.caption.23}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {11}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric — Stratified Next $k$ scheme.\relax }}{30}{table.caption.24}\protected@file@percent }
+\newlabel{tab:coverage_stratified_next_k}{{11}{30}{Holdout RMSE and bias (in parentheses) by metric — Stratified Next $k$ scheme.\relax }{table.caption.24}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {12}{\ignorespaces Holdout average log-loss by metric — Hold-out Last $k$ scheme.\relax }}{31}{table.caption.25}\protected@file@percent }
+\newlabel{tab:logloss_holdout_last_k}{{12}{31}{Holdout average log-loss by metric — Hold-out Last $k$ scheme.\relax }{table.caption.25}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {13}{\ignorespaces Holdout average log-loss by metric — Hold-out First $k$ scheme.\relax }}{31}{table.caption.26}\protected@file@percent }
+\newlabel{tab:logloss_holdout_first_k}{{13}{31}{Holdout average log-loss by metric — Hold-out First $k$ scheme.\relax }{table.caption.26}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {14}{\ignorespaces Holdout average log-loss by metric — Random Interior scheme.\relax }}{32}{table.caption.27}\protected@file@percent }
+\newlabel{tab:logloss_random_interior}{{14}{32}{Holdout average log-loss by metric — Random Interior scheme.\relax }{table.caption.27}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {15}{\ignorespaces Holdout average log-loss by metric — Hold-out Peak scheme.\relax }}{32}{table.caption.28}\protected@file@percent }
+\newlabel{tab:logloss_holdout_peak}{{15}{32}{Holdout average log-loss by metric — Hold-out Peak scheme.\relax }{table.caption.28}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {16}{\ignorespaces Holdout average log-loss by metric — Stratified Next $k$ scheme.\relax }}{33}{table.caption.29}\protected@file@percent }
+\newlabel{tab:logloss_stratified_next_k}{{16}{33}{Holdout average log-loss by metric — Stratified Next $k$ scheme.\relax }{table.caption.29}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {17}{\ignorespaces Holdout (val) and in-sample 95\% HDI coverage by metric --- Hold-out Last $k$ scheme. Best validation coverage per metric in bold.\relax }}{33}{table.caption.30}\protected@file@percent }
+\newlabel{tab:hdi_coverage_holdout_last_k}{{17}{33}{Holdout (val) and in-sample 95\% HDI coverage by metric --- Hold-out Last $k$ scheme. Best validation coverage per metric in bold.\relax }{table.caption.30}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {18}{\ignorespaces Holdout (val) and in-sample 95\% HDI coverage by metric --- Hold-out First $k$ scheme. Best validation coverage per metric in bold.\relax }}{34}{table.caption.31}\protected@file@percent }
+\newlabel{tab:hdi_coverage_holdout_first_k}{{18}{34}{Holdout (val) and in-sample 95\% HDI coverage by metric --- Hold-out First $k$ scheme. Best validation coverage per metric in bold.\relax }{table.caption.31}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {19}{\ignorespaces Holdout (val) and in-sample 95\% HDI coverage by metric --- Random Interior scheme. Best validation coverage per metric in bold.\relax }}{34}{table.caption.32}\protected@file@percent }
+\newlabel{tab:hdi_coverage_random_interior}{{19}{34}{Holdout (val) and in-sample 95\% HDI coverage by metric --- Random Interior scheme. Best validation coverage per metric in bold.\relax }{table.caption.32}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {20}{\ignorespaces Holdout (val) and in-sample 95\% HDI coverage by metric --- Hold-out Peak scheme. Best validation coverage per metric in bold.\relax }}{35}{table.caption.33}\protected@file@percent }
+\newlabel{tab:hdi_coverage_holdout_peak}{{20}{35}{Holdout (val) and in-sample 95\% HDI coverage by metric --- Hold-out Peak scheme. Best validation coverage per metric in bold.\relax }{table.caption.33}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {21}{\ignorespaces Holdout (val) and in-sample 95\% HDI coverage by metric --- Stratified Next $k$ scheme. Best validation coverage per metric in bold.\relax }}{35}{table.caption.34}\protected@file@percent }
+\newlabel{tab:hdi_coverage_stratified_next_k}{{21}{35}{Holdout (val) and in-sample 95\% HDI coverage by metric --- Stratified Next $k$ scheme. Best validation coverage per metric in bold.\relax }{table.caption.34}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {22}{\ignorespaces Posterior bias (mean [95\% HDI]) by metric --- Hold-out Last $k$ scheme. Validation interval shown; in-sample in parentheses. Best-calibrated model (smallest $|$bias$|$) per metric in bold.\relax }}{36}{table.caption.35}\protected@file@percent }
+\newlabel{tab:bias_interval_holdout_last_k}{{22}{36}{Posterior bias (mean [95\% HDI]) by metric --- Hold-out Last $k$ scheme. Validation interval shown; in-sample in parentheses. Best-calibrated model (smallest $|$bias$|$) per metric in bold.\relax }{table.caption.35}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {23}{\ignorespaces Posterior bias (mean [95\% HDI]) by metric --- Hold-out First $k$ scheme. Validation interval shown; in-sample in parentheses. Best-calibrated model (smallest $|$bias$|$) per metric in bold.\relax }}{36}{table.caption.36}\protected@file@percent }
+\newlabel{tab:bias_interval_holdout_first_k}{{23}{36}{Posterior bias (mean [95\% HDI]) by metric --- Hold-out First $k$ scheme. Validation interval shown; in-sample in parentheses. Best-calibrated model (smallest $|$bias$|$) per metric in bold.\relax }{table.caption.36}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {24}{\ignorespaces Posterior bias (mean [95\% HDI]) by metric --- Random Interior scheme. Validation interval shown; in-sample in parentheses. Best-calibrated model (smallest $|$bias$|$) per metric in bold.\relax }}{36}{table.caption.37}\protected@file@percent }
+\newlabel{tab:bias_interval_random_interior}{{24}{36}{Posterior bias (mean [95\% HDI]) by metric --- Random Interior scheme. Validation interval shown; in-sample in parentheses. Best-calibrated model (smallest $|$bias$|$) per metric in bold.\relax }{table.caption.37}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {25}{\ignorespaces Posterior bias (mean [95\% HDI]) by metric --- Hold-out Peak scheme. Validation interval shown; in-sample in parentheses. Best-calibrated model (smallest $|$bias$|$) per metric in bold.\relax }}{37}{table.caption.38}\protected@file@percent }
+\newlabel{tab:bias_interval_holdout_peak}{{25}{37}{Posterior bias (mean [95\% HDI]) by metric --- Hold-out Peak scheme. Validation interval shown; in-sample in parentheses. Best-calibrated model (smallest $|$bias$|$) per metric in bold.\relax }{table.caption.38}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {26}{\ignorespaces Posterior bias (mean [95\% HDI]) by metric --- Stratified Next $k$ scheme. Validation interval shown; in-sample in parentheses. Best-calibrated model (smallest $|$bias$|$) per metric in bold.\relax }}{37}{table.caption.39}\protected@file@percent }
+\newlabel{tab:bias_interval_stratified_next_k}{{26}{37}{Posterior bias (mean [95\% HDI]) by metric --- Stratified Next $k$ scheme. Validation interval shown; in-sample in parentheses. Best-calibrated model (smallest $|$bias$|$) per metric in bold.\relax }{table.caption.39}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {27}{\ignorespaces Posterior average negative log-likelihood (mean [95\% HDI]) by metric --- Hold-out Last $k$ scheme. Per-family NLL: Gaussian NLL for OBPM/DBPM/USG/MPG, Poisson NLL for count metrics, Binomial NLL for FT\%/FG2\%/FG3\%, NB NLL for FTA/FG2A/FG3A, Beta-Binomial NLL for GP\%. Validation interval shown; in-sample in parentheses. Best model (lowest validation NLL) per metric in bold.\relax }}{38}{table.caption.40}\protected@file@percent }
+\newlabel{tab:log_loss_interval_holdout_last_k}{{27}{38}{Posterior average negative log-likelihood (mean [95\% HDI]) by metric --- Hold-out Last $k$ scheme. Per-family NLL: Gaussian NLL for OBPM/DBPM/USG/MPG, Poisson NLL for count metrics, Binomial NLL for FT\%/FG2\%/FG3\%, NB NLL for FTA/FG2A/FG3A, Beta-Binomial NLL for GP\%. Validation interval shown; in-sample in parentheses. Best model (lowest validation NLL) per metric in bold.\relax }{table.caption.40}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {28}{\ignorespaces Posterior average negative log-likelihood (mean [95\% HDI]) by metric --- Hold-out First $k$ scheme. Per-family NLL: Gaussian NLL for OBPM/DBPM/USG/MPG, Poisson NLL for count metrics, Binomial NLL for FT\%/FG2\%/FG3\%, NB NLL for FTA/FG2A/FG3A, Beta-Binomial NLL for GP\%. Validation interval shown; in-sample in parentheses. Best model (lowest validation NLL) per metric in bold.\relax }}{38}{table.caption.41}\protected@file@percent }
+\newlabel{tab:log_loss_interval_holdout_first_k}{{28}{38}{Posterior average negative log-likelihood (mean [95\% HDI]) by metric --- Hold-out First $k$ scheme. Per-family NLL: Gaussian NLL for OBPM/DBPM/USG/MPG, Poisson NLL for count metrics, Binomial NLL for FT\%/FG2\%/FG3\%, NB NLL for FTA/FG2A/FG3A, Beta-Binomial NLL for GP\%. Validation interval shown; in-sample in parentheses. Best model (lowest validation NLL) per metric in bold.\relax }{table.caption.41}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {29}{\ignorespaces Posterior average negative log-likelihood (mean [95\% HDI]) by metric --- Random Interior scheme. Per-family NLL: Gaussian NLL for OBPM/DBPM/USG/MPG, Poisson NLL for count metrics, Binomial NLL for FT\%/FG2\%/FG3\%, NB NLL for FTA/FG2A/FG3A, Beta-Binomial NLL for GP\%. Validation interval shown; in-sample in parentheses. Best model (lowest validation NLL) per metric in bold.\relax }}{39}{table.caption.42}\protected@file@percent }
+\newlabel{tab:log_loss_interval_random_interior}{{29}{39}{Posterior average negative log-likelihood (mean [95\% HDI]) by metric --- Random Interior scheme. Per-family NLL: Gaussian NLL for OBPM/DBPM/USG/MPG, Poisson NLL for count metrics, Binomial NLL for FT\%/FG2\%/FG3\%, NB NLL for FTA/FG2A/FG3A, Beta-Binomial NLL for GP\%. Validation interval shown; in-sample in parentheses. Best model (lowest validation NLL) per metric in bold.\relax }{table.caption.42}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {30}{\ignorespaces Posterior average negative log-likelihood (mean [95\% HDI]) by metric --- Hold-out Peak scheme. Per-family NLL: Gaussian NLL for OBPM/DBPM/USG/MPG, Poisson NLL for count metrics, Binomial NLL for FT\%/FG2\%/FG3\%, NB NLL for FTA/FG2A/FG3A, Beta-Binomial NLL for GP\%. Validation interval shown; in-sample in parentheses. Best model (lowest validation NLL) per metric in bold.\relax }}{39}{table.caption.43}\protected@file@percent }
+\newlabel{tab:log_loss_interval_holdout_peak}{{30}{39}{Posterior average negative log-likelihood (mean [95\% HDI]) by metric --- Hold-out Peak scheme. Per-family NLL: Gaussian NLL for OBPM/DBPM/USG/MPG, Poisson NLL for count metrics, Binomial NLL for FT\%/FG2\%/FG3\%, NB NLL for FTA/FG2A/FG3A, Beta-Binomial NLL for GP\%. Validation interval shown; in-sample in parentheses. Best model (lowest validation NLL) per metric in bold.\relax }{table.caption.43}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {31}{\ignorespaces Posterior average negative log-likelihood (mean [95\% HDI]) by metric --- Stratified Next $k$ scheme. Per-family NLL: Gaussian NLL for OBPM/DBPM/USG/MPG, Poisson NLL for count metrics, Binomial NLL for FT\%/FG2\%/FG3\%, NB NLL for FTA/FG2A/FG3A, Beta-Binomial NLL for GP\%. Validation interval shown; in-sample in parentheses. Best model (lowest validation NLL) per metric in bold.\relax }}{40}{table.caption.44}\protected@file@percent }
+\newlabel{tab:log_loss_interval_stratified_next_k}{{31}{40}{Posterior average negative log-likelihood (mean [95\% HDI]) by metric --- Stratified Next $k$ scheme. Per-family NLL: Gaussian NLL for OBPM/DBPM/USG/MPG, Poisson NLL for count metrics, Binomial NLL for FT\%/FG2\%/FG3\%, NB NLL for FTA/FG2A/FG3A, Beta-Binomial NLL for GP\%. Validation interval shown; in-sample in parentheses. Best model (lowest validation NLL) per metric in bold.\relax }{table.caption.44}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {32}{\ignorespaces ELPPD per observation difference vs.\ best model (holdout) --- Hold-out Last $k$ scheme. Higher is better; 0 = best model. $\dagger $ = significantly different at 95\% ($|\Delta |>1.96\times \mathrm  {SE}$).\relax }}{40}{table.caption.45}\protected@file@percent }
+\newlabel{tab:elppd_holdout_last_k}{{32}{40}{ELPPD per observation difference vs.\ best model (holdout) --- Hold-out Last $k$ scheme. Higher is better; 0 = best model. $\dagger $ = significantly different at 95\% ($|\Delta |>1.96\times \mathrm {SE}$).\relax }{table.caption.45}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {33}{\ignorespaces ELPPD per observation difference vs.\ best model (holdout) --- Hold-out First $k$ scheme. Higher is better; 0 = best model. $\dagger $ = significantly different at 95\% ($|\Delta |>1.96\times \mathrm  {SE}$).\relax }}{41}{table.caption.46}\protected@file@percent }
+\newlabel{tab:elppd_holdout_first_k}{{33}{41}{ELPPD per observation difference vs.\ best model (holdout) --- Hold-out First $k$ scheme. Higher is better; 0 = best model. $\dagger $ = significantly different at 95\% ($|\Delta |>1.96\times \mathrm {SE}$).\relax }{table.caption.46}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {34}{\ignorespaces ELPPD per observation difference vs.\ best model (holdout) --- Random Interior scheme. Higher is better; 0 = best model. $\dagger $ = significantly different at 95\% ($|\Delta |>1.96\times \mathrm  {SE}$).\relax }}{42}{table.caption.47}\protected@file@percent }
+\newlabel{tab:elppd_random_interior}{{34}{42}{ELPPD per observation difference vs.\ best model (holdout) --- Random Interior scheme. Higher is better; 0 = best model. $\dagger $ = significantly different at 95\% ($|\Delta |>1.96\times \mathrm {SE}$).\relax }{table.caption.47}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {35}{\ignorespaces ELPPD per observation difference vs.\ best model (holdout) --- Hold-out Peak scheme. Higher is better; 0 = best model. $\dagger $ = significantly different at 95\% ($|\Delta |>1.96\times \mathrm  {SE}$).\relax }}{43}{table.caption.48}\protected@file@percent }
+\newlabel{tab:elppd_holdout_peak}{{35}{43}{ELPPD per observation difference vs.\ best model (holdout) --- Hold-out Peak scheme. Higher is better; 0 = best model. $\dagger $ = significantly different at 95\% ($|\Delta |>1.96\times \mathrm {SE}$).\relax }{table.caption.48}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {36}{\ignorespaces ELPPD per observation difference vs.\ best model (holdout) --- Stratified Next $k$ scheme. Higher is better; 0 = best model. $\dagger $ = significantly different at 95\% ($|\Delta |>1.96\times \mathrm  {SE}$).\relax }}{44}{table.caption.49}\protected@file@percent }
+\newlabel{tab:elppd_stratified_next_k}{{36}{44}{ELPPD per observation difference vs.\ best model (holdout) --- Stratified Next $k$ scheme. Higher is better; 0 = best model. $\dagger $ = significantly different at 95\% ($|\Delta |>1.96\times \mathrm {SE}$).\relax }{table.caption.49}{}}
+\newlabel{sec:appendix_validation}{{7.8}{44}{Model Validation}{subsection.7.8}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.8}Model Validation}{44}{subsection.7.8}\protected@file@percent }
+\newlabel{fig:stratum_coverage}{{13a}{45}{95\% HDI coverage by metric, grouped by age stratum (nominal 95\% marked).\relax }{figure.caption.50}{}}
+\newlabel{sub@fig:stratum_coverage}{{a}{45}{95\% HDI coverage by metric, grouped by age stratum (nominal 95\% marked).\relax }{figure.caption.50}{}}
+\newlabel{fig:stratum_elppd}{{13b}{45}{ELPPD per held-out observation by age stratum ($\pm 1$ SE).\relax }{figure.caption.50}{}}
+\newlabel{sub@fig:stratum_elppd}{{b}{45}{ELPPD per held-out observation by age stratum ($\pm 1$ SE).\relax }{figure.caption.50}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {13}{\ignorespaces Per-stratum forecast diagnostics for the Concave$+$AR model under the Stratified Next $k$ scheme. Each stratum is a career-stage cohort whose next two withheld seasons (ages 23--24, 25--26, $\dots  $, 33--34) are scored. Panel (a) shows that calibration is broadly stable across career stage, while panel (b) shows how predictive accuracy varies by stratum.\relax }}{45}{figure.caption.50}\protected@file@percent }
+\newlabel{fig:stratum_diagnostics}{{13}{45}{Per-stratum forecast diagnostics for the Concave$+$AR model under the Stratified Next $k$ scheme. Each stratum is a career-stage cohort whose next two withheld seasons (ages 23--24, 25--26, $\dots $, 33--34) are scored. Panel (a) shows that calibration is broadly stable across career stage, while panel (b) shows how predictive accuracy varies by stratum.\relax }{figure.caption.50}{}}
+\newlabel{sec:ablation_q}{{7.9}{45}{Latent Dimension Ablation}{subsection.7.9}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.9}Latent Dimension Ablation}{45}{subsection.7.9}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {37}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Hold-out Last $k$ scheme. Best $q$ per metric in bold.\relax }}{46}{table.caption.51}\protected@file@percent }
+\newlabel{tab:ablation_rmse_holdout_last_k}{{37}{46}{Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Hold-out Last $k$ scheme. Best $q$ per metric in bold.\relax }{table.caption.51}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {38}{\ignorespaces Holdout average log-loss by metric and latent dimension $q$ --- Hold-out Last $k$ scheme. Best $q$ per metric in bold.\relax }}{47}{table.caption.52}\protected@file@percent }
+\newlabel{tab:ablation_logloss_holdout_last_k}{{38}{47}{Holdout average log-loss by metric and latent dimension $q$ --- Hold-out Last $k$ scheme. Best $q$ per metric in bold.\relax }{table.caption.52}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {39}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Hold-out First $k$ scheme. Best $q$ per metric in bold.\relax }}{48}{table.caption.53}\protected@file@percent }
+\newlabel{tab:ablation_rmse_holdout_first_k}{{39}{48}{Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Hold-out First $k$ scheme. Best $q$ per metric in bold.\relax }{table.caption.53}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {40}{\ignorespaces Holdout average log-loss by metric and latent dimension $q$ --- Hold-out First $k$ scheme. Best $q$ per metric in bold.\relax }}{49}{table.caption.54}\protected@file@percent }
+\newlabel{tab:ablation_logloss_holdout_first_k}{{40}{49}{Holdout average log-loss by metric and latent dimension $q$ --- Hold-out First $k$ scheme. Best $q$ per metric in bold.\relax }{table.caption.54}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {41}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Random Interior scheme. Best $q$ per metric in bold.\relax }}{50}{table.caption.55}\protected@file@percent }
+\newlabel{tab:ablation_rmse_random_interior}{{41}{50}{Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Random Interior scheme. Best $q$ per metric in bold.\relax }{table.caption.55}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {42}{\ignorespaces Holdout average log-loss by metric and latent dimension $q$ --- Random Interior scheme. Best $q$ per metric in bold.\relax }}{51}{table.caption.56}\protected@file@percent }
+\newlabel{tab:ablation_logloss_random_interior}{{42}{51}{Holdout average log-loss by metric and latent dimension $q$ --- Random Interior scheme. Best $q$ per metric in bold.\relax }{table.caption.56}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {43}{\ignorespaces Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Hold-out Peak scheme. Best $q$ per metric in bold.\relax }}{52}{table.caption.57}\protected@file@percent }
+\newlabel{tab:ablation_rmse_holdout_peak}{{43}{52}{Holdout RMSE and bias (in parentheses) by metric and latent dimension $q$ --- Hold-out Peak scheme. Best $q$ per metric in bold.\relax }{table.caption.57}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {44}{\ignorespaces Holdout average log-loss by metric and latent dimension $q$ --- Hold-out Peak scheme. Best $q$ per metric in bold.\relax }}{53}{table.caption.58}\protected@file@percent }
+\newlabel{tab:ablation_logloss_holdout_peak}{{44}{53}{Holdout average log-loss by metric and latent dimension $q$ --- Hold-out Peak scheme. Best $q$ per metric in bold.\relax }{table.caption.58}{}}
+\newlabel{sec:convergence}{{7.10}{53}{MCMC Convergence Diagnostics}{subsection.7.10}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.10}MCMC Convergence Diagnostics}{53}{subsection.7.10}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {14}{\ignorespaces Log joint posterior trace by chain for the injury variant (4 chains, 50 retained draws each after thinning). Stationarity and chain overlap indicate adequate mixing given the scale of the model.\relax }}{54}{figure.caption.59}\protected@file@percent }
+\newlabel{fig:log_post_trace}{{14}{54}{Log joint posterior trace by chain for the injury variant (4 chains, 50 retained draws each after thinning). Stationarity and chain overlap indicate adequate mixing given the scale of the model.\relax }{figure.caption.59}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {15}{\ignorespaces Fraction of (player $\times $ age) cells with $\hat  {R} > 1.05$ for the latent embedding and AR components, by metric.\relax }}{54}{figure.caption.60}\protected@file@percent }
+\newlabel{fig:rhat_latent}{{15}{54}{Fraction of (player $\times $ age) cells with $\hat {R} > 1.05$ for the latent embedding and AR components, by metric.\relax }{figure.caption.60}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.11}Graphical Model}{54}{subsection.7.11}\protected@file@percent }
+\citation{Solin_2019}
+\@writefile{lof}{\contentsline {figure}{\numberline {16}{\ignorespaces Fraction of (player $\times $ age) cells with $\hat  {R} > 1.05$ for the predictive mean $\mu _{ptk}$, by metric.\relax }}{55}{figure.caption.61}\protected@file@percent }
+\newlabel{fig:rhat_mu}{{16}{55}{Fraction of (player $\times $ age) cells with $\hat {R} > 1.05$ for the predictive mean $\mu _{ptk}$, by metric.\relax }{figure.caption.61}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {45}{\ignorespaces Observational model description. We group metrics into different observation models: Gaussian ($\mathcal  {G}$), Binomial ($\mathcal  {B}$), Poisson ($\mathcal  {C}$), Negative-Binomial ($\mathcal  {R}$), Beta ($\mathcal  {P}$), and Beta-Binomial. $\mathcal  {G} =$ \{OBPM, DBPM\}, $\mathcal  {B} =$ \{FG2M, FG3M, FTM\}, $\mathcal  {C} =$ \{BLK, STL, AST, DREB, OREB, TOV\}, $\mathcal  {R} =$ \{FTA, FG2A, FG3A\}, $\mathcal  {P} =$ \{USG, PCT\_MIN\}; games played is Beta-Binomial and minutes-per-game is scaled Beta.\relax }}{55}{table.caption.63}\protected@file@percent }
+\newlabel{tab:metric_description}{{45}{55}{Observational model description. We group metrics into different observation models: Gaussian ($\mathcal {G}$), Binomial ($\mathcal {B}$), Poisson ($\mathcal {C}$), Negative-Binomial ($\mathcal {R}$), Beta ($\mathcal {P}$), and Beta-Binomial. $\mathcal {G} =$ \{OBPM, DBPM\}, $\mathcal {B} =$ \{FG2M, FG3M, FTM\}, $\mathcal {C} =$ \{BLK, STL, AST, DREB, OREB, TOV\}, $\mathcal {R} =$ \{FTA, FG2A, FG3A\}, $\mathcal {P} =$ \{USG, PCT\_MIN\}; games played is Beta-Binomial and minutes-per-game is scaled Beta.\relax }{table.caption.63}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.12}Distributional Assumptions for Observation Model}{55}{table.caption.63}\protected@file@percent }
+\newlabel{appendix:HSGPs}{{7.13}{55}{Hilbert Space Gaussian Processes}{subsection.7.13}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.13}Hilbert Space Gaussian Processes}{55}{subsection.7.13}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {17}{\ignorespaces Procrustes-aligned MCMC trace plots for Stephen Curry's latent embedding (one panel per dimension, colors = chains). After aligning each draw to the MAP reference frame, the chains mix well within each coordinate.\relax }}{56}{figure.caption.62}\protected@file@percent }
+\newlabel{fig:rotated_trace}{{17}{56}{Procrustes-aligned MCMC trace plots for Stephen Curry's latent embedding (one panel per dimension, colors = chains). After aligning each draw to the MAP reference frame, the chains mix well within each coordinate.\relax }{figure.caption.62}{}}
+\citation{Solin_2019}
+\citation{Solin_2019}
+\citation{Solin_2019}
+\citation{Solin_2019}
+\citation{rffs}
+\newlabel{appendix:separability_properties}{{7.14}{57}{Approximating a Separable Kernel}{subsection.7.14}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.14}Approximating a Separable Kernel}{57}{subsection.7.14}\protected@file@percent }
+\newlabel{eq:cov_separable}{{23}{57}{Approximating a Separable Kernel}{equation.7.23}{}}
+\newlabel{eq:cov_separable_2}{{27}{57}{Approximating a Separable Kernel}{equation.7.27}{}}
+\citation{convexityconstraints}
+\citation{convexityconstraints}
+\newlabel{appendix:convexity}{{7.15}{58}{Enforcing Concavity}{subsection.7.15}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.15}Enforcing Concavity}{58}{subsection.7.15}\protected@file@percent }
+\newlabel{appendix:convexity_proof}{{7.15.1}{58}{Validity of Prior}{subsubsection.7.15.1}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {7.15.1}Validity of Prior}{58}{subsubsection.7.15.1}\protected@file@percent }
+\newlabel{appendix:univariate_concavity}{{7.15.2}{58}{Univariate Case}{subsubsection.7.15.2}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {7.15.2}Univariate Case}{58}{subsubsection.7.15.2}\protected@file@percent }
+\newlabel{eq:concave_uni_rep}{{29}{58}{Univariate Case}{equation.7.29}{}}
+\newlabel{eq:deriv_approx_uni_gp}{{30}{58}{Univariate Case}{equation.7.30}{}}
+\newlabel{eq:final_gp_app_uni}{{32}{59}{Univariate Case}{equation.7.32}{}}
+\newlabel{eq:phi_app}{{33}{59}{Univariate Case}{equation.7.33}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {7.15.3}Properties of the Concave Prior}{59}{subsubsection.7.15.3}\protected@file@percent }
+\newlabel{eq:f_peak_rep}{{34}{59}{Properties of the Concave Prior}{equation.7.34}{}}
+\newlabel{eq:var_quartic}{{35}{59}{Properties of the Concave Prior}{equation.7.35}{}}
+\citation{convexityconstraints}
+\citation{convexityconstraints}
+\newlabel{appendix:multivariate_concavity}{{7.15.4}{60}{Multivariate Case}{subsubsection.7.15.4}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {7.15.4}Multivariate Case}{60}{subsubsection.7.15.4}\protected@file@percent }
+\newlabel{eq:concave_multi_rep_app}{{36}{60}{Multivariate Case}{equation.7.36}{}}
+\newlabel{eq:deriv_approx_gp}{{37}{60}{Multivariate Case}{equation.7.37}{}}
+\newlabel{eq:final_gp_app}{{39}{60}{Multivariate Case}{equation.7.39}{}}
+\newlabel{appendix:peak_value}{{7.15.5}{60}{Controlling the Peak Behavior}{subsubsection.7.15.5}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {7.15.5}Controlling the Peak Behavior}{60}{subsubsection.7.15.5}\protected@file@percent }
+\citation{Solin_2019}
+\newlabel{eq:first_deriv_constraint}{{40}{61}{Controlling the Peak Behavior}{equation.7.40}{}}
+\newlabel{eq:peak_value_constraint}{{41}{61}{Controlling the Peak Behavior}{equation.7.41}{}}
+\newlabel{eq:max_constraint_gp_app}{{42}{61}{Controlling the Peak Behavior}{equation.7.42}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {7.15.6}Convergence of the Push-Forward HSGP Approximation}{61}{subsubsection.7.15.6}\protected@file@percent }
+\newlabel{prop:hsgp_convergence_proof}{{4}{61}{Convergence of the HSGP approximation}{proposition.4}{}}
+\citation{isserlis}
+\newlabel{appendix:convexity_properties}{{7.16}{62}{Convexity Formulation Properties}{subsection.7.16}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.16}Convexity Formulation Properties}{62}{subsection.7.16}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {7.16.1}Separability}{62}{subsubsection.7.16.1}\protected@file@percent }
+\newlabel{eq:cov_1}{{43}{62}{Separability}{equation.7.43}{}}
+\newlabel{eq:cov_2}{{44}{62}{Separability}{equation.7.44}{}}
+\newlabel{eq:cov_3}{{45}{62}{Separability}{equation.7.45}{}}
+\newlabel{eq:cov_integral}{{46}{62}{Separability}{equation.7.46}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {7.16.2}Expectation}{63}{subsubsection.7.16.2}\protected@file@percent }
+\newlabel{eq:cov_integral_interchange}{{47}{63}{Expectation}{equation.7.47}{}}
+\newlabel{eq:expectation}{{48}{63}{Expectation}{equation.7.48}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {7.16.3}Variance}{63}{subsubsection.7.16.3}\protected@file@percent }
+\newlabel{eq:variance_process}{{50}{63}{Variance}{equation.7.50}{}}
+\newlabel{eq:final_integral}{{53}{64}{Variance}{equation.7.53}{}}
+\newlabel{eq:conditional_variance}{{59}{65}{Variance}{equation.7.59}{}}
+\newlabel{eq:expectation_k}{{62}{66}{Variance}{equation.7.62}{}}
+\newlabel{eq:expectation_simple}{{63}{66}{Variance}{equation.7.63}{}}
+\newlabel{eq:variance_k}{{64}{66}{Variance}{equation.7.64}{}}
+\newlabel{appendix:HSGPs}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{appendix:convexity_proof}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{appendix:convexity_properties}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{appendix:convexity}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{appendix:multivariate_concavity}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{appendix:peak_value}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{appendix:separability_properties}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{appendix:univariate_concavity}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:concave_multi_rep_app}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:concave_uni_rep}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:conditional_variance}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:cov_1}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:cov_2}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:cov_3}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:cov_integral_interchange}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:cov_integral}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:cov_separable_2}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:cov_separable}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:deriv_approx_gp}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:deriv_approx_uni_gp}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:eta}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:expectation_k}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:expectation_simple}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:expectation}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:f_peak_rep}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:final_gp_app_uni}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:final_gp_app}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:final_integral}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:first_deriv_constraint}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:gamma}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:max_constraint_gp_app}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:peak_value_constraint}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:phi_app}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:rff_features}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:rff_kernel}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:rff_surv}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:structured_prior}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:surv_lik}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:var_quartic}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:variance_k}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{eq:variance_process}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:ar_comparison}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:archetype_frechet_curves}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:archetype_slope_ratio}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:archetype_slopes}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:att_by_metric}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:cov_matrix}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:coverage_minutes}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:coverage_yearly}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:curvature_modality_dendrograms}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:curvature_modality_dim_variance}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:curvature_modality_k_diagnostics}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:curvature_modality_pca}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:dim_var_peak_age}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:dim_var_peak_value}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:dr_acl}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:empirical_production}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:graphical_model}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:injury_global}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:injury_survival}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:injury_type}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:inuries}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:kd_bj_metrics}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:kd_bj}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:latent_archetypes}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:latent_pca_pc34}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:log_post_trace}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:metric_corr}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:modality_dendrograms}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:modality_dim_variance}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:modality_k_diagnostics}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:modality_pca}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:pca_scree}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:peaks_vals}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:player_comparison_metrics}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:player_comparison}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:rhat_latent}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:rhat_mu}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:rotated_trace}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:stratum_coverage}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:stratum_diagnostics}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{fig:stratum_elppd}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{prop:hsgp_convergence_proof}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{sec:ablation_q}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{sec:appendix_validation}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{sec:ar_comparison}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{sec:convergence}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{sec:full_comparison_tables}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{sec:latent_appendix}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{sec:latent_space}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{sec:rff}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{sec:survival_linear_map}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{tab:injury_categories}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{tab:metric_description}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\newlabel{tab:prior_spec}{{7.17}{66}{Additional Figures and Tables}{figure.caption.71}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.17}Additional Figures and Tables}{66}{figure.caption.71}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {18}{\ignorespaces We can see the hold-out coverage as we move further from the end of our in-sample dataset. We see that coverage slightly dips as we move further into the future, but not significantly.\relax }}{67}{figure.caption.64}\protected@file@percent }
+\newlabel{fig:coverage_yearly}{{18}{67}{We can see the hold-out coverage as we move further from the end of our in-sample dataset. We see that coverage slightly dips as we move further into the future, but not significantly.\relax }{figure.caption.64}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {46}{\ignorespaces Major NBA Injuries Causing Extended Time Loss, Categorized by Tissue Type and Body Region\relax }}{67}{table.caption.67}\protected@file@percent }
+\newlabel{tab:injury_categories}{{46}{67}{Major NBA Injuries Causing Extended Time Loss, Categorized by Tissue Type and Body Region\relax }{table.caption.67}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {19}{\ignorespaces Hold-out coverage by metric does not seem to significantly differ by number of in-sample seasons available. Note that the lone observation for number of seasons is LeBron James, which we fail to project well as his career arc is anomalous.\relax }}{68}{figure.caption.65}\protected@file@percent }
+\newlabel{fig:coverage_minutes}{{19}{68}{Hold-out coverage by metric does not seem to significantly differ by number of in-sample seasons available. Note that the lone observation for number of seasons is LeBron James, which we fail to project well as his career arc is anomalous.\relax }{figure.caption.65}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {20}{\ignorespaces This plot illustrates a clustered correlation matrix of the metrics, according to max values players accrued over their careers. \relax }}{69}{figure.caption.66}\protected@file@percent }
+\newlabel{fig:metric_corr}{{20}{69}{This plot illustrates a clustered correlation matrix of the metrics, according to max values players accrued over their careers. \relax }{figure.caption.66}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {21}{\ignorespaces We see that there is a separation of players by position type, much like the PCA plot. \relax }}{70}{figure.caption.70}\protected@file@percent }
+\newlabel{fig:cov_matrix}{{21}{70}{We see that there is a separation of players by position type, much like the PCA plot. \relax }{figure.caption.70}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {22}{\ignorespaces This plot illustrates the average value of production by age, across a variety of different metrics, smoothed by a LOESS estimator. Note that some of these estimates do not respect aging beliefs (i.e some metrics indicate infinite improvement with respect to age, as well as a decrease then improvement). This observation can be explained by selection bias; players who are more successful are likely to play later in their careers, and tend to have higher values of production, biasing curves upwards. \relax }}{70}{figure.caption.71}\protected@file@percent }
+\newlabel{fig:empirical_production}{{22}{70}{This plot illustrates the average value of production by age, across a variety of different metrics, smoothed by a LOESS estimator. Note that some of these estimates do not respect aging beliefs (i.e some metrics indicate infinite improvement with respect to age, as well as a decrease then improvement). This observation can be explained by selection bias; players who are more successful are likely to play later in their careers, and tend to have higher values of production, biasing curves upwards. \relax }{figure.caption.71}{}}
+\gdef \@abspage@last{70}
