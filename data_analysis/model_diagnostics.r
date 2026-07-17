@@ -787,8 +787,11 @@ if (!is.null(concave_loadings)) {
     corr_labs <- tibble(metric = corr_mets) |> rename_curv_metrics() |> pull(metric)
     rownames(curv_corr) <- colnames(curv_corr) <- corr_labs
     # cluster on 1 - r directly (metrics are close iff they correlate highly), not pheatmap's
-    # default euclidean-on-rows, which measures similarity of correlation PROFILES instead
-    pheatmap(curv_corr, color = colorRampPalette(c("white", "red"))(100),
+    # default euclidean-on-rows, which measures similarity of correlation PROFILES instead.
+    # Fixed breaks anchor the palette to the [0, 1] correlation scale (0 = blue, 1 = red)
+    # instead of stretching over the observed data range.
+    pheatmap(curv_corr, color = colorRampPalette(c("blue", "white", "red"))(100),
+             breaks = seq(0, 1, length.out = 101),
              clustering_distance_rows = as.dist(1 - curv_corr),
              clustering_distance_cols = as.dist(1 - curv_corr),
              display_numbers = TRUE, number_format = "%.2f", fontsize_number = 7,
