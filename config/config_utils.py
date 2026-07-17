@@ -53,17 +53,17 @@ def resolve_model_config(config_path: str, model_name: str, inference_method: st
     if inference_method:
         merged["inference_method"] = inference_method
 
-    # For MCMC scheme-variant runs, collocate model_dir and init_path with the
-    # scheme's MAP model_dir so each scheme's MCMC initialises from its own
-    # MAP samples rather than the base model's.
-    if inference_method == "mcmc" and _is_scheme_variant:
+    # For MCMC (and cut-MCMC) scheme-variant runs, collocate model_dir and init_path
+    # with the scheme's MAP model_dir so each scheme's sampler run writes to its own
+    # directory and initialises/plugs-in from its own MAP samples rather than the base's.
+    if inference_method in ("mcmc", "cut_mcmc") and _is_scheme_variant:
         _map_dir = scheme_entry.get("model_dir") or ""
         if _map_dir:
-            _mcmc_dir = (
-                _map_dir[:-3] + "mcmc" if _map_dir.endswith("/map")
-                else f"{_map_dir}/mcmc"
+            _run_dir = (
+                _map_dir[:-4] + f"/{inference_method}" if _map_dir.endswith("/map")
+                else f"{_map_dir}/{inference_method}"
             )
-            merged["model_dir"] = _mcmc_dir
+            merged["model_dir"] = _run_dir
             if "init_path" not in _scheme_explicit_keys:
                 merged["init_path"] = f"{_map_dir}/samples.pkl"
             if "fixed_param_path" not in _scheme_explicit_keys:

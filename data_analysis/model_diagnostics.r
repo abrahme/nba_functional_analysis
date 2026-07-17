@@ -92,7 +92,10 @@ empirical_player_plt <- injury_data |> filter(name %in% c("Kobe Bryant", "Dwight
 ggsave("model_output/model_plots/empirical_production_player.png", empirical_player_plt,
        width = 10, height = 4, dpi = 150)
 
-empirical_plt <- injury_data |> filter(metric %in% c("obpm", "pct_minutes", "fta")) |> mutate(metric = toupper(metric),
+# Selection-bias exhibit: metrics whose cross-sectional AVERAGE turns upward at
+# late ages (BLK bottoms out ~31 then rises; DREB and DBPM climb after ~30) —
+# pure survivor composition, since only elite bigs/defenders play at 35+.
+empirical_plt <- injury_data |> filter(metric %in% c("blk", "dreb", "dbpm")) |> mutate(metric = toupper(metric),
            metric = case_when(metric == "GAMES" ~ "GP%",
                               metric == "FG2M" ~ "FG2%",
                               metric == "FG3M" ~ "FG3%",
@@ -104,7 +107,7 @@ empirical_plt <- injury_data |> filter(metric %in% c("obpm", "pct_minutes", "fta
                               metric %in% c("MPG", "GP%") ~ metric,
                               .default =  paste0(metric, " (𝓡)"))) |> ggplot(aes(x = age, y = obs_value)) + 
                               geom_smooth(method = "loess", se = TRUE) + facet_wrap(~metric, scales = "free_y") + theme_bw(base_size = 18) + scale_colour_brewer(palette = "Set1") +
-                              ggtitle("Empirical Production Curves by Metric") +xlab("Age") + ylab("Metric Value")
+                              ggtitle("Empirical Average Production Curves by Metric") +xlab("Age") + ylab("Metric Value")
 ggsave("model_output/model_plots/empirical_production.png", empirical_plt,
        width = 10, height = 4, dpi = 150)
 
@@ -130,6 +133,13 @@ injury_prior_mean    <- read_parquet_if_exists(file.path(model_dir, "posterior_i
 phi_X                <- read_parquet_if_exists(file.path(model_dir, "phi_X.parquet"))
 third_deriv              <- read_parquet_if_exists(file.path(model_dir, "posterior_third_deriv_ar.parquet"))
 log_posterior            <- read_parquet_if_exists(file.path(model_dir, "log_posterior.parquet"))
+concave_loadings           <- read_parquet_if_exists(file.path(model_dir, "posterior_concave_loadings.parquet"))
+concave_gram               <- read_parquet_if_exists(file.path(model_dir, "posterior_concave_gram.parquet"))
+concave_canonical_loadings <- read_parquet_if_exists(file.path(model_dir, "posterior_concave_canonical_loadings.parquet"))
+concave_canonical_curves   <- read_parquet_if_exists(file.path(model_dir, "concave_canonical_curves.parquet"))
+concave_player_profile     <- read_parquet_if_exists(file.path(model_dir, "posterior_concave_player_profile.parquet"))
+concave_basis_curves       <- read_parquet_if_exists(file.path(model_dir, "concave_basis_curves.parquet"))
+hsgp_time_basis            <- read_parquet_if_exists(file.path(model_dir, "hsgp_time_basis.parquet"))
 
 posterior_exit_samples <- open_dataset(file.path(model_dir, "posterior_exit_age_sample.parquet")) |>
   filter(measure == "exit_age_sample", scenario == "observed",
@@ -391,7 +401,7 @@ peaks_pca_plot  <- filter(peaks_pca_df, name %in% peaks_pca_labels) %>% ggplot(a
     size = 3.2,
     fontface = "bold",
     max.overlaps = Inf,
-    min.segment.length = 0,
+    min.segment.length = Inf,
     box.padding = 0.4,
     inherit.aes = FALSE
   ) +
@@ -414,7 +424,7 @@ peaks_pca_loadings_plt <- ggplot(loadings, aes(x = PC1, y = PC2)) +
   # geom_text_repel (not geom_text) so co-located metric labels separate instead of stacking.
   geom_text_repel(aes(label = metric, color = metric_group), size = 4,
                       fontface = "bold", show.legend = FALSE, max.overlaps = Inf,
-                      min.segment.length = 0, box.padding = 0.35, seed = 1) +
+                      min.segment.length = Inf, box.padding = 0.35, seed = 1) +
   geom_point(aes(color = metric_group), alpha = 0) +
   theme_bw(base_size = 14) +
   guides(color = guide_legend(override.aes = list(shape = 16, alpha = 1))) +
@@ -447,7 +457,7 @@ peak_vals_pca_plot  <-  peak_vals_pca_df %>% ggplot(aes(x = PC1, y = PC2)) +  ge
                       size = 3,
                       fontface = "bold",
                       max.overlaps = Inf,
-                      min.segment.length = 0,
+                      min.segment.length = Inf,
                       box.padding = 0.4,
                       seed = 1,
                       inherit.aes = FALSE) +
@@ -468,7 +478,7 @@ loadings_vals$metric <- rownames(loadings_vals)
 peak_vals_pca_loadings_plt <- ggplot(loadings_vals, aes(x = PC1, y = PC2)) +
   geom_text_repel(aes(label = metric), size = 4,
                       fontface = "bold", show.legend = FALSE, max.overlaps = Inf,
-                      min.segment.length = 0, box.padding = 0.35, seed = 1) +
+                      min.segment.length = Inf, box.padding = 0.35, seed = 1) +
   theme_bw(base_size = 14) +
   guides(color = guide_legend(override.aes = list(shape = 16, alpha = 1))) +
   scale_colour_brewer(palette = "Set1") +
@@ -567,7 +577,7 @@ peaks_plt <- ggplot(peaks_plt_df |> inner_join(loadings, by = "metric") |> group
   scale_colour_brewer(palette = "Set1") + 
   theme_bw(base_size = 14) +
   labs(
-    title = str_wrap("Posterior Mean of Peak Age by Metric", 24),
+    title = str_wrap("Player Variation in Expected Peak", 24),
     x = "Age",
     y = "Metric",
     fill = "Metric Group",
@@ -625,6 +635,206 @@ ggsave(file.path(plots_dir, "peaks", "mcmc", "peaks_third_deriv_curves.png"), cu
 cov_ctx <- build_joined_data(posterior_data, injury_data, data, posterior_peaks,
                              model_dir, validation_year)
 joined_data <- cov_ctx$joined_data
+
+# ── Concave curvature loadings: how each metric loads the HSGP time bases ────
+# posterior_concave_loadings: per (chain, sample, metric, basis) population summaries of gamma,
+# the curvature-root HSGP-basis loadings (energy_share = fraction of curvature energy on each
+# basis). concave_canonical_curves / posterior_concave_canonical_loadings: the eigen-decomposition
+# of each metric's Gram matrix — the canonical concave curves that represent the metric, with
+# their loadings. Emitted only by the convex-max family (NULL gate skips everything else).
+if (!is.null(concave_loadings)) {
+  dir.create(file.path(plots_dir, "curvature"), recursive = TRUE, showWarnings = FALSE)
+
+  rename_curv_metrics <- function(df) {
+    df |> mutate(metric = toupper(metric),
+                 metric = case_when(metric == "GAMES"       ~ "GP%",
+                                    metric == "FG2M"        ~ "FG2%",
+                                    metric == "FG3M"        ~ "FG3%",
+                                    metric == "FTM"         ~ "FT%",
+                                    metric == "PCT_MINUTES" ~ "MPG",
+                                    .default = metric))
+  }
+
+  curv_loadings <- concave_loadings |> rename_curv_metrics()
+
+  # 1. Heatmap of posterior-mean energy share per metric x basis (rows ordered by basis-1 share)
+  curv_share_summary <- curv_loadings |>
+    group_by(metric, basis) |>
+    summarize(energy_share = mean(energy_share), .groups = "drop")
+  curv_metric_order <- curv_share_summary |> filter(basis == 1) |> arrange(energy_share) |> pull(metric)
+  curv_heatmap_plt <- curv_share_summary |>
+    mutate(metric = factor(metric, levels = curv_metric_order)) |>
+    ggplot(aes(x = factor(basis), y = metric, fill = energy_share)) +
+    geom_tile() +
+    geom_text(aes(label = sprintf("%.2f", energy_share)), size = 3) +
+    scale_fill_gradient(low = "white", high = "red", limits = c(0, 1)) +
+    theme_bw(base_size = 14) +
+    theme(plot.title = element_text(hjust = 0.5), legend.position = "bottom") +
+    ggtitle("Curvature Energy Share by HSGP Basis") +
+    labs(x = "HSGP Basis", y = "Metric", fill = "Energy Share")
+  ggsave(file.path(plots_dir, "curvature", "concave_loadings_heatmap.png"), curv_heatmap_plt, width = 6, height = 8)
+
+  # 2. Posterior intervals of the RMS loading per metric x basis
+  curv_intervals_plt <- curv_loadings |>
+    ggplot(aes(x = factor(basis), y = loading_rms)) +
+    stat_pointinterval() +
+    facet_wrap(~metric, scales = "free_y") +
+    theme_bw(base_size = 12) +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    ggtitle("Curvature-Root RMS Loading by HSGP Basis") +
+    labs(x = "HSGP Basis", y = "RMS Loading (across players)")
+  ggsave(file.path(plots_dir, "curvature", "concave_loadings_intervals.png"), curv_intervals_plt, width = 10, height = 8)
+
+  # 3. The basis functions themselves (eigenfunction + the concave curve each generates alone),
+  # so the basis indices in the loadings plots are interpretable (basis 1 = lowest frequency).
+  if (!is.null(hsgp_time_basis)) {
+    basis_shapes_plt <- bind_rows(
+      hsgp_time_basis |> mutate(panel = "Eigenfunction ψ(t)"),
+      if (!is.null(concave_basis_curves)) concave_basis_curves |> mutate(panel = "Concave curve -Ψ(t)")
+    ) |>
+      ggplot(aes(x = age, y = value, color = factor(basis))) +
+      geom_line(linewidth = 0.9) +
+      facet_wrap(~panel, scales = "free_y") +
+      theme_bw(base_size = 14) +
+      scale_colour_brewer(palette = "Set1") +
+      theme(plot.title = element_text(hjust = 0.5), legend.position = "bottom") +
+      ggtitle("HSGP Time Basis Functions") +
+      labs(x = "Age", y = "Value", color = "Basis")
+    ggsave(file.path(plots_dir, "curvature", "hsgp_time_basis.png"), basis_shapes_plt, width = 10, height = 5)
+  }
+
+  # 4. Canonical concave curves PER METRIC + companion heatmap of the canonical loadings.
+  # Each metric's posterior-mean Gram is eigendecomposed separately — an exact rank-M
+  # decomposition of its population-mean curvature. Deliberately per metric: the Grams do not
+  # commute, so no shared eigenbasis exists, and a shared oblique basis (INDSCAL) was tried and
+  # reverted — the shapes that make each metric's curvature interesting are exactly what sharing
+  # averages away. The cost, and it is real: "component j" names a DIFFERENT curve in every
+  # facet, so the colour legend must never be read across panels — cross-metric statements go
+  # through the curve shapes, not the component index.
+  # Two scaling rules for the display:
+  #   * curve_value is the UNIT eigen-component; scaling by lambda_j makes the curves additive —
+  #     sum_j lambda_j * curve_j(t) is exactly the metric's population-mean descent. Use
+  #     lambda_j / alpha_k (per-draw ratio): alpha is the per-metric GP variance, lambda scales
+  #     linearly in it, and it carries the metric's LINK scale (Poisson/Binomial/Normal), not
+  #     aging. The lengthscale part of the spd stays in — frequency structure, not nuisance.
+  #   * Do NOT weight the display by psi-basis energy share. It lives in gamma-space, not
+  #     curve-space, and decays mechanically (the squared-exponential spectral density falls off
+  #     Gaussian in the basis index), so it encodes the prior rather than the fit.
+  if (!is.null(concave_canonical_curves) && !is.null(concave_canonical_loadings)) {
+    canon_share <- concave_canonical_loadings |> rename_curv_metrics() |>
+      group_by(metric, component) |>
+      summarize(lambda = mean(loading / alpha), energy_share = mean(energy_share), .groups = "drop")
+    canon_curves_plt <- concave_canonical_curves |> rename_curv_metrics() |>
+      inner_join(canon_share, by = c("metric", "component")) |>
+      mutate(curve_value = curve_value * lambda) |>
+      ggplot(aes(x = age, y = curve_value, color = factor(component), group = component)) +
+      geom_line(linewidth = 0.9) +
+      facet_wrap(~metric, scales = "free_y") +
+      theme_bw(base_size = 12) +
+      scale_colour_brewer(palette = "Set1") +
+      theme(plot.title = element_text(hjust = 0.5), legend.position = "bottom") +
+      ggtitle("Canonical Concave Curves by Metric") +
+      labs(x = "Age", y = "Contribution to Mean Descent (λ/α-scaled)", color = "Component",
+           caption = "Components are metric-specific: a given colour is not the same curve across panels")
+    ggsave(file.path(plots_dir, "curvature", "concave_canonical_curves.png"), canon_curves_plt, width = 12, height = 9)
+
+    canon_metric_order <- canon_share |> filter(component == 1) |> arrange(energy_share) |> pull(metric)
+    canon_heatmap_plt <- canon_share |>
+      mutate(metric = factor(metric, levels = canon_metric_order)) |>
+      ggplot(aes(x = factor(component), y = metric, fill = energy_share)) +
+      geom_tile() +
+      geom_text(aes(label = sprintf("%.2f", energy_share)), size = 3) +
+      scale_fill_gradient(low = "white", high = "red", limits = c(0, 1)) +
+      theme_bw(base_size = 14) +
+      theme(plot.title = element_text(hjust = 0.5), legend.position = "bottom") +
+      ggtitle("Canonical Component Energy Share") +
+      labs(x = "Canonical Component", y = "Metric", fill = "Energy Share")
+    ggsave(file.path(plots_dir, "curvature", "concave_canonical_loadings_heatmap.png"), canon_heatmap_plt, width = 6, height = 8)
+  }
+
+  # 5. Curvature-shape correlation between metrics: which metrics AGE alike. The naive version —
+  # correlating the flattened HSGP weights A_k across metrics — is gauge-broken: within a draw all
+  # metrics share the realized feature basis (a common rotation cancels in tr(A_k' A_l)), but A_k
+  # enters the likelihood only quadratically, so A_k -> -A_k is invisible and the SIGN of that
+  # correlation is unidentified. The Gram G_k = A_k^T Phi A_k quotients both gauges, so correlate
+  # the population-mean curvature functions psi(t)^T G_k psi(t) over the age grid, within each
+  # draw, then average the K x K matrix across the posterior. Complements the empirical value
+  # correlation at the top of this script: that measures which metrics co-occur in the same
+  # players; this measures which metrics bend with age in the same way. Caveat: curvature
+  # functions are non-negative and rise away from the peak, so a positive floor is structural —
+  # the relative ordering is the signal.
+  if (!is.null(concave_gram) && !is.null(hsgp_time_basis)) {
+    M_gram <- max(concave_gram$basis_l)
+    Psi_corr <- as.matrix(hsgp_time_basis |> arrange(age, basis) |>
+                            pivot_wider(names_from = basis, values_from = value, names_prefix = "b") |>
+                            select(-age))                                # (t, M)
+    # W[(z-1)*M+l, t] = psi_t[l] psi_t[z], so G_flat %*% W gives psi_t^T G psi_t per draw
+    W_corr <- sapply(seq_len(nrow(Psi_corr)), function(tt) as.vector(Psi_corr[tt, ] %*% t(Psi_corr[tt, ])))
+    gram_wide_corr <- concave_gram |>
+      mutate(cell = (basis_z - 1) * M_gram + basis_l) |>
+      select(chain, sample, metric, cell, value) |> arrange(chain, sample, metric, cell) |>
+      pivot_wider(names_from = cell, values_from = value, names_prefix = "c")
+    corr_mets <- sort(unique(gram_wide_corr$metric))
+    K_corr    <- length(corr_mets)
+    G_all     <- as.matrix(gram_wide_corr |> select(-chain, -sample, -metric))
+    n_draws   <- nrow(G_all) / K_corr                                    # metrics sorted within draw
+    curv_corr <- matrix(0, K_corr, K_corr)
+    for (d in seq_len(n_draws)) {
+      curv_d <- G_all[((d - 1) * K_corr + 1):(d * K_corr), , drop = FALSE] %*% W_corr   # (K, t)
+      curv_corr <- curv_corr + cor(t(curv_d))
+    }
+    curv_corr <- curv_corr / n_draws
+    corr_labs <- tibble(metric = corr_mets) |> rename_curv_metrics() |> pull(metric)
+    rownames(curv_corr) <- colnames(curv_corr) <- corr_labs
+    # cluster on 1 - r directly (metrics are close iff they correlate highly), not pheatmap's
+    # default euclidean-on-rows, which measures similarity of correlation PROFILES instead
+    pheatmap(curv_corr, color = colorRampPalette(c("white", "red"))(100),
+             clustering_distance_rows = as.dist(1 - curv_corr),
+             clustering_distance_cols = as.dist(1 - curv_corr),
+             display_numbers = TRUE, number_format = "%.2f", fontsize_number = 7,
+             main = "Curvature-Shape Correlation Between Metrics",
+             filename = file.path(plots_dir, "curvature", "curvature_metric_corr.png"),
+             width = 8, height = 7)
+  }
+
+  # 6. Player canonical-weight profiles: no curves — per metric, the full M x M matrix of
+  # canonical weights E[c_l c_z / alpha], trace-normalized per (player, metric). The diagonal is
+  # the player's energy share on each canonical component (sums to 1); the off-diagonals are the
+  # signed cross-term (interference) weights a curve display cannot show, since the player's
+  # curvature is sum_{l,z} c_l c_z v_l^T [.] v_z. Cross terms average to ~zero over players (the
+  # eigenbasis diagonalizes the population Gram), so off-diagonal structure is precisely how the
+  # player deviates from a population-canonical mixture. Off-diagonal shares are bounded in
+  # [-1/2, 1/2] by Cauchy-Schwarz; diagonal in [0, 1].
+  if (!is.null(concave_player_profile)) {
+    dir.create(file.path(plots_dir, "curvature", "players"), recursive = TRUE, showWarnings = FALSE)
+    player_profiles <- concave_player_profile |> rename_curv_metrics()
+    profile_players <- intersect(posterior_plot_names, unique(player_profiles$name))
+    for (pl in profile_players) {
+      pp <- player_profiles |> filter(name == pl) |>
+        group_by(metric) |>
+        mutate(share = value / sum(value[comp_row == comp_col])) |>
+        ungroup() |>
+        mutate(comp_row_f = factor(comp_row, levels = rev(sort(unique(comp_row)))))
+      profile_plt <- pp |>
+        ggplot(aes(x = factor(comp_col), y = comp_row_f, fill = share)) +
+        geom_tile() +
+        geom_text(aes(label = sprintf("%.2f", share)), size = 2.6) +
+        scale_fill_gradient2(low = "blue", mid = "white", high = "red", limits = c(-1, 1)) +
+        facet_wrap(~metric) +
+        theme_bw(base_size = 12) +
+        theme(plot.title = element_text(hjust = 0.5), legend.position = "bottom") +
+        ggtitle(glue("Canonical Weight Profile: {plot_name(pl)}")) +
+        labs(x = "Component", y = "Component", fill = "Share of Curvature Energy",
+             caption = paste("Diagonal: energy share per canonical component (sums to 1).",
+                             "Off-diagonal: signed cross-term weights.",
+                             "Components are metric-specific."))
+      ggsave(file.path(plots_dir, "curvature", "players",
+                       paste0(gsub("[^A-Za-z0-9]+", "_", pl), ".png")),
+             profile_plt, width = 12, height = 10)
+    }
+    print(glue("wrote {length(profile_players)} player weight profiles"))
+  }
+}
 
 # ── Injury effect decomposition: global offset + type-specific ───────────────
 if (!is.null(injury_global_offset) && !is.null(injury_prior_mean)) {
@@ -1062,6 +1272,60 @@ jc_plot <- wrap_plots(
 ggsave(
   file.path(plots_dir, "player_plots", "mcmc", "Jokic_Curry_comparison.png"),
   jc_plot,
+  width = 18, height = 9, dpi = 150
+)
+
+### Concave + AR(1) latent posterior overlay (deck: "Where We're Headed" click-through).
+# Identical grid/axes to Jokic_Curry_comparison.png, with the (f + r) posterior in
+# blue on top of the concave-only posterior — the deck stacks the two images and
+# reveals this one as a fragment.
+jc_ar_component <- open_dataset(file.path(model_dir, "posterior_latent_ar.parquet")) |>
+  filter(metric %in% jc_metrics, player %in% jc_player_ids$id) |>
+  select(player, metric, chain, sample, age, ar = value) |>
+  collect()
+
+jokic_curry_mu_ar_df <- posterior_mu_data |>
+  filter(metric %in% jc_metrics) |>
+  inner_join(jc_player_ids, by = c("player" = "id")) |>
+  inner_join(jc_ar_component, by = c("player", "metric", "chain", "sample", "age")) |>
+  mutate(total = value + ar,
+         mu_t = case_when(
+           metric %in% c("fg2m", "ftm", "games", "fg3m") ~ plogis(total),
+           metric %in% c("obpm", "dbpm")                  ~ total,
+           metric %in% c("pct_minutes")                   ~ plogis(total) * 48,
+           metric %in% c("usg")                           ~ plogis(total),
+           .default                                        = exp(total) * 36
+         )) |>
+  mutate(metric = toupper(metric), metric = if_else(metric == "FG2M", "FG2%", metric)) |>
+  group_by(metric, player, name, age) |>
+  summarize(
+    lower = HDInterval::hdi(mu_t, credMass = 0.95)["lower"],
+    upper = HDInterval::hdi(mu_t, credMass = 0.95)["upper"],
+    mu    = mean(mu_t, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# with_ar = FALSE reproduces the base cell exactly (same jc_ylims), so the two
+# saved images differ only by the added AR layers and overlay pixel-perfectly.
+jc_cell_ar <- function(player_name, m, with_ar = TRUE) {
+  base <- jc_cell(player_name, m)
+  if (!with_ar) return(base)
+  ar_panel <- jokic_curry_mu_ar_df |> filter(name == player_name, metric == m)
+  base +
+    geom_ribbon(data = ar_panel, aes(ymin = lower, ymax = upper),
+                fill = "#047C91", alpha = 0.25) +
+    geom_line(data = ar_panel, aes(y = mu), color = "#047C91", linewidth = 1)
+}
+
+jc_plot_ar <- wrap_plots(
+  lapply(jc_player_order, function(pl)
+    wrap_plots(lapply(jc_metric_order, function(m) jc_cell_ar(pl, m)), nrow = 1)),
+  ncol = 1
+)
+
+ggsave(
+  file.path(plots_dir, "player_plots", "mcmc", "Jokic_Curry_comparison_with_AR.png"),
+  jc_plot_ar,
   width = 18, height = 9, dpi = 150
 )
 

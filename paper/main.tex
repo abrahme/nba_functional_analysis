@@ -377,7 +377,7 @@ We model the  \emph{exit age} (e.g. retirement) of player $p$ using a survival m
     h_p(a \mid X_p) \;=\; \eta_p(X_p)\,\exp\!\bigl(\gamma_p(X_p)\,a\bigr),
     \label{eq:gompertz}
 \end{equation}
-where $\eta_p(X_p) > 0$ is the \emph{baseline hazard} and $\gamma_p(X_p) > 0$ is the \emph{aging rate} governing how quickly exit risk accelerates with age.  The Gompertz hazard is monotonically increasing in $a$ for any $\gamma_p > 0$, so the model encodes age-related attrition by construction; both parameters are tied to the latent embedding $X_p$ (Appendix~\ref{sec:survival_linear_map}).
+where $\eta_p(X_p) > 0$ is the \emph{baseline hazard} and $\gamma_p(X_p) > 0$ is the \emph{aging rate} governing how quickly exit risk accelerates with age.  The Gompertz hazard is monotonically increasing in $a$ for any $\gamma_p > 0$, so the model encodes age-related attrition by construction; both parameters are tied to the latent embedding through the same feature-map projection $\phi(X_p)$ used by the performance model --- the identity map for the linear kernel, or random Fourier features for the flagship model (Appendix~\ref{sec:survival_linear_map}).
 We adopt the Gompertz form because its log-hazard is linear in age, $\log h_p(a) = \log\eta_p(X_p) + \gamma_p(X_p)\,a$: exit risk increases by a constant proportional factor with each additional year of age.  This exponential-in-age hazard is the classical law of human aging and mortality and is the hallmark of biological senescence, making it a mechanistically faithful and interpretable model of athletic decline.
 
 \subsection{Player Specific Latent Variables}

@@ -34,7 +34,7 @@ from model.models import (
     ConvexMaxTVRFLVM, NaiveLinearLVM, ConvexMaxARTVRFLVM, ConvexMaxARTVLinearLVM,
     ConvexMaxLinearTrendTVLinearLVM, ConvexMaxLKJTVLinearLVM, ConvexMaxARLKJTVLinearLVM,
     ConvexMaxTVCosineLVM, ConvexMaxARTVCosineLVM,
-    ConvexMaxRFFTVLinearLVM, ConvexMaxARRFFTVLinearLVM,
+    ConvexMaxRFFTVLinearLVM, ConvexMaxARRFFTVLinearLVM, ConvexMaxInjuryRFFTVLinearLVM,
     TVLinearLVM, TVLinearLVM_AR, LKJTVLinearLVM, LKJTVLinearLVM_AR,
 )
 
@@ -228,9 +228,15 @@ def dispatch_model(model_name, *, latent_rank, output_shape, basis, player_covar
             # RFF leaves of the full-featured ConvexMaxTVLinearLVM family (structured prior, REs,
             # compute_curves, AR/calendar trend) — see ConvexMaxRFFTVLinearLVM. Same treatment as the
             # "linear" branch below: pass player_covariates + rff_dim and set the per-player RE toggles.
-            cls = ConvexMaxARRFFTVLinearLVM if "AR" in model_name else ConvexMaxRFFTVLinearLVM
-            model = cls(latent_rank=latent_rank, rff_dim=rff_dim, output_shape=output_shape,
-                        basis=basis, player_covariates=player_covariates)
+            if injury and ("injury" in model_name):
+                model = ConvexMaxInjuryRFFTVLinearLVM(
+                    latent_rank=latent_rank, rff_dim=rff_dim, output_shape=output_shape,
+                    basis=basis, player_covariates=player_covariates,
+                    injury_rank=5, num_injury_types=num_injury_types)
+            else:
+                cls = ConvexMaxARRFFTVLinearLVM if "AR" in model_name else ConvexMaxRFFTVLinearLVM
+                model = cls(latent_rank=latent_rank, rff_dim=rff_dim, output_shape=output_shape,
+                            basis=basis, player_covariates=player_covariates)
             _re_default = (not injury) and ("linear_trend" not in model_name)
             model.use_c_offset_re = _re_default
             model.use_t_offset_re = _re_default

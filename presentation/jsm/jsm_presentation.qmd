@@ -1,0 +1,823 @@
+---
+title: "Concave Processes for Multi-Task Career Trajectories"
+subtitle: "Evaluating Aging Across Multiple Measures of NBA Performance"
+author:
+  - name: "Abhijit Brahme"
+    affiliation: "UC Santa Barbara"
+  - name: "David Arbour"
+    affiliation: "Adobe Research"
+  - name: "Alexander Franks"
+    affiliation: "UC Santa Barbara"
+date: "JSM 2026"
+format:
+  revealjs:
+    theme: [default, custom.scss]
+    embed-resources: true
+    incremental: true
+    auto-stretch: false
+    slide-number: true
+    center: false
+    width: 1280
+    height: 800
+    margin: 0.06
+    transition: fade
+    html-math-method: mathjax
+    chalkboard: false
+    footer: "Brahme, Arbour & Franks — Concave Processes for NBA Career Trajectories"
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r setup}
+#| include: false
+library(ggplot2)
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(purrr)
+library(patchwork)
+
+# Reference implementation of the concave process prior (same math as the model)
+source("../gradslam/concave_prior_sampler.R")
+
+# UCSB brand palette (https://brand.ucsb.edu/visual-identity/color):
+# navy #003660, gold #FEBC11, aqua web #047C91, sea green web #09847A,
+# moss web #6D7D33, coral #EF5645 (marks) / dark coral #C43424 (text)
+pal <- c(blue = "#047C91", darkblue = "#003660", lightblue = "#DAE6E6",
+         orange = "#EF5645", aqua = "#09847A", violet = "#6D7D33",
+         gold = "#FEBC11")
+
+theme_talk <- function(base_size = 16) {
+  theme_bw(base_size = base_size) +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major = element_line(color = "#EEF0F2"),
+      panel.border = element_rect(color = "#DCE1E5"),
+      strip.background = element_rect(fill = "#F1EEEA", color = "#DCE1E5"),
+      strip.text = element_text(face = "bold", color = "#003660"),
+      plot.title = element_text(face = "bold", color = "#003660"),
+      plot.subtitle = element_text(color = "#555555"),
+      legend.position = "none"
+    )
+}
+
+set.seed(7)
+```
+
+## About The Author {.smaller}
+
+<!-- TODO: fill in — bio, photo, links -->
+
+-
+-
+-
+
+## Why Model Career Trajectories? {.smaller}
+
+- Front offices are implicitly betting on the *shape of an aging curve* every time they sign a contract.
+- Players face the same question from the inside: **which skills erode first**, and what should they train to compensate?
+- Performance is **not one number**: a career is many curves at once
+- What can we learn about aging in NBA athletes from multiple modalities of performance, and how can we use that to forecast careers?
+
+::: notes
+The Nets anecdote is the hook: misjudging two aging curves altered two franchises for a decade.
+:::
+
+## Prior Work {.smaller}
+
+::: {.callout-tip title="Production curve analysis"}
+Infer smooth career trajectories $f_p(t)$ from **sparse, irregular longitudinal observations** across players — and use them to forecast, compare, and explain careers.
+:::
+
+**Bayesian modeling of Basketball Performance:**
+
+- **Page, Fellingham & Reese (2007, JQAS)** — Bayesian hierarchical modeling of box-score contributions: which *positions'* skills actually contribute to winning.
+- **Page, Barney & McGuire (2013, JQAS)** — production curves for NBA players: how position, usage rate, and minutes shape the aging arc — the closest ancestor of this work.
+
+**Aging Curves and Player Pooling:**
+
+- **Vaci et al. (2019)** — piecewise parametric aging curves, peak location fixed *a priori*
+- **Wakim & Jin (2014)** — functional data analysis of aging curves 
+- **Vinué & Epifanio (2019)** — players as convex combinations of fixed archetypoids
+- **RAPTOR (FiveThirtyEight)** — single summary score via nearest-neighbor averaging of similar historical players
+
+## Outline & Contributions {.smaller}
+
+**Setup** — why career curves, prior work, the data, and mitigating selection-bias
+
+::: {.fragment}
+<span class="blueterm">Contribution 1</span> — **a nonlinear latent variable model for careers**: one learned player embedding (GPLVM → random Fourier features) drives 17 metric-appropriate likelihoods — plus a career-length (survival) likelihood that regularizes the embedding and corrects survivor bias
+:::
+
+::: {.fragment}
+<span class="blueterm">Contribution 2</span> — **the Concave Process prior**: a nonparametric, full-support prior over concave functions with an analytic form and peak age / peak value as explicit parameters
+:::
+
+**Then** — results (trajectories, similarity, peak timing, calibration, draft cohorts), and future work on injury counterfactuals
+
+## The Data {.smaller}
+
+:::: {.columns}
+
+::: {.column width="48%"}
+- ~**2,300 players**, seasons **1997–2026**, ages **18–38** (basketball-reference, via `ballr`)
+- A $P \times T \times K$ tensor: players $\times$ ages $\times$ **17 metrics**
+- Counts (BLK, STL, AST, REB, TOV), attempts (FGA, FTA), made-shot fractions (FG2%, FG3%, FT%), proportions (USG, minutes%), composites (OBPM, DBPM), games played
+- Entries are **missing** when a player is injured, not yet in the league (left truncation),retired (right censoring), or outside the scope of the data collection (non-informative missingness)
+
+:::
+
+::: {.column width="52%"}
+![](../../model_output/model_plots/empirical_production_player.png)
+:::
+
+::::
+
+## The Selection-Bias Trap {.smaller}
+
+:::: {.columns}
+
+::: {.column width="50%"}
+- Cross-sectional averages at ages 35+ are computed **only over survivors** — disproportionately elite players.
+- Several metric **averages** *turn upward* late in career.
+- A flexible unconstrained model will happily fit it as a real feature.
+
+[**Two coordinated fixes:**]{.fragment}
+
+- A **concavity constraint** on the trajectory shape (this talk's centerpiece)
+- A **survival model** for *who* is observed at all
+:::
+
+::: {.column width="50%"}
+![](../../model_output/model_plots/empirical_production.png)
+:::
+
+::::
+
+## Where We're Headed {.smaller}
+
+Joint posterior career curves for Nikola Jokić (top) and Stephen Curry (bottom) — the object the rest of the talk builds:
+
+::: {.r-stack}
+![](../../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/player_plots/mcmc/Jokic_Curry_comparison.png){width="82%" .nostretch}
+
+![](../../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/player_plots/mcmc/Jokic_Curry_comparison_with_AR.png){.fragment width="82%" .nostretch}
+:::
+
+::: notes
+First build: the concave latent posterior (green, gray band). Click: the concave + AR(1) latent posterior (blue) appears over it — short-term persistence the aging curve shouldn't absorb.
+:::
+
+# Contribution 1: A Latent Variable Model For Careers {background-color="#003660"}
+
+## Player Similarity Is Learned, Not Assumed {.smaller}
+
+GPLVM-style latent embedding with a **structured prior**:
+
+$$
+X_p \sim \mathcal{N}\!\big(Z_p^\top W,\; \sigma_X^2 I_q\big), \qquad W \sim \mathcal{N}(0, \sigma_W^2 I)
+$$
+
+- $Z_p$ = (−log draft position, height, position dummies): a *scouting-informed anchor*
+- $W$ is **learned jointly** — the data decide how much draft position and height actually predict latent location
+- Rookies with 1 season of data are shrunk toward a sensible neighborhood; veterans are dominated by their own data
+- Everything downstream reads $X_p$ through a **random Fourier feature** map $\phi$ (Rahimi & Recht 2007) — player similarity is a learned **exponential (SE) kernel**, with ARD relevances $\ell_j$ pruning unused dimensions — the **RFLVM** (Gundersen et al. 2021):
+
+  $$
+  \phi(X_p)^\top \phi(X_{p'}) \;\xrightarrow{m \to \infty}\; \exp\!\Big(-\tfrac{1}{2}\textstyle\sum_j \ell_j (X_{pj} - X_{p'j})^2\Big)
+  $$
+
+::: {.fragment}
+```{r rff-demo}
+#| fig-width: 6.2
+#| fig-height: 2.4
+#| fig-align: center
+xg <- seq(-2, 2, by = 0.02)
+
+ell_rel <- 2   # ARD relevance (inverse squared bandwidth), paper convention
+
+kern_approx <- map_dfr(c(10, 50, 500), function(m) {
+  om <- rnorm(m) * sqrt(ell_rel)
+  tibble(m = paste0("m = ", m), x = xg,
+         k = rowMeans(cos(outer(xg, om))))
+}) |> mutate(m = factor(m, levels = paste0("m = ", c(10, 50, 500))))
+
+exact <- tibble(x = xg, k = exp(-0.5 * ell_rel * xg^2))
+
+lab_pos <- tibble(m = levels(kern_approx$m),
+                  x = -1.95, k = c(0.95, 0.8, 0.65))
+
+p_kern <- ggplot() +
+  geom_line(data = kern_approx, aes(x, k, color = m), linewidth = 0.8) +
+  geom_line(data = exact, aes(x, k), color = "black",
+            linetype = "dashed", linewidth = 0.9) +
+  geom_text(data = lab_pos, aes(x, k, label = m, color = m),
+            hjust = 0, size = 3.4, fontface = "bold") +
+  annotate("text", x = 0, y = 1.08, label = "exact SE kernel",
+           size = 3.4, fontface = "bold") +
+  scale_color_manual(values = unname(pal[c("orange", "aqua", "darkblue")])) +
+  labs(title = "φ(x)'φ(0) → SE kernel (Bochner)",
+       x = "x − x'", y = "k(x, x')") +
+  theme_talk(base_size = 12)
+
+p_kern
+```
+:::
+
+# Contribution 2: The Concave Process Prior {background-color="#003660"}
+
+## Concavity From A Squared GP {.smaller}
+
+Force $h'' \le 0$: start from a line, subtract an accumulating, always-nonnegative curvature. **Every draw is concave.**
+
+$$
+h(t) \;=\; \beta_0 + \beta_1 (t - t_0) \;-\; \int_{t_0}^{t}\!\!\int_{t_0}^{s} \underbrace{[g(z)]^2}_{\ge\, 0} \, dz\, ds,
+\qquad g \sim \mathcal{GP}(0, K)
+$$
+
+```{r construction-demo}
+#| fig-width: 13
+#| fig-height: 3.1
+#| fig-align: center
+set.seed(1)
+age_grid <- seq(18, 38, by = 0.1)
+dz       <- 0.1
+x        <- age_grid - mean(age_grid)
+L        <- 2 * max(abs(x))
+M        <- 10
+ell      <- 1          # spectral bandwidth (as in sample_concave_prior)
+sigma2   <- 0.25
+peak_targets <- c(25, 28, 31)   # place each draw's peak at an interior age
+n_draws  <- length(peak_targets)
+
+ev  <- pi * (1:M) / (2 * L)
+Sld <- sigma2 * exp(-0.5 * (ev / ell)^2)              # spectral density
+Psi <- sqrt(1 / L) * sin(outer(x + L, ev))            # T x M basis matrix
+phi <- make_convex_phi(x, L, M)                       # T x M x M (closed-form ∬ψψ)
+
+draws <- map_dfr(1:n_draws, function(i) {
+  a_til <- rnorm(M) * sqrt(Sld)
+  g     <- as.vector(Psi %*% a_til)
+  dbl   <- vapply(seq_along(x), function(t_idx) {
+    as.numeric(t(a_til) %*% phi[t_idx, , ] %*% a_til)
+  }, numeric(1))
+  int_g2 <- c(0, diff(dbl)) / dz                      # ∫g² = d/dt of the double integral
+  # slope β₁ = ∫g² at the target peak age  ⇒  f'(peak) = 0, peak lands in-range
+  b_slope <- int_g2[which.min(abs(age_grid - peak_targets[i]))]
+  f_raw <- b_slope * (x + L) - dbl
+  # β₀ (free constant) chosen so each curve crests at 0 — makes the peak legible
+  tibble(draw = factor(i), age = age_grid,
+         g = g, g2 = g^2, f = f_raw - max(f_raw))
+})
+
+p1 <- ggplot(draws, aes(age, g, color = draw)) +
+  geom_hline(yintercept = 0, color = "#9CBEBE") +
+  geom_line(linewidth = 0.9) +
+  scale_color_manual(values = unname(pal[c("darkblue", "aqua", "orange")])) +
+  labs(title = "1.  g(t): a GP draw", x = "age", y = NULL) + theme_talk()
+
+p2 <- ggplot(draws, aes(age, g2, color = draw)) +
+  geom_hline(yintercept = 0, color = "#9CBEBE") +
+  geom_line(linewidth = 0.9) +
+  scale_color_manual(values = unname(pal[c("darkblue", "aqua", "orange")])) +
+  labs(title = expression(bold("2.  g(t)"^2 >= 0 * ": forced curvature")),
+       x = "age", y = NULL) + theme_talk()
+
+p3 <- ggplot(draws, aes(age, f, color = draw)) +
+  geom_line(linewidth = 1.1) +
+  scale_color_manual(values = unname(pal[c("darkblue", "aqua", "orange")])) +
+  labs(title = expression(bold("3.  " * beta[1] * "(t+L) − ∬g" ^ 2 * ": concave")),
+       x = "age", y = NULL) + theme_talk()
+
+p1 + p2 + p3
+```
+
+::: {.callout-tip .fragment title="Proposition (full support)"}
+The push-forward measure of $g \mapsto h$ puts **positive mass on every uniform neighborhood of every continuous concave function**
+:::
+
+## The Prior {.smaller}
+
+<iframe src="http://localhost:7788" data-external="1" width="1160" height="660" style="border: 1px solid #DCE1E5; border-radius: 4px; background: #ffffff;"></iframe>
+
+::: notes
+Start the Shiny app BEFORE the talk, from the repo root:
+  R -e 'shiny::runApp("presentation/jsm/concave_prior_app.R", port = 7788)'
+
+90-second script (two sliders only):
+1. Resample a few times at defaults — "every draw is concave, peak lands where the orange dots are."
+2. Drag peak-age sd 1.5 → 0 — "the band pinches to a point at t*: this is prior elicitation. A scout who says 'centers peak at 26' IS this slider."
+3. Drag variance up — "sharper career arcs; nothing ever violates concavity."
+If the frame is blank, the app isn't running — jump to the backup gallery slide in the appendix.
+:::
+
+## The Model At A Glance {.smaller}
+
+For player $p$, age $t$, metric $k$:
+
+$$
+\mu_{ptk} = \underbrace{{\color{#09847A}{f^k(X_p, t)}}}_{\text{concave aging curve}} \;+\; \underbrace{{\color{#047C91}{r^k_p(t)}}}_{\mathrm{AR}(1)\ \text{deviation}}
+\qquad
+y_{ptk} \sim \mathcal{F}_k\!\left(g_k^{-1}(\mu_{ptk}),\, \phi_k,\, \omega_{ptk}\right)
+$$
+
+- ${\color{#003660}{X_p \in \mathbb{R}^q}}$: latent player embedding — **induces dependence across players *and* metrics** (Contribution 1)
+- ${\color{#09847A}{f^k(X_p,t)}}$: concave in $t$ for every player and metric (Contribution 2)
+- ${\color{#047C91}{r^k_p(t)}}$: idiosyncratic persistence (role changes, hot streaks) the aging curve shouldn't absorb
+- $\mathcal{F}_k$: **metric-appropriate likelihood** with exposure $\omega_{ptk}$ (minutes, attempts, games)
+- **Career exit is just one more likelihood**: a Gompertz survival model reading the same $X_p$ — it regularizes the latent space and corrects survivor bias 
+
+## Respecting The Sampling Distribution {.smaller}
+
+| Metric type | Examples | Likelihood | Link | Exposure |
+|---|---|---|---|---|
+| Made shots | FG2M, FG3M, FTM | (Beta-)Binomial | logit | attempts |
+| Counts | BLK, STL, AST, REB, TOV | Poisson / Neg-Bin | log | minutes |
+| Composites | OBPM, DBPM | Gaussian | identity | precision $\propto$ minutes |
+| Proportions | USG, MIN% | Beta | logit | mean–variance map |
+| Games played | GP | Beta-Binomial(82) | logit | — |
+| Career length | exit age | Gompertz hazard | log | left-truncated, right-censored |
+
+- No Gaussian approximation for low-minute players — a 10-minute-per-game rookie's FG3% carries exactly as much information as its 40 attempts justify.
+- Career length enters the same way every metric does — one more head on the shared embedding, so *who is still playing* informs the latent space too.
+
+# Results {background-color="#003660"}
+
+
+## Posterior Career Curves: Jokić & Curry {.smaller}
+
+![](../../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/player_plots/mcmc/Jokic_Curry_comparison.png){width="88%" .nostretch}
+
+## Who Ages Like Whom? {.smaller}
+
+:::: {.columns}
+
+::: {.column width="55%"}
+![](../../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/map/latent_neighbors_curves_Nikola_Jokic.png)
+:::
+
+::: {.column width="45%"}
+- Nearest neighbors in $X_p$: **high-usage, playmaking bigs** (Sabonis , Towns, Šengūn)
+- Distances computed on aligned posterior draws → similarity comes with **uncertainty**, not a point estimate.
+- Curves are shrunk toward players their profile resembles.
+:::
+
+::::
+
+## Archetypes Without Labels {.smaller}
+
+![](../../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/map/latent_pca_archetypes.png){width="88%" .nostretch}
+
+## When Do Skills Peak? {.smaller}
+
+![](../../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/peaks/mcmc/peaks.png){width="44%" fig-align="center" .nostretch}
+
+## Peak-Timing Types Of Players {.smaller}
+
+:::: {.columns}
+
+::: {.column width="52%"}
+![](../../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/peaks/mcmc/peaks_pca.png)
+:::
+
+::: {.column width="48%"}
+![](../../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/peaks/mcmc/peaks_pca_loadings.png)
+:::
+
+::::
+
+## Is It Calibrated? {.smaller}
+
+::: {.tiny}
+| Holdout Scheme | | AR | GP | GP + AR | Concave RFF | Concave RFF + AR |
+|---|---|---|---|---|---|---|
+| Hold-out Last $k$ | Coverage | 89.0% | 77.2% | 87.5% | 84.3% | 88.0% |
+|  | $\Delta$ELPPD/obs | −1.1† | −0.24† | −0.12† | −0.094† | **0.0** |
+| Hold-out First $k$ | Coverage | 90.2% | 77.8% | 88.7% | 83.4% | 89.5% |
+|  | $\Delta$ELPPD/obs | −0.68† | −0.41† | −0.14† | −0.14† | **0.0** |
+| Random Interior | Coverage | 95.0% | 75.5% | 83.5% | 80.7% | 89.0% |
+|  | $\Delta$ELPPD/obs | **0.0** | −0.41† | −1.8† | −0.19† | −0.055 |
+| Hold-out Peak | Coverage | 92.2% | 81.7% | 87.0% | 85.4% | 89.9% |
+|  | $\Delta$ELPPD/obs | −0.43† | −0.31† | −0.43† | −0.095† | **0.0** |
+| Stratified Next $k$ | Coverage | 92.0% | 77.7% | 87.4% | 83.4% | 90.4% |
+|  | $\Delta$ELPPD/obs | −1.4† | −0.31† | −0.18† | −0.19† | **0.0** |
+:::
+
+## Front-Office Application: Draft Cohorts {.smaller}
+
+Top 5 players by posterior mean peak OBPM per entry cohort — select a cohort:
+
+```{r cohort-widget}
+#| results: asis
+cohort_json_path <- "../../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/map/breakout_by_cohort.json"
+stopifnot(file.exists(cohort_json_path))
+cohort_json_str <- paste(readLines(cohort_json_path, warn = FALSE), collapse = "")
+
+cat(paste0('
+<style>
+#cohort-widget select {
+  font-size: 0.6em; padding: 4px 10px; margin-bottom: 10px;
+  border: 1px solid #DCE1E5; border-radius: 4px; color: #003660; font-weight: 600;
+}
+#cohort-widget table {
+  width: 100%; border-collapse: collapse; font-size: 0.55em;
+}
+#cohort-widget th {
+  background: #003660; color: #ffffff; padding: 6px 10px; text-align: left;
+}
+#cohort-widget td { padding: 5px 10px; border-bottom: 1px solid #E5E9EC; }
+#cohort-widget tbody tr:nth-child(odd) { background: #F5F8FA; }
+</style>
+<div id="cohort-widget">
+  <label for="cohort-select" style="font-size:0.6em; font-weight:600; color:#003660;">Entry cohort:&nbsp;</label>
+  <select id="cohort-select"></select>
+  <table>
+    <thead>
+      <tr><th>Rank</th><th>Player</th><th>Age</th><th>Pos.</th><th>Peak OBPM</th><th>Peak Age</th><th>P(&gt;2)</th><th>P(&gt;3)</th><th>P(&gt;4)</th><th>Yrs to Peak</th></tr>
+    </thead>
+    <tbody id="cohort-tbody"></tbody>
+  </table>
+</div>
+<script>
+(function() {
+  var rows = ', cohort_json_str, ';
+  var sel = document.getElementById("cohort-select");
+  var tbody = document.getElementById("cohort-tbody");
+  var fmt = function(x, d) { return (x === null || x === undefined) ? "—" : Number(x).toFixed(d); };
+  var cohorts = rows.map(function(r) { return r.cohort; })
+    .filter(function(c, i, a) { return a.indexOf(c) === i; })
+    .sort(function(a, b) { return b - a; });
+  cohorts.forEach(function(c) {
+    var ns = 2026 - c + 1;
+    var o = document.createElement("option");
+    o.value = c;
+    o.textContent = c + " (" + ns + (ns === 1 ? " season" : " seasons") + ")";
+    sel.appendChild(o);
+  });
+  function render() {
+    var c = Number(sel.value);
+    tbody.innerHTML = rows
+      .filter(function(r) { return r.cohort === c; })
+      .sort(function(a, b) { return a.rank - b.rank; })
+      .map(function(r) {
+        return "<tr><td>" + r.rank + "</td><td>" + r.name + "</td><td>" +
+          (r.age == null ? "—" : r.age) + "</td><td>" + r.pos + "</td><td>" +
+          fmt(r.peak_obpm, 1) + "</td><td>" + fmt(r.peak_age, 1) + "</td><td>" +
+          r.p2 + "%</td><td>" + r.p3 + "%</td><td>" + r.p4 + "%</td><td>" +
+          fmt(r.yrs_to_peak, 1) + "</td></tr>";
+      }).join("");
+  }
+  sel.addEventListener("change", render);
+  render();
+})();
+</script>
+'))
+```
+
+::: notes
+Yrs to Peak is the posterior mean OBPM peak age minus the last observed age (0.0 = already at peak); Peak Age is the actual posterior mean peak age. P(>x) integrates parameter and sampling uncertainty — probability of a breakout season at the projected peak.
+:::
+
+## Takeaways {.smaller}
+
+1. <span class="blueterm">Contribution 1</span> — **one embedding, many likelihoods**: a structured GPLVM ties 17 metric-appropriate observation models to a single player representation — with career length as one more likelihood that regularizes the embedding and corrects survivor bias.
+2. <span class="blueterm">Contribution 2</span> — **the Concave Process prior**: nonparametric, full support, an *analytic* HSGP form — reparameterized so peak age and peak value are first-class parameters.
+3. **Payoffs**: posterior peaks, similarity retrieval with uncertainty, label-free archetypes, calibrated multi-season forecasts, draft-cohort projection.
+
+## Future Work: Injury Counterfactuals {.smaller}
+
+Latent-factor **injury offset** switched on at first major injury (Achilles, ACL, quad/patellar, spine) at onset $t^*_{pm}$:
+
+$$
+\begin{aligned}
+\mu^k_{ptm} &= f^k(X_p, t) + \mathbb{1}\{t > t^*_{pm}\}\, \tau^k_{ptm} \\
+\tau^k_{ptm} &\sim \mathcal{N}\!\big(w_m^\top \tau^*_k,\; \sigma^2_{mk}\big)
+\end{aligned}
+$$
+
+- $f^k$ fit on pre-injury data → a **counterfactual career arc**; survival submodel picks up career-*length* effects
+- Also ahead: richer injury dynamics (severity, recovery, decay), injury subtypes, understanding heterogeneity in recovery, and **causal inference** on the effect of injuries on career trajectories
+
+<!-- Figure hidden for now:
+![](../../model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/mcmc/plots/causal/Kevin%20Durant_metrics_itt.png)
+-->
+
+::: notes
+Durant post-Achilles: observed post-injury average (dashed blue) barely deviates from the aging counterfactual — consistent with a 7-footer whose game rests on shooting touch, not explosion. Caveats: no-unmeasured-confounding assumption; return-to-play selection (immortal-time bias).
+:::
+
+## References {.smaller}
+
+::: {.tiny .nonincremental}
+- Andersen, M. R., Siivola, E., Riutort-Mayol, G., & Vehtari, A. (2018). *A non-parametric probabilistic model for monotonic functions.*
+- Solin, A., & Särkkä, S. (2020). Hilbert space methods for reduced-rank Gaussian process regression. *Statistics and Computing*, 30, 419–446.
+- Riutort-Mayol, G., Bürkner, P.-C., Andersen, M. R., Solin, A., & Vehtari, A. (2023). Practical Hilbert space approximate Bayesian Gaussian processes for probabilistic programming. *Statistics and Computing*, 33, 17.
+- Lawrence, N. (2005). Probabilistic non-linear principal component analysis with Gaussian process latent variable models. *JMLR*, 6, 1783–1816.
+- Rahimi, A., & Recht, B. (2007). Random features for large-scale kernel machines. *NeurIPS*.
+- Gundersen, G. W., Zhang, M. M., & Engelhardt, B. E. (2021). Latent variable modeling with random features. *AISTATS*.
+- Zhang, M. M., Gundersen, G. W., & Engelhardt, B. E. (2023). *Bayesian non-linear latent variable modeling via random Fourier features.*
+- Aßmann, C., Boysen-Hogrefe, J., & Pape, M. (2016). Bayesian analysis of static and dynamic factor models: An ex-post approach towards the rotation problem. *Journal of Econometrics*.
+- Phan, D., Pradhan, N., & Jankowiak, M. (2019). Composable effects for flexible and accelerated probabilistic programming in NumPyro.
+- Vaci, N., Cocić, D., Gula, B., & Bilalić, M. (2019). Large data and Bayesian modeling — aging curves of NBA players. *Behavior Research Methods*.
+- Page, G. L., Fellingham, G. W., & Reese, C. S. (2007). Using box-scores to determine a position's contribution to winning basketball games. *JQAS*, 3(4).
+- Page, G. L., Barney, B. J., & McGuire, A. T. (2013). Effect of position, usage rate, and per game minutes played on NBA player production curves. *JQAS*, 9(4), 337–345.
+- Wakim, A., & Jin, J. (2014). *Functional data analysis of aging curves in sports.*
+- Vinué, G., & Epifanio, I. (2019). Forecasting basketball players' performance using sparse functional data. *Statistical Analysis and Data Mining*.
+- Data: basketball-reference.com, scraped with the `ballr` R package.
+:::
+
+## Thank You {.smaller}
+
+**Concave Processes for Multi-Task Career Trajectories**
+
+Abhijit Brahme (UCSB) · David Arbour (Adobe Research) · Alexander Franks (UCSB)
+
+- All prior visualizations in this deck are drawn live from `sample_concave_prior()` — the same R code as the interactive demo: `shiny::runApp("presentation/jsm/concave_prior_app.R")`
+- `abhijitbrahme@ucsb.edu`
+
+## Appendix: Sharing Strength — The Factor Model View {.smaller visibility="uncounted"}
+
+We assume 17 metrics for 2,300 players lie on a low-dimensional manifold. A classical factor model:
+
+$$
+y_p \;\approx\; \Lambda\, x_p + \varepsilon_p,
+\qquad
+y_p \in \mathbb{R}^{K},\;\; x_p \in \mathbb{R}^{q},\;\; q \ll K
+$$
+
+- A few latent **traits** $x_p$ drive all $K$ observed metrics through loadings $\Lambda$: $\operatorname{Cov}(y) = \Lambda \Lambda^\top + \Psi$ is low-rank plus noise.
+- Basketball reading: a player's rebounding, blocks, and FG2A don't need 17 free parameters — they co-move because a few underlying traits (size, athleticism, skill, role) drive them all.
+- In our model the "outcomes" being factorized are not raw stats but **curve parameters**: each metric's peak age, peak value, and curvature weights are readouts of $x_p$ — linear in this classical view, and generalized to nonlinear in the RFLVM.
+
+## Appendix: Reparameterize By What You Care About {.smaller visibility="uncounted"}
+
+$\beta_0, \beta_1$ are not interpretable. But two constraints — $h({\color{#C43424}{t^*}}) = {\color{#C43424}{f^*}}$ and $h'({\color{#C43424}{t^*}}) = 0$ — pin them down exactly:
+
+$$
+h'(t) = \beta_1 - \int_{t_0}^{t} g(z)^2\, dz
+\;\;\Longrightarrow\;\;
+\beta_1 = \int_{t_0}^{{\color{#C43424}{t^*}}} g(z)^2\, dz
+$$
+
+Solving for $\beta_0$ and substituting back:
+
+$$
+h(t) \;=\; {\color{#C43424}{f^*}} \;+\; (t - {\color{#C43424}{t^*}})\!\int_{t_0}^{{\color{#C43424}{t^*}}} g(z)^2\, dz \;-\; \int_{t}^{{\color{#C43424}{t^*}}}\!\!\int_{t_0}^{s} g(z)^2\, dz\, ds
+$$
+
+- The prior is now parameterized directly by <span class="accent">peak value $f^*$</span> and <span class="accent">peak age $t^*$</span> — the two quantities every scout, GM, and agent argues about.
+- We can put **informative priors on peaks** and read their **posteriors** off directly.
+- Links are monotone, so $t^*$ and peak-value *rankings* survive the inverse link untouched — for every likelihood family.
+
+::: notes
+This reparameterization is why the model can answer "when does he peak" as a posterior, not a post-hoc curve summary. Note both integral terms vanish at t = t*, so the GP contributes zero variance at the peak.
+:::
+
+## Appendix: Making It Tractable — HSGP {.smaller visibility="uncounted"}
+
+The double integrals in the peak-parameterized prior above have no closed form for a generic GP — so approximate $g$ with the **Hilbert-space GP** basis (Solin & Särkkä 2020):
+
+$$
+g(t) \approx \sum_{l=1}^{J} S(\sqrt{\lambda_l})^{1/2}\, \alpha_l\, \psi_l(t),
+\qquad \psi_l(t) = \sqrt{\tfrac{1}{L}} \sin\!\big(\sqrt{\lambda_l}(t + L)\big),
+\quad \alpha_l \sim \mathcal{N}(0, 1)
+$$
+
+Sinusoids integrate in closed form, so the peak-parameterized prior collapses to **quadratic forms** in $\boldsymbol{\alpha}$:
+
+$$
+f(t) = f^* + \boldsymbol{\alpha}^\top \Big[\, \Psi(t^*) - \Psi(t) + \Psi'(t^*)\,(t - t^*) \,\Big] \boldsymbol{\alpha},
+\qquad
+\Psi_{lz}(t) = \frac{\cos(\epsilon^{+}_{lz}(t{+}L)) - 1}{2L (\epsilon^{+}_{lz})^2} - \frac{\cos(\epsilon^{-}_{lz}(t{+}L)) - 1}{2L(\epsilon^{-}_{lz})^2}
+$$
+
+with $\epsilon^{\pm}_{lz} = \sqrt{\lambda_l} \pm \sqrt{\lambda_z}$ (diagonal replaces the second term with $(t+L)^2/4L$).
+
+- **Cost:** $O(J^2)$ per evaluation, differentiable, GPU-friendly — MCMC-ready.
+- Truncation converges **uniformly, almost surely** to the exact push-forward as $J \to \infty$.
+
+## Appendix: The Full Generative Story {.smaller visibility="uncounted"}
+
+1. <span class="blueterm">Player heterogeneity</span> → latent embedding, anchored by scouting covariates:&nbsp; $X_p \sim \mathcal{N}(Z_p^\top W, \sigma_X^2 I_q)$
+2. <span style="color:#09847A; font-weight:600">Concave aging curves</span> with peaks read from the embedding:&nbsp; $f^k(X_p, t) \sim \mathcal{MCP}(\Theta; X)$ — a multi-input GP $g(x,t) \sim \mathcal{GP}(0, K_x \otimes K_t)$, so one shared embedding drives all 17 curves
+3. <span style="color:#047C91; font-weight:600">Short-term persistence</span>:&nbsp; $r^k_p(t) \sim \mathrm{AR}(1)$ per player-metric (+ a calendar-year era trend for pace/era effects)
+4. <span class="accent">Career duration</span>:&nbsp; Gompertz hazard, parameters linked to the same feature map $\phi(X_p)$
+5. **Metric-appropriate observation model**:&nbsp; $y_{ptk} \sim \mathcal{F}_k\big(g_k^{-1}(f^k(X_p,t) + r^k_p(t)),\, \phi_k,\, \omega_{ptk}\big)$
+
+## Appendix: The Gompertz Hazard {.smaller visibility="uncounted"}
+
+:::: {.columns}
+
+::: {.column width="48%"}
+**Gompertz proportional hazards** on exit age, left-truncated at entry, right-censored for active players:
+
+$$
+\begin{aligned}
+h_p(a) &= \eta_p\, e^{\gamma_p a} \\[2pt]
+\log \eta_p &= \eta_{\text{glob}} + \sigma_{\text{exit}}\, \phi(X_p)^\top \psi_{\text{exit}} \\[2pt]
+\log \gamma_p &= \gamma_{\text{glob}} + \phi(X_p)^\top \psi_{\text{rate}}
+\end{aligned}
+$$
+
+- Exponential-in-age hazard behaves in accordance with the law of senescence.
+- Both parameters read the **same embedding** $\phi(X_p)$ as every other likelihood — career length regularizes the latent space.
+:::
+
+::: {.column width="52%"}
+
+```{r gompertz-demo}
+#| fig-width: 7
+#| fig-height: 5.6
+#| fig-align: center
+entry <- 19
+eta0  <- 0.04
+gammas <- c(0.10, 0.15, 0.25)
+gcolors <- unname(pal[c("darkblue", "aqua", "orange")])
+
+gomp <- map_dfr(gammas, function(g) {
+  a <- seq(entry, 42, by = 0.1)
+  H <- (eta0 / g) * (exp(g * (a - 18)) - exp(g * (entry - 18)))
+  tibble(gamma = g, age = a,
+         hazard = eta0 * exp(g * (a - 18)),
+         surv = exp(-H))
+}) |> mutate(glab = paste0("γ = ", gamma))
+
+medians <- gomp |>
+  group_by(glab) |>
+  summarize(med = age[which.max(surv <= 0.5)], .groups = "drop")
+
+labels_h <- gomp |> group_by(glab) |> slice_tail(n = 1)
+
+ph <- ggplot(gomp, aes(age, hazard, color = glab)) +
+  geom_line(linewidth = 1) +
+  geom_text(data = labels_h, aes(label = glab), hjust = 1.05, vjust = 1.6,
+            size = 4, fontface = "bold", show.legend = FALSE) +
+  scale_color_manual(values = gcolors) +
+  scale_y_log10(expand = expansion(mult = c(0.05, 0.2))) +
+  labs(title = "hazard h(a)  (log scale)", x = NULL, y = NULL) +
+  theme_talk(base_size = 14)
+
+ps <- ggplot(gomp, aes(age, surv, color = glab)) +
+  geom_line(linewidth = 1) +
+  geom_point(data = medians |> left_join(gomp, by = "glab") |>
+               filter(abs(age - med) < 0.05),
+             aes(age, surv), size = 2.5) +
+  geom_hline(yintercept = 0.5, color = "#9CBEBE", linetype = "dotted") +
+  scale_color_manual(values = gcolors) +
+  labs(title = "P(still active at age a)  ·  dots = median exit age",
+       x = "age", y = NULL) +
+  theme_talk(base_size = 14)
+
+ph / ps
+```
+
+:::
+
+::::
+
+## Appendix: Inference {.smaller visibility="uncounted"}
+
+- **Sampling Difficulties:** factor-model rotational non-identifiability ⇒ multimodal posterior
+- **MAP-initialized MCMC:** SGD MAP estimate → fix well-identified kernel hyperparameters (GP lengthscale/amplitude, structured-prior scales, global hazard offsets) → NUTS on everything else ($X_p$, curve weights, peaks, AR components).
+- 4 chains × 2,000 post-warmup draws, thinned to 500 retained on a GPU
+- **Procrustes alignment:** each draw's $X^{(s)}$ is rotated and aligned to the MAP frame,
+  $\min_R \|\hat{X} - X^{(s)} R\|_F$ (SVD), before *any* latent-space summary — neighbor retrieval, clustering, uncertainty.
+- Posterior predictive respects the exposure cascade: draw games → minutes | games → counts | minutes → percentages | counts. A zero-game draw zeroes the season downstream: production *and* career-length uncertainty in one draw.
+
+## Appendix: The Concave Process In Code {.smaller visibility="uncounted"}
+
+The closed-form $\Psi(t)$, as implemented in the R sampler used for this deck's figures:
+
+```{r show-code}
+#| echo: true
+#| eval: false
+make_convex_phi <- function(x, L, M = 5, eps = 1e-5) {
+  eig_vals      <- (pi * (1:M)) / (2 * L)              # sqrt(lambda_l)
+  sum_eig_vals  <- outer(eig_vals, eig_vals, "+")      # eps+
+  diff_eig_vals <- outer(eig_vals, eig_vals, "-")      # eps-
+  phi <- array(NA_real_, dim = c(length(x), M, M))
+  for (idx in seq_along(x)) {
+    cos_pos <- safe_cos_term(sum_eig_vals,  x[idx], L, eps)  # (1-cos(z))/(2L eps^2)
+    cos_neg <- safe_cos_term(diff_eig_vals, x[idx], L, eps)  # ... l==z limit (x+L)^2/(4L)
+    phi[idx, , ] <- cos_neg - cos_pos                        # Psi(x): M x M
+  }
+  phi
+}
+
+# curve for player p, metric k (quadratic form in the HSGP weights):
+# mu(t) = c_max + a' [ Psi(t_max) - Psi(t) + Psi'(t_max) (t - t_max) ] a
+```
+
+- `safe_cos_term` blends in the analytic $l = z$ limit so the $\epsilon^-_{ll} = 0$ diagonal stays finite (and differentiable in the model).
+
+## Appendix: MCMC Diagnostics {.smaller visibility="uncounted"}
+
+- $\hat{R} > 1.05$ fractions by metric: 15/17 metrics below 15% of player-age cells for $\mu_{ptk}$; AST is the hardest (40.8%) — genuinely player-specific, not a rotation artifact.
+- Procrustes-aligned traces interleave across chains for individual players' $X_p$ coordinates.
+- Latent dimension ablation: $q{=}10$ best mean holdout RMSE (0.924) and log-loss (3.99); $q{=}20$ wins zero metrics by log-loss.
+
+## Appendix: What The Prior Knows About Uncertainty {.smaller visibility="uncounted"}
+
+:::: {.columns}
+
+::: {.column width="46%"}
+Conditioned on the peak, Isserlis' theorem gives
+
+$$
+\operatorname{Var}\big(f(t) \mid t^*, f^*\big) \approx \tfrac{3}{4}\,\sigma^4 \,(t - t^*)^4
+$$
+
+- **Zero GP variance at the peak** — all peak uncertainty comes from the prior on $f^*$ itself.
+- Variance grows **quartically** with distance from the peak, scaling as $\sigma^4$.
+- Mode location from $n$ ordered points converges at $n^{-2/5}$ (vs. $n^{-1/2}$ for a mean) — careers are $n \approx 5$–$12$ seasons. The prior puts precision **where the data can support it**.
+:::
+
+::: {.column width="54%"}
+
+```{r variance-funnel}
+#| fig-width: 7.2
+#| fig-height: 5.4
+#| fig-align: center
+funnel_draws <- function(peak_age_var, peak_val_var, label) {
+  sample_concave_prior(
+    lengthscale = 1, variance = 0.10,
+    peak_age = 27, peak_value = 1,
+    peak_age_variance = peak_age_var, peak_value_variance = peak_val_var,
+    n_samples = 400, num_basis = 10, age_grid = seq(18, 38, by = 0.25)
+  ) |> mutate(panel = label)
+}
+
+funnel <- bind_rows(
+  funnel_draws(1e-12, 1e-12, "peak (t*, f*) known exactly"),
+  funnel_draws(1.5^2, 0.4^2, "peak uncertain: t* ~ N(27, 1.5²), f* ~ N(1, 0.4²)")
+)
+
+band <- funnel |>
+  group_by(panel, age) |>
+  summarize(lo = quantile(value, 0.025), hi = quantile(value, 0.975),
+            .groups = "drop")
+
+spaghetti <- funnel |> filter(sample_id <= 25)
+
+ggplot() +
+  geom_ribbon(data = band, aes(age, ymin = lo, ymax = hi),
+              fill = pal["lightblue"], alpha = 0.55) +
+  geom_line(data = spaghetti, aes(age, value, group = sample_id),
+            color = pal["blue"], alpha = 0.3, linewidth = 0.4) +
+  geom_vline(xintercept = 27, color = pal["orange"],
+             linetype = "dashed", linewidth = 0.5) +
+  facet_wrap(~panel, ncol = 1) +
+  labs(x = "age", y = "f(t)",
+       subtitle = "95% prior band (400 draws), 25 shown") +
+  theme_talk(base_size = 14)
+```
+
+:::
+
+::::
+
+## Appendix: The Prior, At A Glance (Demo Backup) {.smaller visibility="uncounted"}
+
+Draws from `sample_concave_prior()` — the exact sampler shipped with the model:
+
+```{r prior-gallery}
+#| fig-width: 13
+#| fig-height: 5.6
+#| fig-align: center
+grid_settings <- expand.grid(lengthscale = c(0.15, 1), variance = c(0.05, 0.25))
+
+gallery <- pmap_dfr(grid_settings, function(lengthscale, variance) {
+  sample_concave_prior(
+    lengthscale = lengthscale, variance = variance,
+    peak_age = 27, peak_value = 1,
+    peak_age_variance = 1.5^2, peak_value_variance = 0.4^2,
+    n_samples = 25, num_basis = 10, age_grid = seq(18, 38, by = 0.25)
+  ) |>
+    mutate(
+      ls_lab  = paste0("bandwidth ℓ = ", lengthscale),
+      var_lab = paste0("variance σ² = ", variance)
+    )
+})
+
+ggplot(gallery, aes(age, value, group = sample_id)) +
+  geom_line(color = pal["blue"], alpha = 0.35, linewidth = 0.5) +
+  facet_grid(var_lab ~ ls_lab) +
+  coord_cartesian(ylim = c(-6, 3)) +
+  labs(x = "age", y = "latent performance f(t)",
+       subtitle = "25 prior draws per panel  ·  peak age ~ N(27, 1.5²)  ·  peak value ~ N(1, 0.4²)") +
+  theme_talk()
+```
+
+## Appendix: From One Curve To A Population {.smaller visibility="uncounted"}
+
+Extend $g$ to a **multi-input GP** $g(x, t) \sim \mathcal{GP}(0, K_x \otimes K_t)$ and let the integration constants depend on $x$:
+
+$$
+f(x,t) = f^*(x) + \phi(x)^\top \mathbf{A}^\top \Big[ \Psi(t^*(x)) - \Psi(t) + \Psi'(t^*(x))(t - t^*(x)) \Big] \mathbf{A}\, \phi(x)
+$$
+
+- $\phi(x)$: feature map with $\phi(x)^\top \phi(x') \approx K_x(x, x')$ — linear $\phi(x) = x$, or random Fourier features ($m{=}50$, ARD lengthscales)
+- Peak age $t^*(x)$ and peak value $f^*(x)$ are read from the **same feature map** — similar players share peaks, ceilings, *and* curve shapes
+- Plug in $x = X_p$: one shared 10-d embedding drives **all 17 metrics** + survival

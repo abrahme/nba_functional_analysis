@@ -37,6 +37,9 @@ model_name() {
         cosine_AR)      echo "nba_convex_max_cosine_tvlinearlvm_AR_${scheme}" ;;
         rflvm)          echo "nba_convex_max_tvrflvm_${scheme}" ;;
         rflvm_AR)       echo "nba_convex_max_tvrflvm_AR_${scheme}" ;;
+        injury_rff)     echo "nba_convex_max_tvrflvm_injury_${scheme}" ;;
+        injury_cut)     echo "nba_convex_max_tvlinearlvm_injury_${scheme}" ;;
+        injury_rff_cut) echo "nba_convex_max_tvrflvm_injury_${scheme}" ;;
     esac
 }
 
@@ -53,6 +56,20 @@ model_dir() {
         cosine_AR)      echo "model_output/nba_convex_max_cosine_tvlinearlvm_AR/${scheme}/mcmc" ;;
         rflvm)          echo "model_output/nba_convex_max_tvrflvm/${scheme}/mcmc" ;;
         rflvm_AR)       echo "model_output/nba_convex_max_tvrflvm_AR/${scheme}/mcmc" ;;
+        injury_rff)     echo "model_output/nba_convex_max_tvrflvm_injury/${scheme}/mcmc" ;;
+        injury_cut)     echo "model_output/nba_convex_max_tvlinearlvm_injury/${scheme}/cut_mcmc" ;;
+        injury_rff_cut) echo "model_output/nba_convex_max_tvrflvm_injury/${scheme}/cut_mcmc" ;;
+    esac
+}
+
+# Sampler regime per model key: the *_cut injury keys run the cut-posterior Gibbs
+# (counterfactual latents on the injury-free likelihood, injury params on the full
+# likelihood); everything else runs plain NUTS. Used by phases 2 (sampling) and 3
+# (export reads the matching samples dir).
+inference_method_for() {
+    case $1 in
+        injury_cut|injury_rff_cut) echo "cut_mcmc" ;;
+        *)                         echo "mcmc" ;;
     esac
 }
 
@@ -62,6 +79,9 @@ model_dir() {
 #   scheme         : a single scheme, a quoted space-separated LIST of schemes (run sequentially), or 'all'
 #                    (valid: holdout_last_k | holdout_first_k | random_interior | holdout_peak | stratified_next_k)
 #   model numbers  : space-separated subset of 1=tvlvm 2=ar 3=injury 4=naive 5=tvlinearlvm 6=tvlinearlvm_AR 7=cosine 8=cosine_AR 9=rflvm 10=rflvm_AR
+#                    11=injury_rff 12=injury_cut 13=injury_rff_cut
+#                    (12/13 run the same models as 3/11 but sample via cut-posterior Gibbs and write to
+#                     .../cut_mcmc; they share the MAP with 3/11, so don't select both for phase 1)
 #   start_phase    : 0=PriorCheck 1=MAP 2=MCMC 3=Export 4=Diagnostics 5=Combine (default: 1)
 #                    (phase 0 is opt-in: run prior-predictive checks only with `... 0 all 0`)
 #   scripts        : phase-4 R scripts, selected like models — space-separated subset of
@@ -98,6 +118,9 @@ parse_model_choices() {
             8) SELECTED_MODELS+=(cosine_AR) ;;
             9)  SELECTED_MODELS+=(rflvm) ;;
             10) SELECTED_MODELS+=(rflvm_AR) ;;
+            11) SELECTED_MODELS+=(injury_rff) ;;
+            12) SELECTED_MODELS+=(injury_cut) ;;
+            13) SELECTED_MODELS+=(injury_rff_cut) ;;
             *) echo "Warning: unrecognised option '$c' — skipping" ;;
         esac
     done
@@ -210,6 +233,9 @@ else
     echo "  8) cosine_AR"
     echo "  9) rflvm"
     echo "  10) rflvm_AR"
+    echo "  11) injury_rff"
+    echo "  12) injury_cut      (cut-posterior Gibbs on 3)"
+    echo "  13) injury_rff_cut  (cut-posterior Gibbs on 11)"
     read -rp "? " -a choices
     parse_model_choices "${choices[*]}"
 fi
@@ -289,7 +315,7 @@ if [[ $START_PHASE -le 0 && $END_PHASE -ge 0 ]]; then
 echo "=== [$(date '+%H:%M:%S')] PHASE 0: Prior predictive checks ==="
 for m in "${SELECTED_MODELS[@]}"; do
     mname=$(model_name "$m" "$SCHEME")
-    pcdir=$(model_dir "$m" "$SCHEME"); pcdir="${pcdir%/mcmc}/prior"
+    pcdir=$(model_dir "$m" "$SCHEME"); pcdir="${pcdir%/cut_mcmc}"; pcdir="${pcdir%/mcmc}"; pcdir="${pcdir}/prior"
     # Per-model knob override (PRIOR_CHECK_ARGS_<model>) wins; else the shared PRIOR_CHECK_ARGS.
     _pc_var="PRIOR_CHECK_ARGS_${m}"
     _pc_args="${!_pc_var-${PRIOR_CHECK_ARGS:-}}"
@@ -349,11 +375,12 @@ if [[ $START_PHASE -le 2 && $END_PHASE -ge 2 ]]; then
 echo "=== [$(date '+%H:%M:%S')] PHASE 2: MCMC ==="
 for m in "${SELECTED_MODELS[@]}"; do
     mname=$(model_name "$m" "$SCHEME")
-    echo "  mcmc: $mname"
+    imethod=$(inference_method_for "$m")
+    echo "  ${imethod}: $mname"
     $EXEC "$CTR_MCMC" python main.py \
         --model_name="$mname" \
         --model_config="$MODEL_CONFIG" \
-        --inference_method=mcmc
+        --inference_method="$imethod"
 done
 echo "=== [$(date '+%H:%M:%S')] MCMC done ==="
 echo ""
@@ -364,10 +391,15 @@ if [[ $START_PHASE -le 3 && $END_PHASE -ge 3 ]]; then
 echo "=== [$(date '+%H:%M:%S')] PHASE 3: Export ==="
 for m in "${SELECTED_MODELS[@]}"; do
     mname=$(model_name "$m" "$SCHEME")
-    echo "  export: $mname"
+    imethod=$(inference_method_for "$m")
+    echo "  export: $mname (${imethod})"
+    # EXPORT_FLAGS: optional extra model_export.py flags (e.g. EXPORT_FLAGS=--concave_only
+    # to regenerate only the concave-loadings parquets without the full export).
     run_job $EXEC "$CTR_ANALYSIS" python model_export.py \
         --model_name="$mname" \
-        --model_config="$MODEL_CONFIG"
+        --model_config="$MODEL_CONFIG" \
+        --inference_method="$imethod" \
+        ${EXPORT_FLAGS:-}
 done
 wait
 echo "=== [$(date '+%H:%M:%S')] Export done ==="
@@ -405,10 +437,16 @@ for m in "${SELECTED_MODELS[@]}"; do
     wait  # finish all scripts for this model before starting the next
 done
 
-# injury causal script runs alongside if injury is selected and requested
-if has_script injury_causal && printf '%s\n' "${SELECTED_MODELS[@]}" | grep -q '^injury$'; then
-    run_job $EXEC "$CTR_R" Rscript data_causal/injury_causal.r \
-        "$(model_dir injury "$SCHEME")"
+# injury causal script runs alongside for every selected injury key (plain, RFF, and cut runs)
+if has_script injury_causal; then
+    for m in "${SELECTED_MODELS[@]}"; do
+        case $m in
+            injury|injury_rff|injury_cut|injury_rff_cut)
+                echo "  injury_causal: $(model_dir "$m" "$SCHEME")"
+                run_job $EXEC "$CTR_R" Rscript data_causal/injury_causal.r \
+                    "$(model_dir "$m" "$SCHEME")" ;;
+        esac
+    done
 fi
 
 wait

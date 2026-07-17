@@ -25,6 +25,8 @@ RUN apt-get update && \
         texlive-latex-extra \
         texlive-fonts-recommended \
         texlive-science \
+        texlive-pictures \
+        latexmk \
         ###################################################
         ### Add your own system dependencies installed  ###
         ### with `apt-get` as needed below this comment ###

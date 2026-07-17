@@ -45,6 +45,11 @@ class MultiHMCGibbs(MCMCKernel):
         sample sites are fixed to their current values for the step. Each inner list is updated as a group,
         and the groups are updated in order.  All sample sites for the model must be explicitly listed in
         *only one* of the groups.
+    inner_model_kwargs: Optional list (one dict per kernel) of extra model kwargs merged into the shared
+        model kwargs for that kernel's potential only. This lets different Gibbs blocks target different
+        conditionals of *different* densities (e.g. cut inference: one block sees a masked likelihood via a
+        model-level flag, another the full likelihood). Shared contexts (site checking, postprocessing,
+        prototype trace) keep the base kwargs, so the model must run with its default flag values too.
 
     **Example**
 
@@ -69,9 +74,11 @@ class MultiHMCGibbs(MCMCKernel):
 
     sample_field = "z"
 
-    def __init__(self, inner_kernels, gibbs_sites_list):
+    def __init__(self, inner_kernels, gibbs_sites_list, inner_model_kwargs=None):
         self.inner_kernels = []
         self.gibbs_sites_list = gibbs_sites_list
+        if inner_model_kwargs is not None and len(inner_model_kwargs) != len(inner_kernels):
+            raise ValueError('inner_model_kwargs must have one entry per inner kernel.')
         for kdx, kernel in enumerate(inner_kernels):
             if kernel._model != inner_kernels[0]._model:
                 raise ValueError(f'inner kernel {kdx} does not have the same Numpyro model as kernel 0.')
@@ -81,6 +88,7 @@ class MultiHMCGibbs(MCMCKernel):
                 self.gibbs_sites_list[:kdx] + self.gibbs_sites_list[kdx + 1:],
                 []
             )
+            k._extra_model_kwargs = dict(inner_model_kwargs[kdx]) if inner_model_kwargs is not None else {}
             self.inner_kernels.append(k)
         self._prototype_trace = None
         self._sample_fn = None
@@ -171,7 +179,7 @@ class MultiHMCGibbs(MCMCKernel):
                             init_params_kdx[name] = init_params[name]
                     elif name in kernel._cond_sites:
                         cond_sites_kdx[name] = site["value"]
-                model_kwargs_kdx = model_kwargs | {'_cond_sites': cond_sites_kdx}
+                model_kwargs_kdx = model_kwargs | kernel._extra_model_kwargs | {'_cond_sites': cond_sites_kdx}
                 hmc_state_kdx = kernel.init(
                     key_z,
                     num_warmup,
@@ -216,9 +224,11 @@ class MultiHMCGibbs(MCMCKernel):
                 k: v for k, v in z_constrained.items() if k in kernel._cond_sites
             }
 
+            model_kwargs_kdx = model_kwargs | kernel._extra_model_kwargs
+
             def potential_fn(z_hmc):
                 return kernel._potential_fn_gen(
-                    *model_args, _cond_sites=z_cond_constrained, **model_kwargs
+                    *model_args, _cond_sites=z_cond_constrained, **model_kwargs_kdx
                 )(z_hmc)
 
             if kernel._forward_mode_differentiation:
@@ -233,7 +243,7 @@ class MultiHMCGibbs(MCMCKernel):
             hmc_state = kernel.sample(
                 hmc_state,
                 model_args,
-                model_kwargs | {'_cond_sites': z_cond_constrained}
+                model_kwargs_kdx | {'_cond_sites': z_cond_constrained}
             )
             hmc_states.append(hmc_state)
             diverging.append(hmc_state.diverging)

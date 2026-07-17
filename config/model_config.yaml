@@ -775,6 +775,19 @@ models:
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm_injury/map/samples.pkl
         fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
         thinning: 50
+      # Cut-posterior MCMC (run_cut_gibbs_inference): two-block Gibbs — the counterfactual latents
+      # (X, curves, AR, hazard) are NUTS-updated against the injury-free likelihood (post-first-injury
+      # observations masked, survival censored at onset), the injury sites against the full likelihood
+      # conditional on the counterfactual draw. Kills the factor-absorption / bad-control bias
+      # (arXiv:2604.27187). init_path unused (init_to_median); fixed plug-in hyperparams still load.
+      # NOTE: the plug-ins come from the JOINT-fit MAP, which is itself absorption-contaminated —
+      # consider pointing fixed_param_path at the healthy-only causal prefit for full hygiene.
+      cut_mcmc:
+        model_dir:        model_output/nba_convex_max_tvlinearlvm_injury/cut_mcmc
+        init_path:        ~
+        fixed_param_path: model_output/nba_convex_max_tvlinearlvm_injury/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        thinning: 50
 
   nba_convex_max_tvlinearlvm_injury_holdout_last_k:
     model_dir: model_output/nba_convex_max_tvlinearlvm_injury/holdout_last_k/map
@@ -798,6 +811,73 @@ models:
 
   nba_convex_max_tvlinearlvm_injury_stratified_next_k:
     model_dir: model_output/nba_convex_max_tvlinearlvm_injury/stratified_next_k/map
+    validation_scheme: stratified_next_k
+    injury: true
+
+  # ── ConvexMaxInjuryRFFTVLinearLVM (RFF latent kernel + injury effects) ────────
+  # Injury leaf of the RFF family: same injury forward + cut machinery as
+  # nba_convex_max_tvlinearlvm_injury, with the RFF feature map (2m features, unit
+  # self-covariance) from nba_convex_max_tvrflvm. Reuses the convex-family prior anchors.
+  nba_convex_max_tvrflvm_injury:
+    injury: true
+    m_time: 5
+    basis_dims: 10   # latent rank r
+    approx_x_dim: 50       # RFF frequency count m; projected feature width = 2*m = 100
+    map_num_steps: 50000
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_injury/map
+      mcmc:
+        mcmc_init: map
+        model_dir:        model_output/nba_convex_max_tvrflvm_injury/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_injury/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_injury/map/samples.pkl
+        # lengthscale FIXED at MAP (RFF ARD bandwidth) like the other RFF entries — pins the kernel
+        # scale and removes the W*sqrt(lengthscale) ridge; W stays sampled.
+        fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        thinning: 50
+      # Cut-posterior MCMC — see the nba_convex_max_tvlinearlvm_injury cut_mcmc notes.
+      cut_mcmc:
+        model_dir:        model_output/nba_convex_max_tvrflvm_injury/cut_mcmc
+        init_path:        ~
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_injury/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        thinning: 50
+
+  nba_convex_max_tvrflvm_injury_holdout_last_k:
+    model_dir: model_output/nba_convex_max_tvrflvm_injury/holdout_last_k/map
+    validation_scheme: holdout_last_k
+    injury: true
+
+  nba_convex_max_tvrflvm_injury_holdout_first_k:
+    model_dir: model_output/nba_convex_max_tvrflvm_injury/holdout_first_k/map
+    validation_scheme: holdout_first_k
+    injury: true
+
+  nba_convex_max_tvrflvm_injury_random_interior:
+    model_dir: model_output/nba_convex_max_tvrflvm_injury/random_interior/map
+    validation_scheme: random_interior
+    injury: true
+
+  nba_convex_max_tvrflvm_injury_holdout_peak:
+    model_dir: model_output/nba_convex_max_tvrflvm_injury/holdout_peak/map
+    validation_scheme: holdout_peak
+    injury: true
+
+  nba_convex_max_tvrflvm_injury_stratified_next_k:
+    model_dir: model_output/nba_convex_max_tvrflvm_injury/stratified_next_k/map
     validation_scheme: stratified_next_k
     injury: true
 

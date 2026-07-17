@@ -718,8 +718,7 @@ if (!is.null(posterior_peak_vals) && !is.null(posterior_latent_X)) {
                                             p_breakout_obpm3, p_breakout_obpm4,
                                             yrs_to_peak, ...) {
         fmt_p   <- function(x) if (is.na(x)) "---" else sprintf("%.0f\\%%", x * 100)
-        ytp     <- if (is.na(yrs_to_peak) || yrs_to_peak < 0.5) "$<$1"
-                   else sprintf("%.1f", yrs_to_peak)
+        ytp     <- if (is.na(yrs_to_peak)) "---" else sprintf("%.1f", yrs_to_peak)
         age_str <- if (is.na(age_2026)) "---" else as.character(age_2026)
         glue(
           "    {rank} & {name} & {age_str} & {position_group}",
@@ -755,7 +754,7 @@ if (!is.null(posterior_peak_vals) && !is.null(posterior_latent_X)) {
     " OBPM\\,$=$\\,2, ", pct_above_3, "\\% above OBPM\\,$=$\\,3, and ",
     pct_above_4, "\\% above OBPM\\,$=$\\,4 (career peak per player).",
     " Yrs to Peak is the posterior mean OBPM peak age minus last observed age",
-    " ($<$1 = already at or within one year of peak).}\n",
+    " (0.0 = already at peak).}\n",
     "  \\label{tab:breakout_cohort}\n",
     "\\end{table}\n"
   )
@@ -763,6 +762,22 @@ if (!is.null(posterior_peak_vals) && !is.null(posterior_latent_X)) {
   writeLines(
     breakout_tex,
     file.path(plots_dir, "latent_space", "map", "breakout_by_cohort.tex")
+  )
+
+  # JSON export consumed by the JSM deck's interactive draft-cohort widget
+  # (presentation/jsm/jsm_presentation.qmd) — same rows as the LaTeX table,
+  # with the actual posterior mean peak age and years-to-peak (no "<1" bucket).
+  cohort_json <- top5_per_cohort |>
+    transmute(cohort, rank, name, age = age_2026, pos = position_group,
+              peak_obpm   = round(mean_peak_obpm, 1),
+              peak_age    = round(mean_peak_age, 1),
+              p2          = round(p_breakout_obpm  * 100),
+              p3          = round(p_breakout_obpm3 * 100),
+              p4          = round(p_breakout_obpm4 * 100),
+              yrs_to_peak = round(yrs_to_peak, 1))
+  jsonlite::write_json(
+    cohort_json,
+    file.path(plots_dir, "latent_space", "map", "breakout_by_cohort.json")
   )
 
   # Plot 2: mean peak OBPM distribution within each cohort (violin)
@@ -1582,6 +1597,7 @@ functional_pca_plt_archetype <- fpc_arch |>
     data = fpc_arch |> filter(name %in% posterior_plot_names),
     aes(label = plot_name(name), x = PCA1, y = PCA2),
     size = 2, fontface = "bold", max.overlaps = 20,
+    min.segment.length = Inf,
     inherit.aes = FALSE
   ) +
   theme_bw(base_size = 14) + scale_colour_manual(values = arch_colour_pal) +
@@ -1603,7 +1619,8 @@ latent_pca_plt <- latent_pca_df |>
   geom_text_repel(
     data = latent_pca_df |> filter(name %in% posterior_plot_names),
     aes(label = plot_name(name)),
-    size = 2, fontface = "bold", max.overlaps = 20
+    size = 2, fontface = "bold", max.overlaps = 20,
+    min.segment.length = Inf
   ) +
   theme_bw(base_size = 14) + scale_colour_manual(values = arch_colour_pal) +
   labs(title = "PCA of Posterior Mean Latent Coordinates — Archetype Clusters",

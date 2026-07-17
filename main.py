@@ -82,8 +82,10 @@ if __name__ == "__main__":
     parser.add_argument('--model_name', required=True, help='model entry key in model_config.yaml')
     parser.add_argument('--model_config', required=True, help='path to model_config.yaml')
     parser.add_argument('--inference_method', required=False, default=None,
-        choices=["mcmc", "svi", "map"],
-        help='inference regime; selects the matching regimes block in model_config.yaml')
+        choices=["mcmc", "svi", "map", "cut_mcmc"],
+        help='inference regime; selects the matching regimes block in model_config.yaml. '
+             'cut_mcmc (injury models only): two-block cut-posterior Gibbs — counterfactual latents '
+             'NUTS-updated on the injury-free likelihood, injury params on the full likelihood')
     parser.add_argument('--eval_only', action='store_true', default=False,
         help='skip training; load saved samples.pkl and re-run coverage calculations only')
     parser.add_argument('--mcmc_init', required=False, default=None,
@@ -111,7 +113,10 @@ if __name__ == "__main__":
     inference_method = args["inference_method"]
     map_inference = (inference_method == "map")
     svi_inference = (inference_method == "svi")
-    mcmc_inference = (inference_method == "mcmc")
+    # cut_mcmc is a variant of mcmc (same init/fixed-param loading and downstream sample handling);
+    # it only swaps the sampler for the two-block cut-posterior Gibbs on the injury models.
+    cut_mcmc_inference = (inference_method == "cut_mcmc")
+    mcmc_inference = (inference_method in ("mcmc", "cut_mcmc"))
     prior_predictive = False  # retired: prior-predictive draws + checks now live in prior_check.py
     num_warmup, num_samples, num_chains = args["num_warmup"], args["num_samples"], args["num_chains"]
     mcmc_init_strategy = _cli.get("mcmc_init") or args.get("mcmc_init", "map")   # CLI overrides config
@@ -743,14 +748,24 @@ if __name__ == "__main__":
                         _tb.print_exc()
                     jax.config.update("jax_debug_nans", False)
                     print("[DEBUG_INIT] done"); _sys.exit(0)
-                _mcmc_init = {} if mcmc_init_strategy in ("median", "median_nofix") else initial_params
-                print({
-                    "map": "[MCMC] init: seed NUTS from MAP samples",
-                    "median": "[MCMC] init: init_to_median; no MAP seeding (fixed plug-in params still from MAP)",
-                    "median_nofix": "[MCMC] init: init_to_median, fully MAP-free (all params sampled, no fixed plug-ins)",
-                }.get(mcmc_init_strategy, f"[MCMC] init: {mcmc_init_strategy}"))
-                samples, mcmc_model = model.run_inference(num_chains=num_chains, num_samples=num_samples, num_warmup=num_warmup, vectorized=vectorized,
-                model_args=model_args, initial_values=_mcmc_init, thinning=thinning)
+                if cut_mcmc_inference:
+                    if not isinstance(model, ConvexMaxInjuryTVLinearLVM):
+                        raise ValueError("inference_method=cut_mcmc requires an injury model (ConvexMaxInjuryTVLinearLVM family)")
+                    print("[MCMC] cut posterior: counterfactual block on the injury-free likelihood, "
+                          "injury block on the full likelihood (init_to_median; MAP seeding not supported, "
+                          "fixed plug-in params still applied)")
+                    samples, mcmc_model = model.run_cut_gibbs_inference(
+                        num_warmup=num_warmup, num_samples=num_samples, num_chains=num_chains,
+                        model_args=model_args, thinning=thinning)
+                else:
+                    _mcmc_init = {} if mcmc_init_strategy in ("median", "median_nofix") else initial_params
+                    print({
+                        "map": "[MCMC] init: seed NUTS from MAP samples",
+                        "median": "[MCMC] init: init_to_median; no MAP seeding (fixed plug-in params still from MAP)",
+                        "median_nofix": "[MCMC] init: init_to_median, fully MAP-free (all params sampled, no fixed plug-ins)",
+                    }.get(mcmc_init_strategy, f"[MCMC] init: {mcmc_init_strategy}"))
+                    samples, mcmc_model = model.run_inference(num_chains=num_chains, num_samples=num_samples, num_warmup=num_warmup, vectorized=vectorized,
+                    model_args=model_args, initial_values=_mcmc_init, thinning=thinning)
 
             elif svi_inference:
                 samples = model.run_svi_inference(num_steps=30000, guide_kwargs={}, model_args=model_args, initial_values=initial_params,

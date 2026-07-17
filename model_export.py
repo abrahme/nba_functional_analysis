@@ -16,7 +16,7 @@ import numpyro
 import jax.numpy as jnp
 from model.model_utils import compute_residuals_map, compute_priors, make_survival_linear_injury_mcmc, apply_detrend_for_offsets, make_survival_linear_mcmc
 from model.inference_utils import posterior_peaks_to_df, posterior_to_df, posterior_X_to_df, posterior_injury_to_df, posterior_injury_prior_mean_to_df, posterior_survival_to_df, posterior_player_scalar_to_df
-from model.hsgp import vmap_make_convex_phi, eigenfunctions_multivariate, make_spectral_mixture_density, diag_spectral_density, sqrt_eigenvalues
+from model.hsgp import vmap_make_convex_phi, eigenfunctions_multivariate, make_spectral_mixture_density, diag_spectral_density, sqrt_eigenvalues, make_convex_phi, make_convex_phi_prime, eigenfunctions
 from visualization.visualization import make_diagnostic_heatmap, make_rhat_summary_barchart, plot_calendar_year_trends
 from model.models import ConvexMaxARTVLinearLVM as _ARLinearLVM
 from model.models import ConvexMaxTVLinearLVM, ConvexMaxInjuryTVLinearLVM, NaiveLinearLVM, TVLinearLVM, TVLinearLVM_AR
@@ -41,13 +41,21 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_name", required=True)
     parser.add_argument("--model_config", required=True)
+    parser.add_argument("--inference_method", required=False, default="mcmc",
+                        choices=["mcmc", "cut_mcmc"],
+                        help="which sampler run to export (selects the regimes block / samples dir)")
+    parser.add_argument("--concave_only", action="store_true",
+                        help="write only the concave-loadings/canonical-curve parquets and exit — "
+                             "skips log-posterior, latent-X, trajectory, injury, survival, and ELPPD "
+                             "exports (cheap re-run feeding model_diagnostics.r's curvature plots)")
     numpyro.set_platform("cpu")
     _cli = vars(parser.parse_args())
-    cfg = resolve_model_config(_cli["model_config"], _cli["model_name"], inference_method="mcmc")
+    cfg = resolve_model_config(_cli["model_config"], _cli["model_name"], inference_method=_cli["inference_method"])
 
     model_name      = _cli["model_name"]
+    _concave_only   = _cli["concave_only"]
     _is_naive       = "naive" in model_name
-    model_dir       = cfg.get("model_dir") or f"model_output/{model_name}/mcmc"
+    model_dir       = cfg.get("model_dir") or f"model_output/{model_name}/{_cli['inference_method']}"
     os.makedirs(model_dir, exist_ok=True)
     mcmc_path       = os.path.join(model_dir, "samples.pkl")
     svi_path        = cfg["init_path"]
@@ -344,7 +352,7 @@ if __name__ == "__main__":
     # Capability gate (was `"linear" in model_name`): the structured-prior models (linear, cosine,
     # RFF) all sample W_proj, so key off its presence rather than the name.
     _is_rff = "rflvm" in model_name
-    _supports_modal_exports = (not _is_naive) and ("W_proj" in results_mcmc)
+    _supports_modal_exports = (not _is_naive) and ("W_proj" in results_mcmc) and (not _concave_only)
     if _supports_modal_exports and _is_rff:
         # The RFF model has a SINGLE shared kernel — there is no separate peak-age/peak-value/curvature
         # latent representation to decompose (those modalities differ only via per-metric weights in the
@@ -429,15 +437,20 @@ if __name__ == "__main__":
                 _phi_curv_df.to_parquet(
                     os.path.join(model_dir, f"phi_X_curvature_m{_m_tag}.parquet"), index=False
                 )
-    _summary_vars = ["sigma_beta", "sigma_beta_binomial", "sigma", "sigma_ar", "sigma_negative_binomial"]
-    _summary_subset = {k: results_mcmc[k] for k in _summary_vars if k in results_mcmc}
-    summary = az.summary(_summary_subset)
-    print(summary)
-    summary.to_parquet(os.path.join(model_dir, "posterior_variance_summary.parquet"), index=False)
+    if not _concave_only:
+        _summary_vars = ["sigma_beta", "sigma_beta_binomial", "sigma", "sigma_ar", "sigma_negative_binomial"]
+        _summary_subset = {k: results_mcmc[k] for k in _summary_vars if k in results_mcmc}
+        summary = az.summary(_summary_subset)
+        print(summary)
+        summary.to_parquet(os.path.join(model_dir, "posterior_variance_summary.parquet"), index=False)
 
     # Export per-sample dispersion parameters labelled by metric so model_diagnostics.r
     # can compute posterior log-loss intervals without needing to know index order.
     _disp_rows = []
+    if _concave_only:
+        metrics_disp_iter = []
+    else:
+        metrics_disp_iter = list(zip(metrics, metric_output))
     _g_i = _beta_i = _nb_i = _bb_i = 0
     _disp_map = {
         "gaussian":       ("sigma",                  lambda i: _g_i),
@@ -445,7 +458,7 @@ if __name__ == "__main__":
         "negative-binomial": ("sigma_negative_binomial", lambda i: _nb_i),
         "beta-binomial":  ("sigma_beta_binomial",    lambda i: _bb_i),
     }
-    for _mn, _fam in zip(metrics, metric_output):
+    for _mn, _fam in metrics_disp_iter:
         if _fam not in _disp_map:
             continue
         _param_key, _ = _disp_map[_fam]
@@ -578,7 +591,9 @@ if __name__ == "__main__":
             "num_de_trend": len(de_trend_metrics),
             "ref_year_idx": _ref_year_idx,
         }
-        if _mcmc_leading is not None:
+        if _concave_only:
+            print("log posterior skipped (--concave_only)")
+        elif _mcmc_leading is not None:
             _nc, _nd = _mcmc_leading
             # Identify the latent (non-observed) sample sites the model actually uses
             # so we don't pass MAP-derived or computed keys that collide with
@@ -635,7 +650,8 @@ if __name__ == "__main__":
     # For linear models: reconstruct total X = Z @ W_proj + sigma_X * X_raw (non-centered).
     # X_loc (prior mean from covariates) is also exported for interpretability.
     # Naive model has no latent X; X_map_aug / X_mcmc_aug are left as None.
-    if not _is_naive:
+    # --concave_only: skipped — X_map_aug/X_mcmc_aug feed only the post-exit exports.
+    if not _is_naive and not _concave_only:
         _x_was_sampled = "X" in _mcmc_sampled_keys or "X_free" in _mcmc_sampled_keys
         # Capability gate (was `"linear" in model_name and ...`): any structured-prior model with a
         # sampled W_proj (linear, cosine, RFF leaves) gets the total-X + X_loc reconstruction path.
@@ -692,7 +708,7 @@ if __name__ == "__main__":
     # is added separately via _compute_player_ar (zero for non-AR).
     def _curves_under_substitute(params):
         def f():
-            d = dict(lp_model.compute_curves(*_curve_args, include_derivs=True))
+            d = dict(lp_model.compute_curves(*_curve_args, include_derivs=not _concave_only, include_loadings=True))
             d["ar"] = lp_model._compute_player_ar()
             return d
         return numpyro.handlers.substitute(numpyro.handlers.seed(f, jax.random.PRNGKey(0)), data=params)()
@@ -706,7 +722,8 @@ if __name__ == "__main__":
         _ar_map    = _ARLinearLVM._compute_ar_process_from_parameters(_s_map, _r_map, _z_map, _a0_map)
         mu = jnp.repeat(_c_off_map, repeats=len(basis), axis=-1) + _ar_map  # (k, n, j)
     else:
-        mu = _curves_under_substitute(results_map)["mu"]   # (k, n, j) — calendar trend added below
+        _d_map = _curves_under_substitute(results_map)
+        mu = _d_map["mu"]   # (k, n, j) — calendar trend added below
     if "intercept" in results_map:
         mu += (results_map["intercept"] * results_map["sigma_intercept"])[..., None]
 
@@ -733,10 +750,11 @@ if __name__ == "__main__":
         TREND_AR_map = de_trend_adjusted
 
     mu += TREND_AR_map
-    obs, preds = create_metric_trajectory_map(mu, [], Y, exposures, metric_output, metrics)
-                        
-    avg_sd, autocorr, lognormal_params, beta_params = compute_residuals_map(preds["y"], obs["y"], exposures, metric_output, metrics, results_map["sigma"], results_map.get("sigma_negative_binomial", 0),
-                                                                results_map.get("sigma_beta_binomial", 0), results_map.get("sigma_beta", 1))
+    if not _concave_only:
+        obs, preds = create_metric_trajectory_map(mu, [], Y, exposures, metric_output, metrics)
+
+        avg_sd, autocorr, lognormal_params, beta_params = compute_residuals_map(preds["y"], obs["y"], exposures, metric_output, metrics, results_map["sigma"], results_map.get("sigma_negative_binomial", 0),
+                                                                    results_map.get("sigma_beta_binomial", 0), results_map.get("sigma_beta", 1))
     
     # avg_sd = jnp.ones((len(metrics))) * .01
     # autocorr = jnp.zeros_like(avg_sd)
@@ -765,22 +783,191 @@ if __name__ == "__main__":
         def _one_draw(carry):
             draw, key = carry
             def f():
-                d = dict(lp_model.compute_curves(*_curve_args, include_derivs=True))
+                d = dict(lp_model.compute_curves(*_curve_args, include_derivs=not _concave_only, include_loadings=True))
+                if _concave_only:
+                    # Return only what the concave block needs — XLA then dead-code-eliminates
+                    # the mu/core-tensor einsums, so each draw's forward is nearly free.
+                    return {k: d[k] for k in ("curve_loadings", "t_max") if k in d}
                 d["ar"] = lp_model._compute_player_ar()
                 return d
             return numpyro.handlers.substitute(numpyro.handlers.seed(f, key), data={**results_map, **draw})()
         _d_mc = jax.lax.map(_one_draw, (_flat, _keys))
         _d_mc = {k: v.reshape(_nc, _nd, *v.shape[1:]) for k, v in _d_mc.items()}
-        mu_mcmc = _d_mc["mu"]; tmax_mcmc = _d_mc["t_max"]; cmax_mcmc = _d_mc["c_max"]
-        AR = _d_mc["ar"]; first_deriv = _d_mc["first_deriv"]
-        second_deriv = _d_mc["second_deriv"]; third_deriv = _d_mc["third_deriv"]
-        TREND_AR_mcmc = _d_mc["trend_ar"]
+        if not _concave_only:
+            mu_mcmc = _d_mc["mu"]; tmax_mcmc = _d_mc["t_max"]; cmax_mcmc = _d_mc["c_max"]
+            AR = _d_mc["ar"]; first_deriv = _d_mc["first_deriv"]
+            second_deriv = _d_mc["second_deriv"]; third_deriv = _d_mc["third_deriv"]
+            TREND_AR_mcmc = _d_mc["trend_ar"]
 
-    latent_val = mu_mcmc + AR + TREND_AR_mcmc
-    if _is_naive:
-        _peak_idx = jnp.argmax(latent_val, axis=-1)                                     # (chains, draws, k, n)
-        tmax_mcmc = jnp.swapaxes(jnp.array(basis)[_peak_idx] - basis.mean(), -1, -2)   # (chains, draws, n, k)
-        cmax_mcmc = jnp.swapaxes(jnp.max(latent_val, axis=-1), -1, -2)                 # (chains, draws, n, k)
+    if not _concave_only:
+        latent_val = mu_mcmc + AR + TREND_AR_mcmc
+        if _is_naive:
+            _peak_idx = jnp.argmax(latent_val, axis=-1)                                     # (chains, draws, k, n)
+            tmax_mcmc = jnp.swapaxes(jnp.array(basis)[_peak_idx] - basis.mean(), -1, -2)   # (chains, draws, n, k)
+            cmax_mcmc = jnp.swapaxes(jnp.max(latent_val, axis=-1), -1, -2)                 # (chains, draws, n, k)
+
+    # ── Concave loadings (curvature-root HSGP-basis loadings) ────────────────────────────────
+    # gamma[n,k,l] = psi(x_n)^T (beta·sqrt(spd))[:,:,k] / sqrt(kernel_self_cov): the curve's second
+    # derivative is -g(t)^2 with g(t) = sum_l gamma_l psi_l(t), so gamma is the loading of the
+    # (player, metric) curvature root on orthonormal HSGP time basis l and sum_l gamma_l^2 is the
+    # curvature energy. Only the convex-max family emits the key (capability gate). gamma is
+    # identified up to a whole-vector sign flip per (metric, draw), so the identified curve-space
+    # object is the Gram matrix S_k = mean_n gamma gamma^T: its diagonal gives the per-basis
+    # loadings; its eigen-decomposition the canonical concave curves per metric. When use_curve_re=1,
+    # curve_amp scales the quadratic form (not gamma): energy shares are invariant, RMS magnitudes
+    # exclude it (the knob is off for all tvrflvm/tvlinearlvm configs).
+    if not _is_naive and "curve_loadings" in _d_mc:
+        _real = (id_df["id"] != "99999999").to_numpy()                  # drop the fake grid player
+        _gam = np.asarray(_d_mc["curve_loadings"])[:, :, _real]         # (chains, draws, n_real, k, M)
+        _nc_g, _nd_g, _n_real, _k_g, _M_g = _gam.shape
+        _L_t = float(jnp.squeeze(hsgp_params["L_time"]))
+        _phi_time_np = np.asarray(hsgp_params["phi_x_time"])            # (t, M, M)
+        _x_time_np = np.asarray(jnp.squeeze(x_time))                    # (t,) centered ages
+        _ages_g = np.arange(age_min, age_max + 1)
+        _metric_arr = np.array(list(metrics))
+
+        _S = np.einsum("cdnkl,cdnkz->cdklz", _gam, _gam) / _n_real      # (c, d, k, M, M) Gram
+        _diag = np.einsum("cdkll->cdkl", _S)                            # mean_n gamma^2
+        _share = _diag / (_diag.sum(axis=-1, keepdims=True) + 1e-12)
+        _mean_g = _gam.mean(axis=2)                                     # (c, d, k, M)
+        _sgn = np.sign(np.take_along_axis(_mean_g, np.argmax(np.abs(_mean_g), axis=-1)[..., None], axis=-1))
+        _mean_signed = _mean_g * np.where(_sgn == 0, 1.0, _sgn)         # whole-vector flip per (c, d, k)
+
+        _ci, _si, _ki, _li = np.meshgrid(np.arange(_nc_g), np.arange(_nd_g), np.arange(_k_g), np.arange(_M_g), indexing="ij")
+        pd.DataFrame({
+            "chain": _ci.ravel(), "sample": _si.ravel(),
+            "metric": _metric_arr[_ki.ravel()], "basis": _li.ravel() + 1,
+            "loading_rms": np.sqrt(_diag).ravel(),
+            "energy_share": _share.ravel(),
+            "loading_mean_signed": _mean_signed.ravel(),
+        }).to_parquet(os.path.join(model_dir, "posterior_concave_loadings.parquet"), index=False)
+
+        _ci, _si, _ki, _li, _zi = np.meshgrid(np.arange(_nc_g), np.arange(_nd_g), np.arange(_k_g), np.arange(_M_g), np.arange(_M_g), indexing="ij")
+        pd.DataFrame({
+            "chain": _ci.ravel(), "sample": _si.ravel(),
+            "metric": _metric_arr[_ki.ravel()],
+            "basis_l": _li.ravel() + 1, "basis_z": _zi.ravel() + 1,
+            "value": _S.ravel(),
+        }).to_parquet(os.path.join(model_dir, "posterior_concave_gram.parquet"), index=False)
+
+        _gam_map = np.asarray(_d_map["curve_loadings"])[_real]          # (n_real, k, M)
+        _diag_map = np.einsum("nkl,nkl->kl", _gam_map, _gam_map) / _n_real
+        _mean_map = _gam_map.mean(axis=0)
+        _sgn_map = np.sign(np.take_along_axis(_mean_map, np.argmax(np.abs(_mean_map), axis=-1)[..., None], axis=-1))
+        _ki, _li = np.meshgrid(np.arange(_k_g), np.arange(_M_g), indexing="ij")
+        pd.DataFrame({
+            "metric": _metric_arr[_ki.ravel()], "basis": _li.ravel() + 1,
+            "loading_rms": np.sqrt(_diag_map).ravel(),
+            "energy_share": (_diag_map / (_diag_map.sum(axis=-1, keepdims=True) + 1e-12)).ravel(),
+            "loading_mean_signed": (_mean_map * np.where(_sgn_map == 0, 1.0, _sgn_map)).ravel(),
+        }).to_parquet(os.path.join(model_dir, "map_concave_loadings.parquet"), index=False)
+
+        # Canonical eigen-curves per metric: S̄_k = V diag(λ) V^T on the posterior-mean Gram (the
+        # sign gauge cancels in gamma gamma^T, so averaging draws/chains is valid). This gives
+        # E_n[f''_k(t)] = -sum_j λ_j (v_j^T psi(t))^2 — an exact rank-M decomposition of the
+        # population-mean curvature into canonical concave components with loadings λ_j.
+        # Deliberately PER METRIC: the S̄_k do not commute (median normalized commutator ~0.19), so
+        # no common eigenbasis exists, and "component j" names a different curve for every metric —
+        # cross-metric comparisons go through the curve shapes, never the component index. (A shared
+        # oblique basis via INDSCAL was tried and reverted: it fits, but the shapes that make each
+        # metric's curvature interesting are exactly what sharing averages away.)
+        _S_bar = _S.mean(axis=(0, 1))                                   # (k, M, M)
+        _evecs = np.linalg.eigh(_S_bar)[1][:, :, ::-1]                  # columns v_j, descending λ
+        _vsgn = np.sign(np.take_along_axis(_evecs, np.argmax(np.abs(_evecs), axis=1)[:, None, :], axis=1))
+        _evecs = _evecs * np.where(_vsgn == 0, 1.0, _vsgn)
+
+        # Per-draw loadings on the FIXED posterior-mean eigenvectors (>= 0: each draw's S_k is PSD)
+        _lam = np.einsum("klj,cdklz,kzj->cdkj", _evecs, _S, _evecs)     # (c, d, k, M)
+
+        # Per-metric GP variance alpha, exported alongside lambda because magnitude comparisons
+        # ACROSS metrics require lambda_j / alpha_k. spd = sqrt(S(w)) and S(w) = alpha*sqrt(2pi)*l*
+        # exp(-l^2 w^2/2), so gamma ~ sqrt(alpha) and every lambda_j scales linearly in alpha_k —
+        # while the eigenvectors are untouched (a per-metric scalar cannot rotate S_k). alpha
+        # absorbs the per-metric LINK scale (Poisson/Binomial/Normal), so raw lambda is not
+        # comparable across metrics; alpha-normalized lambda is. Only the variance parameter is
+        # divided out: the lengthscale part of the spd (the l prefactor and the exp(-l^2 w^2/2)
+        # decay) stays in, since that carries the frequency structure rather than a nuisance scale.
+        # alpha may be sampled (c,d,k,1) or fixed per-metric (k,)/scalar — normalize to (c,d,k).
+        _alpha_src = results_mcmc.get("alpha")
+        if _alpha_src is None:
+            _alpha_src = lp_model.prior.get("alpha")
+        _alpha_k = np.squeeze(np.asarray(_alpha_src, dtype=float))
+        if _alpha_k.ndim < 3:                                           # fixed scalar or per-metric
+            _alpha_k = np.broadcast_to(_alpha_k, (_nc_g, _nd_g, _k_g))
+        _alpha_full = np.broadcast_to(_alpha_k[..., None], (_nc_g, _nd_g, _k_g, _M_g))
+
+        _ci, _si, _ki, _ji = np.meshgrid(np.arange(_nc_g), np.arange(_nd_g), np.arange(_k_g), np.arange(_M_g), indexing="ij")
+        pd.DataFrame({
+            "chain": _ci.ravel(), "sample": _si.ravel(),
+            "metric": _metric_arr[_ki.ravel()], "component": _ji.ravel() + 1,
+            "loading": _lam.ravel(),
+            "alpha": _alpha_full.ravel(),
+            "loading_alpha_norm": (_lam / _alpha_full).ravel(),
+            "energy_share": (_lam / (_lam.sum(axis=-1, keepdims=True) + 1e-12)).ravel(),
+        }).to_parquet(os.path.join(model_dir, "posterior_concave_canonical_loadings.parquet"), index=False)
+
+        # Canonical descent curves through the model's own max form, anchored at each metric's
+        # posterior-mean peak age: v_j^T [Ψ(t̄*) − Ψ(t) + Ψ'(t̄*)(t − t̄*)] v_j (unit v_j — scale by
+        # λ_j/α_k for the component's contribution), plus each component's curvature root
+        # g_j(t) = v_j^T psi(t).
+        _tbar = np.asarray(_d_mc["t_max"])[:, :, _real].mean(axis=(0, 1, 2))  # (k,) centered peak age
+        _phi_tbar = np.asarray(jax.vmap(lambda t: make_convex_phi(t, _L_t, M_time))(jnp.asarray(_tbar)))
+        _phi_p_tbar = np.asarray(jax.vmap(lambda t: make_convex_phi_prime(t, _L_t, M_time))(jnp.asarray(_tbar)))
+        _core = (_phi_tbar[:, None] - _phi_time_np[None]
+                 + _phi_p_tbar[:, None] * (_x_time_np[None, :] - _tbar[:, None])[..., None, None])  # (k, t, M, M)
+        _curves = np.einsum("klj,ktlz,kzj->kjt", _evecs, _core, _evecs)  # (k, M, t) descent <= 0
+        _psi_g = np.asarray(eigenfunctions(jnp.asarray(_x_time_np), _L_t, M_time))                  # (t, M)
+        _g = np.einsum("klj,tl->kjt", _evecs, _psi_g)
+        _ki, _ji, _ti = np.meshgrid(np.arange(_k_g), np.arange(_M_g), np.arange(len(_ages_g)), indexing="ij")
+        pd.DataFrame({
+            "metric": _metric_arr[_ki.ravel()], "component": _ji.ravel() + 1,
+            "age": _ages_g[_ti.ravel()],
+            "curve_value": _curves.ravel(), "g_value": _g.ravel(),
+        }).to_parquet(os.path.join(model_dir, "concave_canonical_curves.parquet"), index=False)
+
+        # Player canonical-weight profiles: the FULL outer product of the projections
+        # c_pj = v_j^T gamma_p in each metric's fixed eigenbasis, posterior-averaged with the same
+        # per-draw /alpha as the population loadings: P[n,k,l,z] = E_draws[c_l c_z / alpha_k].
+        # The diagonal is the player's curvature energy on each canonical component
+        # (mean_n over the diagonal = lambda_j exactly); the off-diagonals are the cross-term
+        # (interference) weights, since gamma^T [.] gamma = sum_{l,z} c_l c_z v_l^T [.] v_z —
+        # together the matrix is the player's complete curvature expansion in the canonical basis.
+        # Cross terms average to ~zero over players (the eigenbasis diagonalizes the population
+        # Gram), so a player's off-diagonal structure is exactly how they deviate from a
+        # population-canonical mixture. Gauge: the per-(metric, draw) gamma sign flip hits c_l and
+        # c_z together, so pairwise products are invariant; eigenvector signs are pinned above and
+        # cross-term signs are relative to that convention.
+        _c_play = np.einsum("klj,cdnkl->cdnkj", _evecs, _gam)           # (c, d, n_real, k, M)
+        _P_play = np.einsum("cdnkl,cdnkz,cdk->nklz", _c_play, _c_play,
+                            1.0 / _alpha_k) / (_nc_g * _nd_g)           # (n, k, M, M)
+        _ids_real = id_df["id"].to_numpy()[_real]
+        _names_real = id_df["name"].to_numpy()[_real]
+        _ni, _ki, _li, _zi = np.meshgrid(np.arange(_n_real), np.arange(_k_g), np.arange(_M_g), np.arange(_M_g), indexing="ij")
+        pd.DataFrame({
+            "id": _ids_real[_ni.ravel()], "name": _names_real[_ni.ravel()],
+            "metric": _metric_arr[_ki.ravel()],
+            "comp_row": _li.ravel() + 1, "comp_col": _zi.ravel() + 1,
+            "value": _P_play.ravel(),
+        }).to_parquet(os.path.join(model_dir, "posterior_concave_player_profile.parquet"), index=False)
+
+        # Fixed shared basis curves (concave curve generated by g = psi_l alone: −Ψ_ll(t)) and the
+        # eigenfunction shapes themselves — so basis indices in the loadings are interpretable
+        # (basis 1 = lowest frequency).
+        _li, _ti = np.meshgrid(np.arange(_M_g), np.arange(len(_ages_g)), indexing="ij")
+        pd.DataFrame({
+            "basis": _li.ravel() + 1, "age": _ages_g[_ti.ravel()],
+            "value": (-np.diagonal(_phi_time_np, axis1=1, axis2=2).T).ravel(),
+        }).to_parquet(os.path.join(model_dir, "concave_basis_curves.parquet"), index=False)
+        pd.DataFrame({
+            "basis": _li.ravel() + 1, "age": _ages_g[_ti.ravel()],
+            "value": _psi_g.T.ravel(),
+        }).to_parquet(os.path.join(model_dir, "hsgp_time_basis.parquet"), index=False)
+        print("exported concave loadings / canonical curves")
+
+    if _concave_only:
+        print("--concave_only: done, skipping all remaining exports")
+        raise SystemExit(0)
+
     if injury:
         injury_loading = results_mcmc["injury_loading"]
         injury_factor = results_mcmc["injury_factor"]

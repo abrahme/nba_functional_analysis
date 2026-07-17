@@ -23,6 +23,14 @@ RUN apt-get update && \
         tk8.6 \
         libtcl8.6 \
         libtk8.6 \
+        # LaTeX for paper compilation (matches .devcontainer/Dockerfile;
+        # texlive-pictures provides tikz for the graphical-model DAG)
+        texlive-latex-base \
+        texlive-latex-extra \
+        texlive-fonts-recommended \
+        texlive-science \
+        texlive-pictures \
+        latexmk \
         ###################################################
         ### Add your own system dependencies installed  ###
         ### with `apt-get` as needed below this comment ###

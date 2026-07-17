@@ -1781,6 +1781,13 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
             return jnp.tanh(t_base) * amplitude + t_offset
         raise ValueError(f"Unknown offset_mode '{offset_mode}'")
 
+    def _compute_curve_loadings(self, psi_x, weights):
+        """gamma[n,k,l]: loading of player n / metric k's curvature root g(t) = sum_l gamma_l psi_l(t)
+        on orthonormal HSGP time basis l (the curve's 2nd derivative is -g(t)^2, so sum_l gamma_l^2 is
+        the total curvature energy). Identified only up to a whole-vector sign flip per (metric, draw).
+        Same projection + normalization as _compute_convex_mu's projected_weights."""
+        return jnp.einsum("nm,mdk->nkd", psi_x, weights) / jnp.sqrt(self._kernel_self_cov(psi_x))
+
     def _compute_convex_mu(self, psi_x, weights, phi_t_max, phi_prime_t_max, phi_time, shifted_x_time, L_time, t_max, c_max, prior: bool, weight_offset=0.0):
         # Scaled-dot-product normalization: divide the projection gamma = X @ weights by sqrt(r),
         # so the quadratic descent gamma^T [.] gamma carries a 1/r factor and is invariant to the
@@ -1790,14 +1797,13 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         # still only a 1/r (dimension) normalization; because psi_x = X is a *linear* kernel, the
         # per-player ||X||^2 inflation (extreme covariates) is NOT removed by this — that needs a
         # bounded feature map (phi(x)^T phi(x) ~ const), handled separately.
-        n_features = self._kernel_self_cov(psi_x)
         intercept = jnp.transpose(c_max)[..., None]
         core_tensor = (
             phi_t_max[:, :, None, ...] - phi_time[None, None]
             + phi_prime_t_max[:, :, None, ...]
             * (((shifted_x_time - L_time)[None, None] - t_max[..., None])[..., None, None])
         )
-        projected_weights = jnp.einsum("nm,mdk->nkd", psi_x, weights) / jnp.sqrt(n_features) + weight_offset
+        projected_weights = self._compute_curve_loadings(psi_x, weights) + weight_offset
         gamma_phi_gamma_x = jnp.einsum("nkd,nktdz,nkz->knt", projected_weights, core_tensor, projected_weights)
         # Per-player x metric curvature amplitude: scales how hard the curve bends below c_max.
         # curve_amp (n,k) -> (k,n,1) broadcasts over the (k,n,t) descent. a>0 preserves mu <= c_max.
@@ -2084,10 +2090,12 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         trend_ar = context.get("trend_ar", jnp.zeros_like(mu))
         return self._build_linear_predictor(mu, k_indices, trend_ar[k_indices])
 
-    def compute_curves(self, hsgp_params, offsets={}, sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0, include_derivs: bool = False):
+    def compute_curves(self, hsgp_params, offsets={}, sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0, include_derivs: bool = False, include_loadings: bool = False):
         """SINGLE SOURCE OF TRUTH for the aging-curve forward. Resolves the curve latents ONCE and
         returns a dict: {mu (k,n,j), t_max (n,k), c_max (n,k), trend_ar (k,n,j), X (n,r)} plus, when
-        include_derivs=True, first_deriv (k,n,j) / second_deriv (n,k) / third_deriv (n,k).
+        include_derivs=True, first_deriv (k,n,j) / second_deriv (n,k) / third_deriv (n,k), and when
+        include_loadings=True, curve_loadings (n,k,M_time) — the HSGP-basis loadings gamma (see
+        _compute_curve_loadings).
 
         The per-player AR(1) is NOT included here — callers add `self._compute_player_ar()` under the
         same substitute (model_fn, prior_check, model_export), so this method never touches the AR
@@ -2155,6 +2163,8 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         if include_derivs:
             fd, sd, td = self._compute_curve_derivatives(psi_x, weights, t_max, phi_prime_t_max, L_time, M_time, shifted_x_time)
             out["first_deriv"], out["second_deriv"], out["third_deriv"] = fd, sd, td
+        if include_loadings:
+            out["curve_loadings"] = self._compute_curve_loadings(psi_x, weights)
         return out
 
     def _compute_mu(self, hsgp_params, offsets={}, sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0):
@@ -3797,11 +3807,12 @@ class TVLinearLVM(ConvexMaxTVLinearLVM):
             TREND_AR = jnp.zeros((self.k, self.n, self.j))
         return mu, TREND_AR, X
 
-    def compute_curves(self, hsgp_params, offsets={}, sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0, include_derivs: bool = False):
+    def compute_curves(self, hsgp_params, offsets={}, sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0, include_derivs: bool = False, include_loadings: bool = False):
         """Single-source export forward for the non-convex GPLVM. mu comes from this class's own
         _compute_mu; the GPLVM has no analytic peak, so peaks are argmax/max over age and derivatives
         are finite differences (matching the retired make_mu_tvlinearlvm_mcmc). Per-player AR is added
-        by the caller via _compute_player_ar() (zero for the non-AR variant)."""
+        by the caller via _compute_player_ar() (zero for the non-AR variant). include_loadings is
+        accepted for interface parity and ignored: the GPLVM has no concave quadratic form."""
         mu, TREND_AR, X = self._compute_mu(
             hsgp_params, offsets, sample_free_indices, sample_fixed_indices,
             ar_metric_indices, year_indices, num_years, num_de_trend, ref_year_idx)
@@ -3990,12 +4001,13 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
         entrance_times = jnp.ravel(jnp.asarray(offsets["entrance_times"]))
         entrance_latent = jnp.maximum(entrance_times, 1e-6)
 
-        effective_r = X.shape[-1]
-        psi_x = self._project_X(X)   # kernel feature map (cosine bounds the hazard; identity for linear)
-        exit = self._resolve_prior("exit", sample_shape=(effective_r,))
+        psi_x = self._project_X(X)   # kernel feature map (RFF: (n, 2m) unit-norm; identity for linear)
+        feat_dim = self._projected_feature_dim()   # sizes the exit weights to contract with psi_x (2m RFF, r linear)
+        norm = self._kernel_self_cov(psi_x)        # kernel self-covariance normalization (1 RFF, r linear) — matches _survival_rates
+        exit = self._resolve_prior("exit", sample_shape=(feat_dim,))
         sigma_exit_scale = self._resolve_prior("sigma_exit_scale")
-        exit_rate = self._resolve_prior("exit_rate", sample_shape=(effective_r,))
-        exit_raw = make_psi_gamma(psi_x, exit) / jnp.sqrt(effective_r) * sigma_exit_scale
+        exit_rate = self._resolve_prior("exit_rate", sample_shape=(feat_dim,))
+        exit_raw = make_psi_gamma(psi_x, exit) / jnp.sqrt(norm) * sigma_exit_scale
 
         # Baseline hazard η — from latent X only, injury does not elevate it
         eta_global_log = self._resolve_prior("eta_global_log")
@@ -4026,7 +4038,7 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
         ).squeeze(-1)  # (n, t)
 
         # Aging rate γ — time-varying due to injury type at each interval
-        gamma_base = make_psi_gamma(psi_x, exit_rate)[:, None] / jnp.sqrt(effective_r)  # (n, 1): 1/sqrt(r) scaled-dot-product, matching exit_raw/eta
+        gamma_base = make_psi_gamma(psi_x, exit_rate)[:, None] / jnp.sqrt(norm)  # (n, 1): kernel-self-cov scaled-dot-product, matching exit_raw/eta
         gamma_global_log = self._resolve_prior("gamma_global_log")
         gamma = jnp.exp(gamma_global_log + gamma_base + injury_effect_exit)  # (n, t)
 
@@ -4064,10 +4076,49 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
     def _compute_family_linear_predictor(self, family: str, mu, family_data: dict, **context):
         k_indices = family_data["indices"]
         return self._build_linear_predictor(mu, k_indices)
-        
 
+    def _resolve_cut_inputs(self, data_set, offsets, data_set_healthy, offsets_healthy, cut_mode):
+        """Select likelihood inputs by cut mode. 'full' is the default joint model; 'healthy'
+        swaps in the injury-free inputs from build_cut_inputs so the same model_fn can serve
+        as the counterfactual-block potential in the cut Gibbs sampler."""
+        if cut_mode == "healthy":
+            if data_set_healthy is None or offsets_healthy is None:
+                raise ValueError("cut_mode='healthy' requires data_set_healthy and offsets_healthy (see build_cut_inputs)")
+            return data_set_healthy, offsets_healthy
+        return data_set, offsets
 
-    def model_fn(self, data_set, hsgp_params, offsets = {}, inference_method:str = "prior", sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0) -> None:
+    @staticmethod
+    def build_cut_inputs(data_set, offsets):
+        """Injury-free (counterfactual) likelihood inputs for the cut-Gibbs latent block.
+
+        injury_indicator is forward-filled in data prep, so it flags every season from first
+        injury onward; ANDing the family masks with its complement removes all treated
+        observations from the latent block's likelihood. Survival is right-censored at first
+        injury onset and the injury arrays are zeroed, so the healthy potential is completely
+        independent of the injury sites (required for the latent chain to marginally target
+        p(latents | healthy data))."""
+        injury_indicator = np.asarray(offsets["injury_indicator"]).astype(bool)
+        ind_nj = injury_indicator[0] if injury_indicator.ndim == 3 else injury_indicator  # (n, j)
+        ever_injured = np.any(ind_nj, axis=-1)
+        onset_idx = np.argmax(ind_nj, axis=-1).astype(float)  # first flagged season; 0 for never-injured (guarded by ever_injured)
+
+        data_set_healthy = {}
+        for family, family_data in data_set.items():
+            healthy_family = dict(family_data)
+            healthy_family["mask"] = np.asarray(family_data["mask"]).astype(bool) & ~ind_nj[None]
+            data_set_healthy[family] = healthy_family
+
+        offsets_healthy = dict(offsets)
+        exit_times = np.ravel(np.asarray(offsets["exit_times"]))
+        right_censor = np.ravel(np.asarray(offsets["right_censor"])).astype(bool)
+        offsets_healthy["exit_times"] = np.where(ever_injured, np.minimum(exit_times, onset_idx), exit_times)
+        offsets_healthy["right_censor"] = right_censor | (ever_injured & (exit_times > onset_idx))
+        offsets_healthy["injury_indicator"] = np.zeros_like(injury_indicator)
+        offsets_healthy["injury_type"] = np.zeros_like(np.asarray(offsets["injury_type"]))
+        return data_set_healthy, offsets_healthy
+
+    def model_fn(self, data_set, hsgp_params, offsets = {}, inference_method:str = "prior", sample_free_indices: jnp.ndarray = jnp.array([]), sample_fixed_indices: jnp.ndarray = jnp.array([]), ar_metric_indices: jnp.ndarray = jnp.array([]), year_indices: jnp.ndarray = jnp.array([]), num_years: int = 1, num_de_trend: int = 0, ref_year_idx: int = 0, data_set_healthy=None, offsets_healthy=None, cut_mode: str = "full") -> None:
+        data_set, offsets = self._resolve_cut_inputs(data_set, offsets, data_set_healthy, offsets_healthy, cut_mode)
         prior = getattr(self, "_prior_predictive", False)
         num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
         num_neg_bins = data_set["negative-binomial"]["Y"].shape[0] if "negative-binomial" in data_set else 0
@@ -4107,7 +4158,7 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
             else jnp.zeros((self.n, 2))
         x_loc = Z @ W_proj
         X = self._resolve_latent_X_structured(x_loc, sigma_X, sample_free_indices, sample_fixed_indices)
-        effective_r = self.r
+        effective_r = self._projected_feature_dim()   # width of psi_x: r (linear/cosine) or 2m (RFF)
 
         t_max_raw, c_max_raw = self._sample_max_raw_parameters(effective_r)
 
@@ -4203,7 +4254,56 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
     def run_inference(self, num_warmup, num_samples, num_chains, vectorized: bool, model_args, initial_values={}, thinning=1):
         return super().run_inference(num_warmup, num_samples, num_chains, vectorized, model_args, initial_values, thinning = thinning)
 
+    def run_cut_gibbs_inference(self, num_warmup, num_samples, num_chains, model_args, injury_sites=None, thinning=1, target_accept_prob=0.8):
+        """Cut-posterior MCMC via two-block HMC-within-Gibbs (Plummer-style cut).
 
+        Block 1 (counterfactual): every latent-trajectory site — X, aging curve, AR,
+        calendar trend, hazard baselines — is updated by NUTS against the injury-free
+        likelihood (family masks ANDed with ~injury_indicator, survival right-censored at
+        first injury onset). Block 2 (injury): the injury sites are updated by NUTS against
+        the full likelihood, conditioned on the block-1 draw from the same sweep.
+
+        Because the injury effect is exactly zero on pre-injury cells and the healthy
+        survival inputs zero the injury arrays, block 1's potential is independent of the
+        injury sites: the latent sub-chain marginally targets p(latents | healthy data) and
+        block 2 tracks p(injury | latents, all data). This is the Bayesian analogue of the
+        generalized-synthetic-control two-stage estimator — the latent factors never see
+        treated observations, so they cannot absorb the injury effect. Caveat: the pooled
+        joint samples approximate the cut distribution (block 2 lags block 1 by one NUTS
+        trajectory per sweep); refresh injury draws with longer conditional runs on thinned
+        latents if exactness matters.
+        """
+        data_set_healthy, offsets_healthy = self.build_cut_inputs(model_args["data_set"], model_args["offsets"])
+        full_args = {**model_args, "data_set_healthy": data_set_healthy, "offsets_healthy": offsets_healthy}
+
+        site_trace = trace(seed(self.model_fn, jax.random.PRNGKey(0))).get_trace(**full_args)
+        all_sites = [name for name, site in site_trace.items() if site["type"] == "sample" and not site["is_observed"]]
+        if injury_sites is None:
+            injury_sites = [s for s in all_sites if ("injury" in s) or s.startswith("lambda")]
+        else:
+            injury_sites = [s for s in injury_sites if s in all_sites]
+        latent_sites = [s for s in all_sites if s not in injury_sites]
+        print(f"Cut Gibbs blocks — counterfactual: {latent_sites}\ninjury: {injury_sites}")
+
+        inner_kernels = [
+            NUTS(self.model_fn, init_strategy=init_to_median(), target_accept_prob=target_accept_prob),
+            NUTS(self.model_fn, init_strategy=init_to_median(), target_accept_prob=target_accept_prob),
+        ]
+        kernel = MultiHMCGibbs(
+            inner_kernels,
+            [latent_sites, injury_sites],
+            inner_model_kwargs=[{"cut_mode": "healthy"}, {"cut_mode": "full"}],
+        )
+        mcmc = MCMC(
+            kernel,
+            num_warmup=num_warmup,
+            num_samples=num_samples,
+            num_chains=num_chains,
+            chain_method="parallel",
+            thinning=thinning,
+        )
+        mcmc.run(jax.random.PRNGKey(0), **full_args)
+        return mcmc.get_samples(group_by_chain=True), mcmc
 
     def run_map_inference(self, num_steps, guide_kwargs: dict = {}, model_args: dict = {}, initial_state = None):
         return super().run_map_inference(num_steps, guide_kwargs, model_args, initial_state)
@@ -4277,12 +4377,13 @@ class ConvexMaxDecayInjuryTVLinearLVM(ConvexMaxInjuryTVLinearLVM):
         entrance_times = jnp.ravel(jnp.asarray(offsets["entrance_times"]))
         entrance_latent = jnp.maximum(entrance_times, 1e-6)
 
-        effective_r = X.shape[-1]
-        psi_x = self._project_X(X)   # kernel feature map (cosine bounds the hazard; identity for linear)
-        exit = self._resolve_prior("exit", sample_shape=(effective_r,))
+        psi_x = self._project_X(X)   # kernel feature map (RFF: (n, 2m) unit-norm; identity for linear)
+        feat_dim = self._projected_feature_dim()   # sizes the exit weights to contract with psi_x (2m RFF, r linear)
+        norm = self._kernel_self_cov(psi_x)        # kernel self-covariance normalization (1 RFF, r linear) — matches _survival_rates
+        exit = self._resolve_prior("exit", sample_shape=(feat_dim,))
         sigma_exit_scale = self._resolve_prior("sigma_exit_scale")
-        exit_rate = self._resolve_prior("exit_rate", sample_shape=(effective_r,))
-        exit_raw = make_psi_gamma(psi_x, exit) / jnp.sqrt(effective_r) * sigma_exit_scale
+        exit_rate = self._resolve_prior("exit_rate", sample_shape=(feat_dim,))
+        exit_raw = make_psi_gamma(psi_x, exit) / jnp.sqrt(norm) * sigma_exit_scale
 
         # Baseline hazard η — from latent X only, injury does not elevate it
         eta_global_log = self._resolve_prior("eta_global_log")
@@ -4328,7 +4429,7 @@ class ConvexMaxDecayInjuryTVLinearLVM(ConvexMaxInjuryTVLinearLVM):
         ).squeeze(-1)  # (n, t)
 
         # Aging rate γ — time-varying via decayed injury effect
-        gamma_base = make_psi_gamma(psi_x, exit_rate)[:, None] / jnp.sqrt(effective_r)  # (n, 1): 1/sqrt(r) scaled-dot-product, matching exit_raw/eta
+        gamma_base = make_psi_gamma(psi_x, exit_rate)[:, None] / jnp.sqrt(norm)  # (n, 1): kernel-self-cov scaled-dot-product, matching exit_raw/eta
         gamma_global_log = self._resolve_prior("gamma_global_log")
         gamma = jnp.exp(gamma_global_log + gamma_base + injury_effect_exit)  # (n, t)
 
@@ -4376,7 +4477,11 @@ class ConvexMaxDecayInjuryTVLinearLVM(ConvexMaxInjuryTVLinearLVM):
         num_years: int = 1,
         num_de_trend: int = 0,
         ref_year_idx: int = 0,
+        data_set_healthy=None,
+        offsets_healthy=None,
+        cut_mode: str = "full",
     ) -> None:
+        data_set, offsets = self._resolve_cut_inputs(data_set, offsets, data_set_healthy, offsets_healthy, cut_mode)
         prior = getattr(self, "_prior_predictive", False)
         num_gaussians = data_set["gaussian"]["Y"].shape[0] if "gaussian" in data_set else 0
         num_neg_bins = data_set["negative-binomial"]["Y"].shape[0] if "negative-binomial" in data_set else 0
@@ -4421,7 +4526,7 @@ class ConvexMaxDecayInjuryTVLinearLVM(ConvexMaxInjuryTVLinearLVM):
             else jnp.zeros((self.n, 2))
         x_loc = Z @ W_proj
         X = self._resolve_latent_X_structured(x_loc, sigma_X, sample_free_indices, sample_fixed_indices)
-        effective_r = self.r
+        effective_r = self._projected_feature_dim()   # width of psi_x: r (linear/cosine) or 2m (RFF)
 
         t_max_raw, c_max_raw = self._sample_max_raw_parameters(effective_r)
 
@@ -4549,3 +4654,20 @@ class ConvexMaxDecayInjuryTVLinearLVM(ConvexMaxInjuryTVLinearLVM):
 
     def predict(self, posterior_samples: dict, model_args, num_samples=1000):
         return super().predict(posterior_samples, model_args, num_samples)
+
+
+class ConvexMaxInjuryRFFTVLinearLVM(ConvexMaxInjuryTVLinearLVM, ConvexMaxRFFTVLinearLVM):
+    """ConvexMaxInjuryTVLinearLVM with the RFF latent kernel. The injury forward (per-type effects on
+    mu + injury-elevated exit hazard), the AR(1)/calendar trend, and the cut machinery
+    (build_cut_inputs / run_cut_gibbs_inference / cut_mode) come from ConvexMaxInjuryTVLinearLVM; the
+    RFF feature map (_project_X, _projected_feature_dim=2m, _kernel_self_cov=1) and the W + lengthscale
+    priors come from ConvexMaxRFFTVLinearLVM via the MRO, mirroring ConvexMaxARRFFTVLinearLVM. The
+    injury model_fn and survival size their weights with _projected_feature_dim() and normalize by
+    _kernel_self_cov(psi_x), so no further overrides are needed. The cut-Gibbs site partition puts the
+    RFF sites (W, lengthscale) in the counterfactual block automatically (neither matches the
+    injury/lambda name heuristic)."""
+
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis, injury_rank: int, num_injury_types: int, player_covariates=None) -> None:
+        ConvexMaxRFFTVLinearLVM.__init__(self, latent_rank, rff_dim, output_shape, basis, player_covariates)
+        self.i = num_injury_types
+        self.p = injury_rank

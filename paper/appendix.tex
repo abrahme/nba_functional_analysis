@@ -138,7 +138,7 @@
 \subsection{Archetype Discovery via Hierarchical Clustering}
 \label{sec:latent_space}
 
-While the position-colored view confirms that the embedding respects broad categorical roles, the latent space contains richer structure than the three traditional positions can capture.  We apply Ward hierarchical clustering to the posterior mean latent coordinates (Procrustes-aligned across MCMC samples) and select $k=4$ archetypes based on the silhouette criterion.  Figure~\ref{fig:latent_archetypes} overlays these four clusters on a PCA of the posterior mean latent coordinates.  Because the RFF projection applies a single automatic-relevance-determination rescaling $X_p \odot \sqrt{\ell}$ to the shared latent (Appendix~\ref{sec:rff}), this clustering is also the model's only modality-specific view: unlike the linear model, whose per-metric weight matrices induce distinct peak-timing, peak-value, and curvature embeddings, the RFF model exposes one ARD-rescaled representation common to all facets of the career arc.
+While the position-colored view confirms that the embedding respects broad categorical roles, the latent space contains richer structure than the three traditional positions can capture.  We apply Ward hierarchical clustering to the posterior mean latent coordinates (Procrustes-aligned across MCMC samples) and select $k=4$ archetypes based on the silhouette criterion.  Figure~\ref{fig:latent_archetypes} overlays these four clusters on a PCA of the posterior mean latent coordinates.  Because the RFF projection applies a single automatic-relevance-determination rescaling $X_p \odot \sqrt{\ell}$ to the shared latent (Appendix~\ref{sec:rff}), this clustering is also the model's only modality-specific view: unlike the linear model, whose per-metric weight matrices induce distinct peak-timing, peak-value, and curvature embeddings, the RFF model exposes one ARD-rescaled representation common to all facets of the career arc.  A complementary \emph{curve-space} view of the curvature structure --- how each metric loads the $M$ concave HSGP bases, and the canonical concave curves those loadings generate --- remains available for the RFF model and is developed in Appendix~\ref{sec:concave_loadings}.
 
 \begin{figure}[htbp]
     \centering
@@ -442,12 +442,12 @@ and the left-truncated log-likelihood contributions for exit age $T_p$ are
     \end{cases}
     \label{eq:surv_lik}
 \end{equation}
-where $\log h_p(a) = \log\eta_p + \gamma_p a$ and the truncated increment is $H_p(T_p) - H_p(\alpha_p) = (\eta_p/\gamma_p)\bigl(e^{\gamma_p T_p} - e^{\gamma_p \alpha_p}\bigr)$; in practice this increment is accumulated over the yearly age intervals spanned by $[\alpha_p, T_p]$.  Both parameters are linked to the latent embedding $X_p \in \mathbb{R}^q$ on the log scale (keeping them positive), via the same projection used by the performance likelihood:
+where $\log h_p(a) = \log\eta_p + \gamma_p a$ and the truncated increment is $H_p(T_p) - H_p(\alpha_p) = (\eta_p/\gamma_p)\bigl(e^{\gamma_p T_p} - e^{\gamma_p \alpha_p}\bigr)$; in practice this increment is accumulated over the yearly age intervals spanned by $[\alpha_p, T_p]$.  Both parameters are linked to the latent embedding on the log scale (keeping them positive), through the \emph{same} feature-map projection $\phi(X_p)$ used by the performance likelihood --- the identity map $\phi(X_p) = X_p$ for the linear kernel, or the random Fourier feature map of Appendix~\ref{sec:rff} for the flagship model:
 \begin{align}
-    \log \eta_p   &= \eta_{\text{glob}} + \frac{\sigma_{\text{exit}}}{\sqrt{q}}\,X_p^\top \psi_{\text{exit}}, \label{eq:eta} \\
-    \log \gamma_p &= \gamma_{\text{glob}} + X_p^\top \psi_{\text{rate}}, \label{eq:gamma}
+    \log \eta_p   &= \eta_{\text{glob}} + \frac{\sigma_{\text{exit}}}{\sqrt{\kappa_\phi}}\,\phi(X_p)^\top \psi_{\text{exit}}, \label{eq:eta} \\
+    \log \gamma_p &= \gamma_{\text{glob}} + \phi(X_p)^\top \psi_{\text{rate}}, \label{eq:gamma}
 \end{align}
-where $\eta_{\text{glob}} \sim \mathcal{N}(\log 0.04,\, 0.5)$ and $\gamma_{\text{glob}} \sim \mathcal{N}(\log 0.15,\, 0.3)$ are global log baseline-hazard and log aging-rate offsets, $\sigma_{\text{exit}} \sim \mathrm{HalfNormal}(0.5)$ controls the player-specific spread in baseline hazard, $\psi_{\text{exit}} \sim \mathcal{N}(0, I)$, and $\psi_{\text{rate}} \sim \mathcal{N}(0,\, 0.1^2 I)$.  The exponential links keep $\eta_p, \gamma_p > 0$, so every player's exit hazard is increasing in age; the latent embedding thereby ties career longevity to the same low-dimensional representation that drives on-court performance.
+where $\kappa_\phi$ is the kernel self-covariance $k(x,x)$ normalising the baseline-hazard link: $\kappa_\phi = q$ for the linear kernel (since $\mathbb{E}\lVert X_p \rVert_2^2 = q$ under the standardised latent prior) and $\kappa_\phi = 1$ exactly for the unit-norm RFF map.  Here $\eta_{\text{glob}} \sim \mathcal{N}(\log 0.04,\, 0.5)$ and $\gamma_{\text{glob}} \sim \mathcal{N}(\log 0.15,\, 0.3)$ are global log baseline-hazard and log aging-rate offsets, $\sigma_{\text{exit}} \sim \mathrm{HalfNormal}(0.5)$ controls the player-specific spread in baseline hazard, and $\psi_{\text{exit}} \sim \mathcal{N}(0, I)$, $\psi_{\text{rate}} \sim \mathcal{N}(0,\, 0.1^2 I)$, with dimension matching $\phi(X_p)$ ($q$ for the linear kernel, $2m$ for RFF).  The exponential links keep $\eta_p, \gamma_p > 0$, so every player's exit hazard is increasing in age; the latent embedding thereby ties career longevity to the same low-dimensional representation that drives on-court performance.
 
 \subsection{Random Fourier Feature Latent Projection}
 \label{sec:rff}
@@ -466,14 +466,14 @@ By Bochner's theorem the feature inner product is an unbiased Monte-Carlo estima
   k(X_p, X_{p'}) = \exp\!\Bigl(-\tfrac{1}{2}\textstyle\sum_{j=1}^{q} \ell_j\,(X_{pj} - X_{p'j})^2\Bigr),
   \label{eq:rff_kernel}
 \end{equation}
-so $\ell_j$ is the relevance (inverse squared bandwidth) of latent dimension $j$: dimensions with small $\ell_j$ are effectively pruned, giving the embedding automatic relevance determination.  Every contraction against $X_p$ in the baseline model is replaced by the same contraction against $\phi(X_p)$: the peak-age and peak-value weights become $\boldsymbol\gamma^k_{\text{age}}, \boldsymbol\gamma^k_{\text{val}} \in \mathbb{R}^{2m}$, the concave HSGP basis weights become $\mathbf{A}_k \in \mathbb{R}^{2m \times M}$, and the Gompertz links of Equations~\ref{eq:eta}--\ref{eq:gamma} become
+so $\ell_j$ is the relevance (inverse squared bandwidth) of latent dimension $j$: dimensions with small $\ell_j$ are effectively pruned, giving the embedding automatic relevance determination.  Every contraction against $X_p$ in the baseline model is replaced by the same contraction against $\phi(X_p)$: the peak-age and peak-value weights become $\boldsymbol\gamma^k_{\text{age}}, \boldsymbol\gamma^k_{\text{val}} \in \mathbb{R}^{2m}$, the concave HSGP basis weights become $\mathbf{A}_k \in \mathbb{R}^{2m \times M}$, and the Gompertz links of Equations~\ref{eq:eta}--\ref{eq:gamma} specialise with $\kappa_\phi = 1$ to
 \begin{equation}
   \log \eta_p = \eta_{\text{glob}} + \sigma_{\text{exit}}\,\phi(X_p)^\top \boldsymbol\psi_{\text{exit}},
   \qquad
   \log \gamma_p = \gamma_{\text{glob}} + \phi(X_p)^\top \boldsymbol\psi_{\text{rate}},
   \label{eq:rff_surv}
 \end{equation}
-with $\boldsymbol\psi_{\text{exit}}, \boldsymbol\psi_{\text{rate}} \in \mathbb{R}^{2m}$.  Because $\lVert \phi(X_p) \rVert_2^2 = k(X_p, X_p) = 1$ is constant across players, the $1/\sqrt{q}$ scaling of the linear baseline-hazard link (Equation~\ref{eq:eta}) is replaced by this unit kernel self-covariance.
+with $\boldsymbol\psi_{\text{exit}}, \boldsymbol\psi_{\text{rate}} \in \mathbb{R}^{2m}$.  Because $\lVert \phi(X_p) \rVert_2^2 = k(X_p, X_p) = 1$ is constant across players, the normalisation $\kappa_\phi$ in Equation~\ref{eq:eta} is exactly the unit kernel self-covariance --- no dimension-dependent rescaling is required.
 
 We keep the structured prior on $X_p$ (Equation~\ref{eq:structured_prior}) unchanged: the RFF map is a fixed-rank, computationally efficient approximation applied on top of the same latent coordinates rather than a separate embedding, so the projection remains \emph{shared} across all metrics and the survival model.  The frequencies $\Omega$ are drawn once and, as is standard for random-feature latent-variable models \cite{gundersen2021latent, zhang2023bayesiannonlinearlatentvariable}, are learned rather than held at their random initialisation: we initialise $\Omega$ at its MAP estimate and continue to sample it during MCMC, while the lengthscale $\ell$ is learned at the MAP estimate and plugged in as a fixed value during posterior sampling.  We use $m = 50$ random features (hence $2m = 100$ feature dimensions) over the $q = 10$ latent dimensions.  Because the model carries a single shared latent with no per-modality decomposition, we summarise the RFF embedding through the ARD-rescaled coordinates $X_p \odot \sqrt{\ell}$, which place inter-player distances on the scale of the induced kernel~\ref{eq:rff_kernel}.
 
@@ -755,6 +755,130 @@ We also examine archetype structure derived from curvature-based modalities. Fig
 
 \fi
 % --- end RFF-commented Curvature-Modality Archetype Clustering ---
+
+\subsection{Concave Basis Loadings and Canonical Curvature Components}
+\label{sec:concave_loadings}
+
+The concave portion of every trajectory is governed by the HSGP basis weights $\mathbf{A}_k \in \mathbb{R}^{2m \times M}$ (the $\beta$ node of Figure~\ref{fig:graphical_model}; Appendix~\ref{sec:rff}), where $M$ denotes the number of HSGP time basis functions ($M = 5$ in our fit) and $2m$ the random-feature dimension.  These weights enter the likelihood only through the quadratic form of Equation~\ref{eq:final_gp}, which poses two obstructions to interpreting their posterior directly.  First, the rows of $\mathbf{A}_k$ live in the random-feature basis, which rotates across posterior draws together with the sampled frequencies $\tilde\Omega$ and the embedding $X_p$ --- the same non-identifiability that motivates Procrustes alignment of the latent space (Section~\ref{sec:inference}) --- so raw draws of $\mathbf{A}_k$ cannot be compared or averaged.  Second, the quadratic form is invariant to the reflection $\mathbf{A}_k \mapsto -\mathbf{A}_k$, leaving an unidentified per-metric sign gauge.  This section develops the gauge-invariant summary we use to answer: \emph{how does each metric load the $M$ concave bases, and what concave shapes do those loadings generate?}
+
+\paragraph{Projected loadings.}
+For player $p$ and metric $k$, define the projected loading vector
+\begin{align}
+\label{eq:concave_loadings}
+  \boldsymbol\gamma^{k}_p \;=\; \mathbf{A}_k^\top \phi(X_p) \;\in\; \mathbb{R}^{M}
+\end{align}
+(for a general feature map the projection carries the kernel normalization $\kappa_\phi^{-1/2}$ of Equation~\ref{eq:eta}; for the RFF map $\kappa_\phi = 1$).  Differentiating Equation~\ref{eq:final_gp} twice in $t$ gives $\partial^2 f^{(k)}(X_p, t)/\partial t^2 = -\,g_{pk}(t)^2$ with curvature root $g_{pk}(t) = \sum_{l=1}^M \gamma^k_{pl}\, \psi_l(t)$: the entry $\gamma^k_{pl}$ is exactly the coordinate of the curvature root on the $l$-th HSGP eigenfunction.  Because the $\psi_l$ are orthonormal on $[-L, L]$, the total curvature energy decomposes exactly as
+\begin{align}
+  \int_{-L}^{L} g_{pk}(t)^2 \, dt \;=\; \sum_{l=1}^M \bigl(\gamma^k_{pl}\bigr)^2,
+\end{align}
+so the squared loadings partition each curve's total bending across the $M$ bases, and the \emph{energy share} of basis $l$ for metric $k$ is a scale-free summary of how much of that metric's curvature is carried by basis $l$.  Unlike $\mathbf{A}_k$ itself, $\boldsymbol\gamma^k_p$ lives in player space and is comparable across posterior draws; only the whole-vector sign flip $\boldsymbol\gamma^k_p \mapsto -\boldsymbol\gamma^k_p$ (jointly over players, per metric and draw) remains unidentified.
+
+\paragraph{Gauge-invariant curve-space summary.}
+All curve-space structure is captured by the per-metric Gram matrix
+\begin{align}
+\label{eq:concave_gram}
+  G_k \;=\; \frac{1}{N} \sum_{p=1}^{N} \boldsymbol\gamma^k_p \, (\boldsymbol\gamma^k_p)^\top \;\in\; \mathbb{R}^{M \times M},
+\end{align}
+computed per posterior draw.  The outer product cancels the sign gauge, so $G_k$ is fully identified and can be averaged across draws and chains without any alignment step.  Its diagonal entries $G_{k,ll}$ are the population mean squared loadings of metric $k$ on each basis, and the population-mean curvature obeys $\mathbb{E}_p\bigl[\partial^2 f^{(k)}/\partial t^2\bigr] = -\,\boldsymbol\psi(t)^\top G_k\, \boldsymbol\psi(t)$, where $\boldsymbol\psi(t) = (\psi_1(t), \ldots, \psi_M(t))^\top$.  Figure~\ref{fig:hsgp_time_basis} shows the $M$ basis functions together with the pure concave curve each generates alone ($-\Psi_{ll}(t)$ from Equation~\ref{eq:phi}), making the basis indices interpretable: basis $1$ is the lowest-frequency, broadest bend, with higher bases contributing progressively sharper, more localized curvature.  Figures~\ref{fig:concave_loadings_heatmap} and~\ref{fig:concave_loadings_intervals} report the posterior-mean energy shares and the posterior uncertainty of the per-basis loadings for every metric.
+
+\paragraph{Canonical curvature components.}
+Eigendecomposing the posterior-mean Gram matrix $\bar G_k = \sum_{j=1}^M \xi^k_j\, v^k_j (v^k_j)^\top$, with $\xi^k_1 \ge \cdots \ge \xi^k_M \ge 0$, yields an exact rank-$M$ decomposition of the population-mean curvature into $M$ \emph{canonical concave components}:
+\begin{align}
+\label{eq:canonical_decomp}
+  \mathbb{E}_p\!\left[\frac{\partial^2 f^{(k)}(X_p,t)}{\partial t^2}\right] \;=\; -\sum_{j=1}^M \xi^k_j \, \bigl[g^k_j(t)\bigr]^2, \qquad g^k_j(t) = (v^k_j)^\top \boldsymbol\psi(t).
+\end{align}
+Each eigenvector $v^k_j$ defines a canonical concave curve, obtained by pushing $v^k_j$ through the peak-parameterized quadratic form of Equation~\ref{eq:max_constraint_gp} anchored at metric $k$'s posterior-mean peak age, and its loading $\xi^k_j$ measures how much curvature energy that component carries (the curves are invariant to the sign of $v^k_j$, so the eigen-gauge is immaterial).  Posterior uncertainty for the loadings follows by projecting each draw's Gram matrix onto the fixed posterior-mean eigenvectors, $\xi^{k,(s)}_j = (v^k_j)^\top G^{(s)}_k v^k_j \ge 0$.
+
+The decomposition is deliberately \emph{per metric}.  The $\bar G_k$ do not commute (median normalized commutator $0.19$ across metric pairs), so no basis diagonalizes them jointly: each metric genuinely carries its own canonical curvature shapes, and that heterogeneity is part of the result rather than an artifact of the summary.  The corresponding caveat is that ``component $j$'' names a different curve in every metric --- the component index orders each metric's own spectrum --- so cross-metric comparisons must be made through the curve shapes themselves, never through component labels.
+
+Figure~\ref{fig:concave_canonical_curves} overlays each metric's components scaled by their $\alpha$-normalized loadings $\xi^k_j / \alpha_k$, so plotted heights are each component's contribution to the metric's population-mean descent below peak.  The normalization matters for reading magnitudes across panels: since $\boldsymbol\gamma^k_p \propto \sqrt{\alpha_k}$ through the spectral density, every $\xi^k_j$ scales linearly in the per-metric GP variance $\alpha_k$, which absorbs each metric's link scale (Table~\ref{tab:metric_description}) rather than any difference in aging; dividing it out removes that nuisance scale, and the cross-panel magnitude differences that remain reflect curvature.  Figure~\ref{fig:canonical_loadings_heatmap} summarizes the component energy shares.  Because this analysis operates at the metric level in curve space rather than in the latent space, it applies unchanged to any feature map $\phi$ --- in particular to the RFF model, whose single shared ARD-rescaled latent admits no per-modality latent decomposition (Section~\ref{sec:latent_space}).
+
+\paragraph{Curvature-shape similarity across metrics.}
+The canonical components are metric-specific, which leaves a direct question open: which metrics \emph{age alike}?  The naive answer --- correlating the flattened weight matrices $\mathbf{A}_k$ across metrics --- is not identified.  Within a posterior draw all metrics share the same realized feature basis, so a common rotation cancels from $\operatorname{tr}(\mathbf{A}_k^\top \mathbf{A}_{k'})$; but the per-metric reflection $\mathbf{A}_k \mapsto -\mathbf{A}_k$ is invisible to the likelihood, leaving the \emph{sign} of such a correlation unidentified.  The Gram matrix quotients both gauges, so we instead correlate the gauge-invariant population-mean curvature functions $c^{(s)}_k(t) = \boldsymbol\psi(t)^\top G^{(s)}_k \boldsymbol\psi(t)$ over the observed age grid within each posterior draw $s$, and average the resulting $K \times K$ correlation matrix across draws.  Figure~\ref{fig:curvature_metric_corr} reports the posterior mean.  One caveat governs its reading: every $c_k$ is non-negative and grows away from the peak, so a positive baseline is structural to concavity and the \emph{relative} ordering carries the signal.  Three features stand out.  Availability is an aging island --- GP\% correlates near zero with USG ($0.07$) and OBPM ($0.18$): the schedule on which playing time declines is essentially unrelated to the schedule on which production skills decline.  The rate and defensive metrics form a tight cluster (FG3A--AST $0.82$, FG3A--STL $0.81$, DREB--OREB $0.78$), bending with age in a common shape.  And OBPM pairs with USG ($0.66$) while correlating weakly with the defensive cluster, separating the aging of offensive impact from the aging of defensive activity.  This summary is complementary to the cross-sectional correlation of observed metric values: that measures which metrics co-occur in the same players, whereas this measures which metrics bend with age in the same way.
+
+\paragraph{Player canonical-weight profiles.}
+The canonical decomposition also yields a player-level summary.  Projecting player $p$'s curvature root onto metric $k$'s fixed eigenvectors, $c^k_{pj} = (v^k_j)^\top \boldsymbol\gamma^k_p$, the player's curvature expands exactly as
+\begin{align}
+\label{eq:player_profile}
+  -\frac{\partial^2 f^{(k)}(X_p, t)}{\partial t^2} \;=\; \sum_{j,l} c^k_{pj}\, c^k_{pl}\; g^k_j(t)\, g^k_l(t),
+\end{align}
+so the player's complete profile is the matrix $P^k_p$ with entries $\mathbb{E}_s\bigl[c^{k,(s)}_{pj} c^{k,(s)}_{pl} / \alpha_k\bigr]$, posterior-averaged with the same per-draw $\alpha$-normalization as the population loadings.  Pairwise products are gauge-invariant --- the per-(metric, draw) reflection of $\boldsymbol\gamma$ flips $c_{pj}$ and $c_{pl}$ together, and the eigenvector signs are pinned as above --- so every entry is identified.  The diagonal of $P^k_p$ is the player's curvature energy on each canonical component, and averaging over players recovers the population loadings exactly, $\tfrac{1}{N}\sum_p P^k_{p,jj} = \xi^k_j$: the population decomposition is the player-average of the individual profiles.  Figures~\ref{fig:player_profile_kobe} and~\ref{fig:player_profile_jokic} display trace-normalized profiles (diagonal shares sum to one; off-diagonal shares are bounded in $[-\tfrac{1}{2}, \tfrac{1}{2}]$ by Cauchy--Schwarz) for two contrasting careers.
+
+The off-diagonal entries are \emph{interference} weights, and they carry information no curve overlay can show, since a single player's curvature is a square of a sum rather than a sum of components.  Within one posterior draw the product $c_{pj} c_{pl}$ contributes only a sign, so a large posterior-mean off-diagonal requires the posterior to orient the player's curvature root \emph{coherently} across draws.  A \emph{positive} entry means components $j$ and $l$ are systematically aligned: their joint contribution $2 P^k_{p,jl}\, g^k_j(t)\, g^k_l(t)$ \emph{adds} bending at ages where the canonical roots $g^k_j$ and $g^k_l$ share a sign and removes it where they differ, steepening the descent exactly where the two canonical shapes agree.  A \emph{negative} entry is the opposite orientation --- the components cancel where their roots agree, flattening those ages.  Because the eigenbasis diagonalizes the population Gram, $\mathbb{E}_p[c_{pj} c_{pl}] = 0$ exactly: every off-diagonal cell is mean-zero across the population, so each is a centred measure of how a player's aging deviates from a mixture of canonical shapes.  Two properties govern reading.  First, $\int_{-L}^{L} g^k_j\, g^k_l \, dt = 0$ by orthogonality, so over the full HSGP domain interference purely \emph{redistributes} bending along the age axis; the observed career window is a sub-interval of that domain, however, so a net within-window effect can remain.  Second, magnitude conflates energy and coherence: a near-zero cell may reflect genuinely small components or a posterior that is undecided about their relative orientation.
+
+The Kobe Bryant--Nikola Joki\'c contrast illustrates both readings.  On OBPM the two profiles are nearly identical --- $0.91$ and $0.92$ of curvature energy on component 1, with small cross terms --- so offensive-impact aging does not distinguish them.  On GP\% they differ sharply, and in the off-diagonals rather than the energies alone: Bryant is close to a pure canonical ager ($0.87$ on component 1, largest cross term $-0.13$), while Joki\'c splits his energy across components 1 and 2 ($0.51/0.42$) with a strong negative interference weight of $-0.37$, near the Cauchy--Schwarz floor.  That coherent anti-alignment cancels between $45\%$ and $87\%$ of his diagonal GP\% bending across ages 28--37, and roughly half of it net over the observed window: the model represents durable availability not through small canonical loadings but by loading two canonical shapes \emph{against} each other.
+
+\begin{figure}[htbp]
+    \centering
+    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/hsgp_time_basis.png}{%
+      \includegraphics[width=0.9\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/hsgp_time_basis.png}%
+    }{\textit{[Run model\_diagnostics.r to generate]}}
+    \caption{The $M = 5$ HSGP time basis functions.  Left: the orthonormal eigenfunctions $\psi_l(t)$ on which the curvature root $g_{pk}(t)$ is expanded.  Right: the pure concave curve $-\Psi_{ll}(t)$ each basis generates alone, the shape a metric loading only basis $l$ would exhibit.  Basis 1 is the lowest-frequency, broadest bend; higher bases carry sharper, more localized curvature.}
+    \label{fig:hsgp_time_basis}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/concave_loadings_heatmap.png}{%
+      \includegraphics[width=0.7\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/concave_loadings_heatmap.png}%
+    }{\textit{[Run model\_diagnostics.r to generate]}}
+    \caption{Posterior-mean curvature energy share by metric and HSGP basis (rows sum to 1).  Each cell reports the fraction of metric $k$'s total curvature energy $\sum_l G_{k,ll}$ carried by basis $l$; metrics are ordered by their basis-1 share.  Metrics concentrated on basis 1 bend once, broadly, over the career; metrics with mass on higher bases exhibit sharper or asymmetric bending.}
+    \label{fig:concave_loadings_heatmap}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/concave_loadings_intervals.png}{%
+      \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/concave_loadings_intervals.png}%
+    }{\textit{[Run model\_diagnostics.r to generate]}}
+    \caption{Posterior distributions of the per-basis root-mean-square loading $\sqrt{G_{k,ll}}$ for each metric (points: posterior medians; intervals: 66\% and 95\%).  Because $G_k$ is gauge-invariant, these intervals combine draws across chains without sign or rotation alignment.}
+    \label{fig:concave_loadings_intervals}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/concave_canonical_curves.png}{%
+      \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/concave_canonical_curves.png}%
+    }{\textit{[Run model\_diagnostics.r to generate]}}
+    \caption{Canonical concave curves by metric: the $M$ eigen-components of each metric's posterior-mean Gram matrix $\bar G_k$, pushed through the peak-parameterized quadratic form (Equation~\ref{eq:max_constraint_gp}) anchored at the metric's posterior-mean peak age and scaled by their $\alpha$-normalized loadings $\xi^k_j / \alpha_k$, so line heights are each component's contribution to the metric's population-mean descent.  Together with their loadings the components reconstruct that curvature exactly (Equation~\ref{eq:canonical_decomp}).  Components are metric-specific: the colour legend indexes each metric's own eigen-order, so a given colour does not denote the same curve across panels.}
+    \label{fig:concave_canonical_curves}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/concave_canonical_loadings_heatmap.png}{%
+      \includegraphics[width=0.7\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/concave_canonical_loadings_heatmap.png}%
+    }{\textit{[Run model\_diagnostics.r to generate]}}
+    \caption{Posterior-mean energy share of each canonical curvature component by metric (rows sum to 1).  A metric whose share concentrates on component 1 has an essentially one-dimensional curvature profile --- a single canonical concave shape scaled across players --- while mass on later components indicates genuinely multi-modal bending across the population.  Shares are within-metric quantities: they are comparable across metrics as concentration measures even though the components themselves differ per metric.}
+    \label{fig:canonical_loadings_heatmap}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/curvature_metric_corr.png}{%
+      \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/curvature_metric_corr.png}%
+    }{\textit{[Run model\_diagnostics.r to generate]}}
+    \caption{Posterior-mean correlation between metrics' population-mean curvature functions $c_k(t) = \boldsymbol\psi(t)^\top G_k \boldsymbol\psi(t)$, computed over the observed age grid within each posterior draw and averaged across draws; rows and columns are ordered by complete-linkage hierarchical clustering of the distance $1 - r$, so metrics sit together exactly when their curvature shapes correlate highly.  High values indicate metrics whose production bends with age in the same shape.  Because every $c_k$ is non-negative and grows away from the peak, a positive baseline is structural to concavity; the relative ordering is the signal.  GP\% is nearly uncorrelated with USG and OBPM --- availability ages on its own schedule --- while the rate and defensive metrics form a tight cluster and OBPM pairs with USG.}
+    \label{fig:curvature_metric_corr}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/players/Kobe_Bryant.png}{%
+      \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/players/Kobe_Bryant.png}%
+    }{\textit{[Run model\_diagnostics.r to generate]}}
+    \caption{Canonical weight profile for Kobe Bryant: per metric, the trace-normalized matrix $P^k_p$ of Equation~\ref{eq:player_profile}.  Diagonal cells give the share of the player's curvature energy on each of the metric's canonical components (rows of diagonals sum to 1); off-diagonal cells give the signed interference weights, mean-zero across the population by construction.  Bryant is close to a pure canonical ager: the availability and usage metrics (GP\%, MPG, OBPM, USG) concentrate $0.87$--$0.92$ of their energy on their first canonical component with small cross terms, so his aging is well described by the population's dominant shapes at above-average magnitude.  Components are metric-specific and not comparable across panels.}
+    \label{fig:player_profile_kobe}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/players/Nikola_Jokic.png}{%
+      \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/players/Nikola_Jokic.png}%
+    }{\textit{[Run model\_diagnostics.r to generate]}}
+    \caption{Canonical weight profile for Nikola Joki\'c, in the format of Figure~\ref{fig:player_profile_kobe}.  The OBPM panel is nearly identical to Bryant's ($0.92$ vs.\ $0.91$ on component 1), but the GP\% panel shows the display's distinctive information: energy split across components 1 and 2 ($0.51/0.42$) with a coherent \emph{negative} interference weight of $-0.37$, near the Cauchy--Schwarz bound of $-\tfrac{1}{2}$.  The anti-aligned components cancel $45$--$87\%$ of the diagonal bending across ages 28--37: the model encodes his durable availability by loading two canonical shapes against each other rather than by shrinking their loadings.}
+    \label{fig:player_profile_jokic}
+\end{figure}
 
 \subsection{MCMC Convergence Diagnostics}
 \label{sec:convergence}
