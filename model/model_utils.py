@@ -1138,6 +1138,7 @@ def make_survival_linear_injury_mcmc(
     random_seed=0,
     age_min=18,
     last_obs_times=None,
+    kernel_self_cov=None,
 ):
     if eta_global_log is None:
         eta_global_log = jnp.log(0.04)
@@ -1149,7 +1150,12 @@ def make_survival_linear_injury_mcmc(
     if injury_type.ndim == 3:
         injury_type = injury_type[0]
 
-    r = exit.shape[-1]
+    # Normalizer for the exit projection — mirrors make_survival_linear_mcmc. For linear/cosine the
+    # exit weights live in the r-dim latent, so the kernel self-cov is the feature width
+    # (exit.shape[-1]). For RFF the caller must project X to the 2m-dim norm-1 feature map
+    # (||phi||^2 = 1, matching _project_X) and pass kernel_self_cov=1; passing the raw r-dim latent
+    # instead makes this einsum fail (exit is sized 2m, X is sized r).
+    r = exit.shape[-1] if kernel_self_cov is None else kernel_self_cov
     exit_raw = jnp.einsum("...nr,...r->...n", X, exit) / jnp.sqrt(r) * sigma_exit_scale[..., None]
 
     # Baseline hazard η — from latent X only, injury does not elevate it

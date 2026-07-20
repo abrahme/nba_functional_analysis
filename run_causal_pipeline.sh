@@ -14,14 +14,23 @@ set -euo pipefail
 #   ./run_causal_pipeline.sh
 # Non-interactive:
 #   ./run_causal_pipeline.sh <base_model> [start_phase]
-#     base_model  : tvlvm | ar | all
+#     base_model  : tvlvm | ar | rff_ar | linear | all
+#                     tvlvm  = ConvexMaxTVLinearLVM        (linear kernel)
+#                     ar     = ConvexMaxARTVLinearLVM      (linear kernel + AR)
+#                     rff_ar = ConvexMaxARRFFTVLinearLVM   (RFF kernel + AR)  -> Stage 2 is
+#                              ConvexMaxInjuryRFFTVLinearLVM (RFF + AR + injury)
+#                     linear = tvlvm + ar   (the historical meaning of `all`)
+#                     all    = tvlvm + ar + rff_ar
 #     start_phase : 1=Stage1_MAP  2=Stage2_MCMC  3=Export  4=Diagnostics
 #                   (default: 1)
 #
-# When base_model=all:
-#   Phase 1 MAP  — tvlvm on GPU 0 and ar on GPU 1, in parallel
-#   Phase 2 MCMC — tvlvm then ar, sequentially
-#   Phase 3/4    — both in parallel
+# When multiple models are selected:
+#   Phase 1 MAP  — round-robin across the 2 GPUs, in parallel
+#   Phase 2 MCMC — sequential (avoids GPU memory contention)
+#   Phase 3/4    — all in parallel
+#
+# Note: model_export.py is called without --inference_method; its default is "mcmc", which is
+# what Stage 3 wants (the Stage 2 sampler output).
 
 # ── Config ────────────────────────────────────────────────────────────────────
 MODEL_CONFIG="config/model_config.yaml"
@@ -35,27 +44,30 @@ VALIDATION_YEAR="2021"
 # ── Model name helpers ────────────────────────────────────────────────────────
 stage1_name() {
     case $1 in
-        tvlvm) echo "nba_convex_max_tvlinearlvm_causal_prefit" ;;
-        ar)    echo "nba_convex_max_tvlinearlvm_AR_causal_prefit" ;;
+        tvlvm)  echo "nba_convex_max_tvlinearlvm_causal_prefit" ;;
+        ar)     echo "nba_convex_max_tvlinearlvm_AR_causal_prefit" ;;
+        rff_ar) echo "nba_convex_max_tvrflvm_AR_causal_prefit" ;;
     esac
 }
 
 stage2_name() {
     case $1 in
-        tvlvm) echo "nba_convex_max_tvlinearlvm_injury_causal" ;;
-        ar)    echo "nba_convex_max_tvlinearlvm_AR_injury_causal" ;;
+        tvlvm)  echo "nba_convex_max_tvlinearlvm_injury_causal" ;;
+        ar)     echo "nba_convex_max_tvlinearlvm_AR_injury_causal" ;;
+        rff_ar) echo "nba_convex_max_tvrflvm_AR_injury_causal" ;;
     esac
 }
 
 stage2_dir() {
     case $1 in
-        tvlvm) echo "model_output/nba_convex_max_tvlinearlvm_injury_causal/mcmc" ;;
-        ar)    echo "model_output/nba_convex_max_tvlinearlvm_AR_injury_causal/mcmc" ;;
+        tvlvm)  echo "model_output/nba_convex_max_tvlinearlvm_injury_causal/mcmc" ;;
+        ar)     echo "model_output/nba_convex_max_tvlinearlvm_AR_injury_causal/mcmc" ;;
+        rff_ar) echo "model_output/nba_convex_max_tvrflvm_AR_injury_causal/mcmc" ;;
     esac
 }
 
 # ── Parse base_model ──────────────────────────────────────────────────────────
-VALID_MODELS=(tvlvm ar all)
+VALID_MODELS=(tvlvm ar rff_ar linear all)
 
 if [[ $# -ge 1 ]]; then
     BASE_MODEL=$1
@@ -70,7 +82,14 @@ else
     done
 fi
 
-[[ $BASE_MODEL == "all" ]] && MODELS=(tvlvm ar) || MODELS=("$BASE_MODEL")
+# 'linear' preserves the historical `all` behaviour (the two linear variants); 'all' now also
+# includes the RFF leaf. Note rff_ar's Stage 2 MCMC is the slow one (RFF sampling ran ~20h in the
+# holdout batch), so prefer running it on its own unless you really want the full sweep.
+case $BASE_MODEL in
+    all)    MODELS=(tvlvm ar rff_ar) ;;
+    linear) MODELS=(tvlvm ar) ;;
+    *)      MODELS=("$BASE_MODEL") ;;
+esac
 
 START_PHASE=${2:-1}
 
@@ -139,15 +158,34 @@ fi
 # ── Phase 4: R diagnostics — parallel ────────────────────────────────────────
 if [[ $START_PHASE -le 4 ]]; then
 echo "=== [$(date '+%H:%M:%S')] PHASE 4: R diagnostics ==="
+# Collect each background job's PID so its exit status is actually checked. A bare `wait` returns 0
+# regardless of what the children did, so an R script calling `Execution halted` used to sail
+# straight through to "pipeline complete" — which is exactly how the missing posterior_ar.parquet
+# failure got reported as a success.
+_r_pids=(); _r_labels=()
 for m in "${MODELS[@]}"; do
     s2dir=$(stage2_dir "$m")
     echo "  diagnostics: $s2dir"
     $EXEC "$CTR_R" Rscript data_analysis/model_diagnostics.r \
         "$s2dir" "$VALIDATION_YEAR" &
+    _r_pids+=($!); _r_labels+=("model_diagnostics.r[$m]")
     $EXEC "$CTR_R" Rscript data_causal/injury_two_stage_causal.r \
         "$s2dir" &
+    _r_pids+=($!); _r_labels+=("injury_two_stage_causal.r[$m]")
 done
-wait
+
+_r_failed=0
+for _i in "${!_r_pids[@]}"; do
+    if ! wait "${_r_pids[$_i]}"; then
+        echo "!!! FAILED: ${_r_labels[$_i]} (see log above)" >&2
+        _r_failed=$(( _r_failed + 1 ))
+    fi
+done
+
+if [[ $_r_failed -gt 0 ]]; then
+    echo "=== [$(date '+%H:%M:%S')] Diagnostics FAILED: $_r_failed script(s) — see errors above ==="
+    exit 1
+fi
 echo "=== [$(date '+%H:%M:%S')] Diagnostics done ==="
 echo ""
 fi

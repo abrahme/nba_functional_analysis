@@ -90,11 +90,23 @@ posterior_peaks <- read_parquet(file.path(model_dir, "posterior_peaks_ar.parquet
 latent_space <- read_parquet(file.path(model_dir, "phi_X.parquet")) |>
   rename_with(~ gsub(" ", "", .), starts_with("Dim"))
 
+# posterior_exit_age_sample.parquet holds TWO conditioning variants per draw, tagged by
+# `conditioning_label`: "entrance" (T sampled from league entry, both scenarios) and
+# "last_observed" (T conditioned on survival to the last observed age, OBSERVED scenario only).
+# Reading both without filtering yields 2 rows per (chain, sample, player, scenario), which makes
+# the pivot_wider below emit list-columns and then kills pmax() with
+#   'list' object cannot be coerced to type 'double'.
+# Keep "entrance": the downstream code assumes T is sampled UNCONDITIONALLY and applies its own
+# right-censoring correction via pmax(sampled, observed_exit_age); using the already-conditioned
+# "last_observed" draws would double-correct, and they have no counterfactual rows to pivot against.
 exit_age_data <- read_parquet(
   file.path(model_dir, "posterior_exit_age_sample.parquet"),
   col_select = c("player", "chain", "sample", "value",
-                 "observed_entrance_age", "observed_exit_age", "exit_censored", "scenario")
-)
+                 "observed_entrance_age", "observed_exit_age", "exit_censored", "scenario",
+                 "conditioning_label")
+) |>
+  filter(conditioning_label == "entrance") |>
+  select(-conditioning_label)
 
 posterior_data <- posterior_data |> mutate(value = case_when(metric == "pct_minutes" ~ value * 48, 
                                                              metric == "games" ~ value,

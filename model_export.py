@@ -702,6 +702,22 @@ if __name__ == "__main__":
         X_map_aug = None
         X_mcmc_aug = None
 
+    # ── Survival latent representation (shared by the injury AND non-injury survival exports) ────
+    # The survival forward must use the SAME latent representation the model's _survival_rates uses.
+    # For linear/cosine the exit weights act on the r-dim latent directly. For RFF the exit weights
+    # are sized to the 2m-dim projected feature map, so project X_mcmc_aug through the sampled
+    # W / lengthscale to the norm-1 RFF features (matching _project_X) and tell the survival utils
+    # the kernel self-cov is 1 (||phi||^2 = 1) rather than the feature width.
+    # Hoisted here so the injury survival calls below use it too — passing the raw r-dim latent to
+    # the RFF injury export is what produced the einsum "size of label 'r' (10) vs (100)" failure.
+    _X_surv, _surv_kcov = X_mcmc_aug, None
+    if X_mcmc_aug is not None and "rflvm" in model_name and "W" in results_mcmc:
+        _Wm = results_mcmc["W"]                                   # (..., m, r)
+        _lsm = jnp.asarray(results_mcmc["lengthscale"])           # (..., r)
+        _wTx = jnp.einsum("...nr,...mr->...nm", X_mcmc_aug, _Wm * jnp.sqrt(_lsm)[..., None, :])
+        _X_surv = jnp.concatenate([jnp.cos(_wTx), jnp.sin(_wTx)], axis=-1) / jnp.sqrt(_Wm.shape[-2])
+        _surv_kcov = 1.0
+
     # ── Curve reconstruction via the model's own forward (single source) ─────────────────────
     # _curves_under_substitute runs lp_model.compute_curves under numpyro substitute so the exported
     # curve == the fitted model's forward exactly (incl. cosine/LKJ/curve_amp/1-over-sqrt-r); the AR
@@ -1059,7 +1075,7 @@ if __name__ == "__main__":
     surv_posterior = None
     if has_survival_injury and injury:
             surv_posterior = make_survival_linear_injury_mcmc(
-                X=X_mcmc_aug,
+                X=_X_surv,
                 gamma_global_log=results_mcmc["gamma_global_log"],
                 exit=results_mcmc["exit"],
                 exit_rate=results_mcmc["exit_rate"],
@@ -1073,6 +1089,7 @@ if __name__ == "__main__":
                 sigma_exit_scale=results_mcmc["sigma_exit_scale"],
                 eta_global_log=results_mcmc.get("eta_global_log", jnp.log(0.04)),
                 age_min=age_min,
+                kernel_self_cov=_surv_kcov,
             )
 
             observed_surv_df = pd.DataFrame(
@@ -1085,7 +1102,7 @@ if __name__ == "__main__":
             )
 
             surv_posterior_counterfactual = make_survival_linear_injury_mcmc(
-                X=X_mcmc_aug,
+                X=_X_surv,
                 gamma_global_log=results_mcmc["gamma_global_log"],
                 exit=results_mcmc["exit"],
                 exit_rate=results_mcmc["exit_rate"],
@@ -1099,6 +1116,7 @@ if __name__ == "__main__":
                 sigma_exit_scale=results_mcmc["sigma_exit_scale"],
                 eta_global_log=results_mcmc.get("eta_global_log", jnp.log(0.04)),
                 age_min=age_min,
+                kernel_self_cov=_surv_kcov,
             )
 
 
@@ -1145,7 +1163,7 @@ if __name__ == "__main__":
             _inj_ent_dur  = Y_surv[:, 0] - age_min + 1e-6
             _inj_tobs_dur = np.maximum(Y_surv[:, 1] - age_min, _inj_ent_dur)
             _surv_inj_tobs = make_survival_linear_injury_mcmc(
-                X=X_mcmc_aug,
+                X=_X_surv,
                 gamma_global_log=results_mcmc["gamma_global_log"],
                 exit=results_mcmc["exit"],
                 exit_rate=results_mcmc["exit_rate"],
@@ -1160,6 +1178,7 @@ if __name__ == "__main__":
                 eta_global_log=results_mcmc.get("eta_global_log", jnp.log(0.04)),
                 age_min=age_min,
                 last_obs_times=_inj_tobs_dur,
+                kernel_self_cov=_surv_kcov,
             )
             _exit_age_entrance_df = posterior_player_scalar_to_df(
                 surv_posterior["exit_age_sample"], id_df["id"], "exit_age_sample"
@@ -1278,19 +1297,8 @@ if __name__ == "__main__":
             os.path.join(model_dir, "posterior_exit_age_sample.parquet"), index=False
         )
     else:
-        # The survival forward must use the SAME latent representation the model's _survival_rates
-        # uses. For linear/cosine the exit weights act on the r-dim latent directly. For RFF the
-        # exit weights are sized to the 2m-dim projected feature map, so project X_mcmc_aug through
-        # the sampled W / lengthscale to the norm-1 RFF features (matching _project_X) and tell the
-        # util the kernel self-cov is 1 (||phi||^2 = 1) rather than the feature width.
-        if "rflvm" in model_name:
-            _Wm = results_mcmc["W"]                                   # (..., m, r)
-            _lsm = jnp.asarray(results_mcmc["lengthscale"])           # (..., r)
-            _wTx = jnp.einsum("...nr,...mr->...nm", X_mcmc_aug, _Wm * jnp.sqrt(_lsm)[..., None, :])
-            _X_surv = jnp.concatenate([jnp.cos(_wTx), jnp.sin(_wTx)], axis=-1) / jnp.sqrt(_Wm.shape[-2])
-            _surv_kcov = 1.0
-        else:
-            _X_surv, _surv_kcov = X_mcmc_aug, None
+        # _X_surv / _surv_kcov are computed once near the X_mcmc_aug reconstruction above (hoisted
+        # so the injury survival exports share the identical RFF projection).
         surv_posterior = make_survival_linear_mcmc(
                 X=_X_surv,
                 gamma_global_log=results_mcmc["gamma_global_log"],

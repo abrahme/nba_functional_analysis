@@ -1,139 +1,139 @@
 \section{Appendix}
 
-% \subsection{Injury Analysis}
+\subsection{Injury Analysis}
 
-% \subsubsection{Counterfactual NBA Career Trajectories for Injury Analysis}
-% Injuries in the NBA have a significant impact on player career trajectories, typically reducing the length of the injured athlete's career or negatively impacting their overall future production. By fitting our model on career trajectory data pre-injury, we gain the ability to estimate the counterfactual career trajectory of athletes who sustained major injuries.
-
-
-% We consider a "major" injury as one that sidelines an athlete for at least one full season or falls into one of the categories listed in \ref{tab:injury_categories}. To make the analysis cleaner, as athletes can have multiple injuries over the course of their career, we take the first occurrence of a major injury in the athlete's career.  Note that we only consider lower body and back injuries, as these injuries typically dramatically influence athletic performance in basketball, a sport reliant on lower body explosiveness and agility. Figure~\ref{fig:inuries} shows that, empirically, lower body injuries are associated with declines across nearly every metric: the vast majority of injury events produce negative percent changes in post-injury peak production, with Achilles and ACL injuries among the most damaging.
-
-% \begin{figure}[htbp]
-%     \centering
-%     \includegraphics[width=0.9\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/causal/empirical_att_causal_plot.png}
-%     \caption{Percent change in peak metric value comparing post- to pre-injury periods, averaged across all injured players who returned to play. Each bar represents a metric; negative values indicate post-injury decline. Age-related decline is a confound in this raw comparison, motivating the counterfactual model.}
-%     \label{fig:inuries}
-% \end{figure}
-
-% Achilles injuries are among the most damaging in professional basketball. Figure~\ref{fig:kd_bj} shows Kevin Durant, who sustained an Achilles injury during the 2019 NBA playoffs. The curves span a subset of Group 2 metrics that blend athleticism and skill. Post-injury production does not deviate substantially from Durant's aging prediction, which is consistent with his reliance on shooting touch and physical stature (7 feet) rather than the explosive athleticism most affected by Achilles injuries. 
+\subsubsection{Counterfactual NBA Career Trajectories for Injury Analysis}
+Injuries in the NBA have a significant impact on player career trajectories, typically reducing the length of the injured athlete's career or negatively impacting their overall future production. By fitting our model on career trajectory data pre-injury, we gain the ability to estimate the counterfactual career trajectory of athletes who sustained major injuries.
 
 
-% \begin{figure}[H]
-%   \centering
-%   \begin{minipage}[t]{0.48\linewidth}
-%     \centering
-%     \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/causal/Kevin Durant.png}
-%   \end{minipage}%
-%   \hfill
-%   \begin{minipage}[t]{0.48\linewidth}
-%     \centering
-%     \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/causal/Brandon Jennings.png}
-%   \end{minipage}
+We consider a "major" injury as one that sidelines an athlete for at least one full season or falls into one of the categories listed in \ref{tab:injury_categories}. To make the analysis cleaner, as athletes can have multiple injuries over the course of their career, we take the first occurrence of a major injury in the athlete's career.  Note that we only consider lower body and back injuries, as these injuries typically dramatically influence athletic performance in basketball, a sport reliant on lower body explosiveness and agility. Figure~\ref{fig:inuries} shows that, empirically, lower body injuries are associated with declines across nearly every metric: the vast majority of injury events produce negative percent changes in post-injury peak production, with Achilles and ACL injuries among the most damaging.
 
-%   \caption{Comparison between Kevin Durant (L) and Brandon Jennings (R). The dashed red line indicates the timing of the Achilles injury}
-%   \label{fig:kd_bj}
-% \end{figure}
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_injury_causal/mcmc/plots/causal/empirical_att_causal_plot.png}
+    \caption{Percent change in peak metric value comparing post- to pre-injury periods, averaged across all injured players who returned to play. Each bar represents a metric; negative values indicate post-injury decline. Age-related decline is a confound in this raw comparison, motivating the counterfactual model.}
+    \label{fig:inuries}
+\end{figure}
+
+Achilles injuries are among the most damaging in professional basketball. Figure~\ref{fig:kd_bj} shows Kevin Durant, who sustained an Achilles injury during the 2019 NBA playoffs. The curves span a subset of Group 2 metrics that blend athleticism and skill. Post-injury production does not deviate substantially from Durant's aging prediction, which is consistent with his reliance on shooting touch and physical stature (7 feet) rather than the explosive athleticism most affected by Achilles injuries. 
 
 
-% We can contrast Durant with Brandon Jennings \ref{fig:kd_bj}, a 6 foot 1 in. guard who relies on his quickness to be effective. He also dealt with an Achilles injury. 
+\begin{figure}[H]
+  \centering
+  \begin{minipage}[t]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_injury_causal/mcmc/plots/causal/Kevin Durant.png}
+  \end{minipage}%
+  \hfill
+  \begin{minipage}[t]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_injury_causal/mcmc/plots/causal/Brandon Jennings.png}
+  \end{minipage}
+
+  \caption{Comparison between Kevin Durant (L) and Brandon Jennings (R). The dashed red line indicates the timing of the Achilles injury}
+  \label{fig:kd_bj}
+\end{figure}
 
 
-% Most production markers are significantly impacted, with rates dropping heavily post-injury. Smaller guards depend on explosive athleticism to beat defenders to the rim; Jennings' FTA rate dropped dramatically, as shown in Figure~\ref{fig:kd_bj_metrics}.
-% \begin{figure}[H]
-%   \centering
-%   \begin{minipage}[t]{0.48\linewidth}
-%     \centering
-%     \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/causal/Kevin Durant_metrics_itt.png}
-%   \end{minipage}%
-%   \hfill
-%   \begin{minipage}[t]{0.48\linewidth}
-%     \centering
-%     \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/causal/Brandon Jennings_metrics_itt.png}
-%   \end{minipage}
-
-%   \caption{Comparison between Kevin Durant (L) and Brandon Jennings (R). The dashed blue line indicates the avg. observed value of the metric post Achilles injury,
-%   while the curve represents the posterior distribution of the counterfactual values.}
-%   \label{fig:kd_bj_metrics}
-% \end{figure}
-
-% The negative impact of lower body injuries is most pronounced for athletic guards without elite shooting ability. \ref{fig:player_comparison}, \ref{fig:player_comparison_metrics}. Derrick Rose and John Wall were not known specifically for their shooting, and both sustained significant lower body injuries.  We see that  markers such as FTA drop dramatically for these players post injury. The marker of FG2A might not drop consistently across these players as some might resort to shooting jumpers (outside the paint, but within the 3 point line) instead of attacking the rim. 
-
-% \begin{figure}[H]
-%   \centering
-%   \begin{minipage}[t]{0.48\linewidth}
-%     \centering
-%     \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/causal/John Wall.png}
-%   \end{minipage}%
-%   \hfill
-%   \begin{minipage}[t]{0.48\linewidth}
-%     \centering
-%     \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/causal/Derrick Rose.png}
-%     \label{fig:dr_acl}
-%   \end{minipage}
-%   \caption{Comparison between John Wall (L) and Derrick Rose (R). The dashed red vertical line indicates the timing of the respective injuries.}
-%   \label{fig:player_comparison}
-% \end{figure}
+We can contrast Durant with Brandon Jennings \ref{fig:kd_bj}, a 6 foot 1 in. guard who relies on his quickness to be effective. He also dealt with an Achilles injury. 
 
 
-% \begin{figure}[H]
-%   \centering
-%   \begin{minipage}[t]{0.48\linewidth}
-%     \centering
-%     \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/causal/John Wall_metrics_itt.png}
-%   \end{minipage}%
-%   \hfill
-%   \begin{minipage}[t]{0.48\linewidth}
-%     \centering
-%     \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/causal/Derrick Rose_metrics_itt.png}
-%   \end{minipage}
-%   \caption{Comparison between John Wall (L) and Derrick Rose (R). The dashed blue line indicates the avg. observed value of the metric post injury,
-%   while the curve represents the posterior distribution of the counterfactual values.}
-%   \label{fig:player_comparison_metrics}
-% \end{figure}
+Most production markers are significantly impacted, with rates dropping heavily post-injury. Smaller guards depend on explosive athleticism to beat defenders to the rim; Jennings' FTA rate dropped dramatically, as shown in Figure~\ref{fig:kd_bj_metrics}.
+\begin{figure}[H]
+  \centering
+  \begin{minipage}[t]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_injury_causal/mcmc/plots/causal/Kevin Durant_metrics_itt.png}
+  \end{minipage}%
+  \hfill
+  \begin{minipage}[t]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_injury_causal/mcmc/plots/causal/Brandon Jennings_metrics_itt.png}
+  \end{minipage}
 
-% \subsubsection{Injury Effect Estimation}
+  \caption{Comparison between Kevin Durant (L) and Brandon Jennings (R). The dashed blue line indicates the avg. observed value of the metric post Achilles injury,
+  while the curve represents the posterior distribution of the counterfactual values.}
+  \label{fig:kd_bj_metrics}
+\end{figure}
 
-% To move beyond individual case studies and quantify injury impact at the population level, we augment the concave mean model with injury-specific offsets.  For player $p$ with injury subtype $m$ onset at season $t^{*}_{pm}$, the mean model becomes:
-% \begin{align}
-%     \tau^{*}_k &\sim \mathcal{N}(0, I_d), \quad w_m \sim \mathcal{N}(0, I_d) \\
-%     \tau^k_{ptm} &\sim \mathcal{N}(w_m^\top\tau^{*}_k,\; \sigma^2_{mk})  \\
-%     \mu^k_{ptm} &= f^k(X_p,t) + \mathbb{I}\{ t > t^{*}_{pm} \}\,\tau^k_{ptm},
-% \end{align}
-% where $\tau^{*}_k \in \mathbb{R}^d$ are metric-level latent injury factors, $w_m \in \mathbb{R}^d$ are injury-subtype loadings, $\sigma^2_{mk}$ is a metric- and subtype-specific variance, and $d = 5$ is the injury factor dimension.  Players without the relevant injury subtype have $t^{*}_{pm} = \infty$ and contribute to the baseline.
+The negative impact of lower body injuries is most pronounced for athletic guards without elite shooting ability. \ref{fig:player_comparison}, \ref{fig:player_comparison_metrics}. Derrick Rose and John Wall were not known specifically for their shooting, and both sustained significant lower body injuries.  We see that  markers such as FTA drop dramatically for these players post injury. The marker of FG2A might not drop consistently across these players as some might resort to shooting jumpers (outside the paint, but within the 3 point line) instead of attacking the rim. 
 
-% Figure~\ref{fig:injury_global} shows the posterior distribution of the global injury offset averaged across metrics and subtypes.  The offset is consistently negative, confirming that the model identifies a systematic post-injury production decline beyond what is explained by the aging curve alone.  Figure~\ref{fig:injury_type} breaks this down by injury subtype and metric, while Figure~\ref{fig:injury_survival} shows how the survival model translates injury type into differences in career length.
+\begin{figure}[H]
+  \centering
+  \begin{minipage}[t]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_injury_causal/mcmc/plots/causal/John Wall.png}
+  \end{minipage}%
+  \hfill
+  \begin{minipage}[t]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_injury_causal/mcmc/plots/causal/Derrick Rose.png}
+    \label{fig:dr_acl}
+  \end{minipage}
+  \caption{Comparison between John Wall (L) and Derrick Rose (R). The dashed red vertical line indicates the timing of the respective injuries.}
+  \label{fig:player_comparison}
+\end{figure}
 
-% \begin{figure}[htbp]
-%     \centering
-%     \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/injury/injury_global_offset.png}
-%     \caption{Posterior distribution of the global injury offset $\bar{\tau}$ averaged over metrics and injury subtypes. The mass below zero confirms a systematic post-injury production decline beyond age-related aging.}
-%     \label{fig:injury_global}
-% \end{figure}
 
-% \begin{figure}[htbp]
-%     \centering
-%     \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/injury/injury_type_specific.png}
-%     \caption{Injury-subtype-specific posterior offsets by metric. Each panel shows the posterior interval for $\tau^k_{m}$ for a given injury subtype; metrics are ordered by athleticism-to-skill spectrum from Section~\ref{sec:uncovering_metrics}. Achilles and ACL injuries produce the largest and most consistent declines in athleticism metrics.}
-%     \label{fig:injury_type}
-% \end{figure}
+\begin{figure}[H]
+  \centering
+  \begin{minipage}[t]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_injury_causal/mcmc/plots/causal/John Wall_metrics_itt.png}
+  \end{minipage}%
+  \hfill
+  \begin{minipage}[t]{0.48\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_injury_causal/mcmc/plots/causal/Derrick Rose_metrics_itt.png}
+  \end{minipage}
+  \caption{Comparison between John Wall (L) and Derrick Rose (R). The dashed blue line indicates the avg. observed value of the metric post injury,
+  while the curve represents the posterior distribution of the counterfactual values.}
+  \label{fig:player_comparison_metrics}
+\end{figure}
 
-% \begin{figure}[htbp]
-%     \centering
-%     \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/injury/injury_survival_effects.png}
-%     \caption{Posterior survival curves by injury subtype. Injured players have shorter modeled career durations; Achilles and ACL injuries shift the survival curve most substantially relative to the uninjured baseline.}
-%     \label{fig:injury_survival}
-% \end{figure}
+\subsubsection{Injury Effect Estimation}
 
-% To summarise the average treatment effect on the treated (ATT) across all injured players, Figure~\ref{fig:att_by_metric} plots the posterior ATT per metric: the difference between the observed post-injury production and the model's counterfactual prediction had no injury occurred.
+To move beyond individual case studies and quantify injury impact at the population level, we augment the concave mean model with injury-specific offsets.  For player $p$ with injury subtype $m$ onset at season $t^{*}_{pm}$, the mean model becomes:
+\begin{align}
+    \tau^{*}_k &\sim \mathcal{N}(0, I_d), \quad w_m \sim \mathcal{N}(0, I_d) \\
+    \tau^k_{ptm} &\sim \mathcal{N}(w_m^\top\tau^{*}_k,\; \sigma^2_{mk})  \\
+    \mu^k_{ptm} &= f^k(X_p,t) + \mathbb{I}\{ t > t^{*}_{pm} \}\,\tau^k_{ptm},
+\end{align}
+where $\tau^{*}_k \in \mathbb{R}^d$ are metric-level latent injury factors, $w_m \in \mathbb{R}^d$ are injury-subtype loadings, $\sigma^2_{mk}$ is a metric- and subtype-specific variance, and $d = 5$ is the injury factor dimension.  Players without the relevant injury subtype have $t^{*}_{pm} = \infty$ and contribute to the baseline.
 
-% \begin{figure}[htbp]
-%     \centering
-%     \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvlinearlvm_AR/holdout_last_k/mcmc/plots/causal/injury_att_posterior_interval_by_metric.png}
-%     \caption{Posterior ATT (observed minus counterfactual) per metric, averaged across all injured players. Negative values indicate that actual post-injury production fell below the model's counterfactual aging curve. Athleticism metrics (BLK, STL, FTA) show the largest deficits.}
-%     \label{fig:att_by_metric}
-% \end{figure}
+Figure~\ref{fig:injury_global} shows the posterior distribution of the global injury offset averaged across metrics and subtypes.  The offset is consistently negative, confirming that the model identifies a systematic post-injury production decline beyond what is explained by the aging curve alone.  Figure~\ref{fig:injury_type} breaks this down by injury subtype and metric, while Figure~\ref{fig:injury_survival} shows how the survival model translates injury type into differences in career length.
 
-% These estimates should be interpreted with care: the counterfactual is identified only under the assumption of no unmeasured confounding conditional on the latent player embedding and career history (see Limitations in Section~\ref{sec:conclusion}), and the sample is restricted to players who returned to play after injury, which may understate effects for the most severe cases.
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_injury_causal/mcmc/plots/injury/injury_global_offset.png}
+    \caption{Posterior distribution of the global injury offset $\bar{\tau}$ averaged over metrics and injury subtypes. The mass below zero confirms a systematic post-injury production decline beyond age-related aging.}
+    \label{fig:injury_global}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_injury_causal/mcmc/plots/injury/injury_type_specific.png}
+    \caption{Injury-subtype-specific posterior offsets by metric. Each panel shows the posterior interval for $\tau^k_{m}$ for a given injury subtype; metrics are ordered by athleticism-to-skill spectrum from Section~\ref{sec:uncovering_metrics}. Achilles and ACL injuries produce the largest and most consistent declines in athleticism metrics.}
+    \label{fig:injury_type}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_injury_causal/mcmc/plots/injury/injury_survival_effects.png}
+    \caption{Posterior survival curves by injury subtype. Injured players have shorter modeled career durations; Achilles and ACL injuries shift the survival curve most substantially relative to the uninjured baseline.}
+    \label{fig:injury_survival}
+\end{figure}
+
+To summarise the average treatment effect on the treated (ATT) across all injured players, Figure~\ref{fig:att_by_metric} plots the posterior ATT per metric: the difference between the observed post-injury production and the model's counterfactual prediction had no injury occurred.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_injury_causal/mcmc/plots/causal/injury_att_posterior_interval_by_metric.png}
+    \caption{Posterior ATT (observed minus counterfactual) per metric, averaged across all injured players. Negative values indicate that actual post-injury production fell below the model's counterfactual aging curve. Athleticism metrics (BLK, STL, FTA) show the largest deficits.}
+    \label{fig:att_by_metric}
+\end{figure}
+
+These estimates should be interpreted with care: the counterfactual is identified only under the assumption of no unmeasured confounding conditional on the latent player embedding and career history (see Limitations in Section~\ref{sec:conclusion}), and the sample is restricted to players who returned to play after injury, which may understate effects for the most severe cases.
 
 \subsection{Archetype Discovery via Hierarchical Clustering}
 \label{sec:latent_space}

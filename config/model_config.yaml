@@ -115,7 +115,7 @@ models:
         model_dir:        model_output/nba_convex_max_tvlinearlvm/mcmc
         init_path:        model_output/nba_convex_max_tvlinearlvm/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm/map/samples.pkl
-        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
         thinning: ~
 
   nba_convex_max_tvlinearlvm_holdout_last_k:
@@ -170,9 +170,9 @@ models:
         fixed_param_path: model_output/nba_convex_max_tvrflvm/map/samples.pkl
         # RFF feature map: lengthscale (ARD bandwidth) FIXED at MAP like lengthscale_deriv — pins the
         # kernel scale and removes the W*sqrt(lengthscale) scaling ridge; W stays sampled (the frequency
-        # realization is integrated). sigma_exit_scale is a no-op (hard-constant 1.0); exit_global_offset
-        # has no matching site (survival globals are eta_global_log/gamma_global_log) — both inherited.
-        fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        # realization is integrated). sigma_exit_scale is a LEARNED per-player survival scale
+        # (models.py:1884), plugged in at MCMC like the other scale hyperparameters.
+        fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
         thinning: ~
 
   nba_convex_max_tvrflvm_holdout_last_k:
@@ -221,8 +221,8 @@ models:
         init_path:        model_output/nba_convex_max_tvrflvm/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_tvrflvm/map/samples.pkl
         # lengthscale FIXED (ARD bandwidth) — pins the RFF kernel scale, removes the W*sqrt(lengthscale)
-        # ridge; W stays sampled. (See non-AR block for the sigma_exit_scale/exit_global_offset notes.)
-        fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        # ridge; W stays sampled. (See the non-AR block for the sigma_exit_scale note.)
+        fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
         thinning: ~
 
   nba_convex_max_tvrflvm_AR_holdout_last_k:
@@ -309,7 +309,7 @@ models:
         model_dir:        model_output/nba_convex_max_cosine_tvlinearlvm/mcmc
         init_path:        model_output/nba_convex_max_cosine_tvlinearlvm/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_cosine_tvlinearlvm/map/samples.pkl
-        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
         thinning: ~
 
   nba_convex_max_cosine_tvlinearlvm_stratified_next_k:
@@ -341,7 +341,7 @@ models:
         model_dir:        model_output/nba_convex_max_cosine_tvlinearlvm_AR/mcmc
         init_path:        model_output/nba_convex_max_cosine_tvlinearlvm/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_cosine_tvlinearlvm/map/samples.pkl
-        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
         thinning: ~
 
   nba_convex_max_cosine_tvlinearlvm_AR_stratified_next_k:
@@ -382,7 +382,7 @@ models:
         model_dir:        model_output/nba_convex_max_lkj_tvlinearlvm/mcmc
         init_path:        model_output/nba_convex_max_lkj_tvlinearlvm/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_lkj_tvlinearlvm/map/samples.pkl
-        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X, beta_corr_chol]
+        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X, beta_corr_chol]
         thinning: ~
 
   nba_convex_max_lkj_tvlinearlvm_stratified_next_k:
@@ -468,7 +468,7 @@ models:
         model_dir:        model_output/nba_convex_max_lkj_tvlinearlvm_AR/mcmc
         init_path:        model_output/nba_convex_max_lkj_tvlinearlvm_AR/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_lkj_tvlinearlvm_AR/map/samples.pkl
-        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X, beta_corr_chol]
+        fixed_params: [sigma_t, alpha, lengthscale, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X, beta_corr_chol]
         thinning: ~
 
   nba_convex_max_lkj_tvlinearlvm_AR_stratified_next_k:
@@ -494,7 +494,7 @@ models:
         model_dir:        model_output/nba_lkj_tvlinearlvm/mcmc
         init_path:        model_output/nba_lkj_tvlinearlvm/map/samples.pkl
         fixed_param_path: model_output/nba_lkj_tvlinearlvm/map/samples.pkl
-        fixed_params: [lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X, beta_corr_chol]
+        fixed_params: [lengthscale, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X, beta_corr_chol]
         thinning: ~
 
   nba_lkj_tvlinearlvm_stratified_next_k:
@@ -518,7 +518,7 @@ models:
         model_dir:        model_output/nba_lkj_tvlinearlvm_AR/mcmc
         init_path:        model_output/nba_lkj_tvlinearlvm_AR/map/samples.pkl
         fixed_param_path: model_output/nba_lkj_tvlinearlvm_AR/map/samples.pkl
-        fixed_params: [lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X, beta_corr_chol]
+        fixed_params: [lengthscale, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X, beta_corr_chol]
         thinning: ~
 
   nba_lkj_tvlinearlvm_AR_stratified_next_k:
@@ -536,7 +536,7 @@ models:
         model_dir:        model_output/nba_tvlinearlvm/mcmc
         init_path:        model_output/nba_tvlinearlvm/map/samples.pkl
         fixed_param_path: model_output/nba_tvlinearlvm/map/samples.pkl
-        fixed_params: [lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        fixed_params: [lengthscale, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
         thinning: ~
 
   nba_tvlinearlvm_holdout_last_k:
@@ -570,7 +570,7 @@ models:
         model_dir:        model_output/nba_tvlinearlvm_AR/mcmc
         init_path:        model_output/nba_tvlinearlvm_AR/map/samples.pkl
         fixed_param_path: model_output/nba_tvlinearlvm_AR/map/samples.pkl
-        fixed_params: [lengthscale, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        fixed_params: [lengthscale, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
         thinning: ~
 
   nba_tvlinearlvm_AR_holdout_last_k:
@@ -605,7 +605,7 @@ models:
         model_dir:        model_output/nba_convex_max_tvlinearlvm_q5/mcmc
         init_path:        model_output/nba_convex_max_tvlinearlvm_q5/holdout_last_k/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm_q5/holdout_last_k/map/samples.pkl
-        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
         thinning: ~
 
   nba_convex_max_tvlinearlvm_q5_holdout_last_k:
@@ -635,7 +635,7 @@ models:
         model_dir:        model_output/nba_convex_max_tvlinearlvm_q10/mcmc
         init_path:        model_output/nba_convex_max_tvlinearlvm_q10/holdout_last_k/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm_q10/holdout_last_k/map/samples.pkl
-        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
         thinning: ~
 
   nba_convex_max_tvlinearlvm_q10_holdout_last_k:
@@ -665,7 +665,7 @@ models:
         model_dir:        model_output/nba_convex_max_tvlinearlvm_q15/mcmc
         init_path:        model_output/nba_convex_max_tvlinearlvm_q15/holdout_last_k/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm_q15/holdout_last_k/map/samples.pkl
-        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
         thinning: ~
 
   nba_convex_max_tvlinearlvm_q15_holdout_last_k:
@@ -695,7 +695,7 @@ models:
         model_dir:        model_output/nba_convex_max_tvlinearlvm_q20/mcmc
         init_path:        model_output/nba_convex_max_tvlinearlvm_q20/holdout_last_k/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm_q20/holdout_last_k/map/samples.pkl
-        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
         thinning: ~
 
   nba_convex_max_tvlinearlvm_q20_holdout_last_k:
@@ -738,7 +738,7 @@ models:
         model_dir:        model_output/nba_convex_max_tvlinearlvm_AR/mcmc
         init_path:        model_output/nba_convex_max_tvlinearlvm/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm/map/samples.pkl
-        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
         thinning: ~
 
   nba_convex_max_tvlinearlvm_AR_holdout_last_k:
@@ -773,7 +773,7 @@ models:
         model_dir:        model_output/nba_convex_max_tvlinearlvm_injury/mcmc
         init_path:        model_output/nba_convex_max_tvlinearlvm_injury/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm_injury/map/samples.pkl
-        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
         thinning: 50
       # Cut-posterior MCMC (run_cut_gibbs_inference): two-block Gibbs — the counterfactual latents
       # (X, curves, AR, hazard) are NUTS-updated against the injury-free likelihood (post-first-injury
@@ -786,7 +786,7 @@ models:
         model_dir:        model_output/nba_convex_max_tvlinearlvm_injury/cut_mcmc
         init_path:        ~
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm_injury/map/samples.pkl
-        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        fixed_params: [alpha, lengthscale_deriv, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
         thinning: 50
 
   nba_convex_max_tvlinearlvm_injury_holdout_last_k:
@@ -846,14 +846,14 @@ models:
         fixed_param_path: model_output/nba_convex_max_tvrflvm_injury/map/samples.pkl
         # lengthscale FIXED at MAP (RFF ARD bandwidth) like the other RFF entries — pins the kernel
         # scale and removes the W*sqrt(lengthscale) ridge; W stays sampled.
-        fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
         thinning: 50
       # Cut-posterior MCMC — see the nba_convex_max_tvlinearlvm_injury cut_mcmc notes.
       cut_mcmc:
         model_dir:        model_output/nba_convex_max_tvrflvm_injury/cut_mcmc
         init_path:        ~
         fixed_param_path: model_output/nba_convex_max_tvrflvm_injury/map/samples.pkl
-        fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, exit_global_offset, sigma_W_proj, sigma_X]
+        fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
         thinning: 50
 
   nba_convex_max_tvrflvm_injury_holdout_last_k:
@@ -927,9 +927,11 @@ models:
         model_dir:        model_output/nba_convex_max_tvlinearlvm_injury_causal/mcmc
         init_path:        model_output/nba_convex_max_tvlinearlvm_causal/prefit/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm_causal/prefit/map/samples.pkl
+        # The survival-hazard globals (eta_global_log / gamma_global_log) are deliberately NOT
+        # frozen — they are re-fit under the injury likelihood, like the dispersion params.
         fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
                        sigma_W_proj, W_proj, sigma_X, X,
-                       exit, sigma_exit_scale, exit_rate, exit_global_offset, scale_global_log]
+                       exit, sigma_exit_scale, exit_rate]
         thinning: 250
 
   nba_convex_max_tvlinearlvm_AR_injury_causal:
@@ -947,9 +949,102 @@ models:
         model_dir:        model_output/nba_convex_max_tvlinearlvm_AR_injury_causal/mcmc
         init_path:        model_output/nba_convex_max_tvlinearlvm_AR_causal/prefit/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm_AR_causal/prefit/map/samples.pkl
+        # Survival-hazard globals deliberately left free — see the non-AR causal entry above.
         fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
                        sigma_W_proj, W_proj, sigma_X, X,
-                       exit, sigma_exit_scale, exit_rate, exit_global_offset, scale_global_log,
+                       exit, sigma_exit_scale, exit_rate,
+                       rho_ar, sigma_ar, beta_ar, AR_0]
+        thinning: 250
+
+  # ── Two-Stage Causal Injury Pipeline: RFF leaf (concave RFF + AR + injury) ───
+  # Mirrors the nba_convex_max_tvlinearlvm_AR_causal_prefit / _AR_injury_causal pair on the RFF
+  # latent kernel, with no holdout scheme, ages 18-45, and all available data years.
+  #
+  # IMPORTANT: "_causal_prefit" / "_injury_causal" are NOT in config_utils._SCHEME_SUFFIXES (only the
+  # 5 holdout schemes are), so resolve_model_config does NO base-entry inheritance for these keys —
+  # merged = defaults + this entry + its regime. Every RFF knob must therefore be repeated here;
+  # approx_x_dim above all, since the default of 0 would silently disable the RFF feature map.
+
+  # Stage 1 — healthy-only counterfactual prefit (MAP). injury: true masks post-first-injury
+  # observations and censor_survival_at_injury censors the exit hazard at onset, so the curve /
+  # latents are the injury-free fit. The name deliberately carries NO "injury" token, so
+  # dispatch_model takes the non-injury RFF branch -> ConvexMaxARRFFTVLinearLVM (aging + AR only).
+  nba_convex_max_tvrflvm_AR_causal_prefit:
+    m_time: 5
+    basis_dims: 10         # latent rank r
+    approx_x_dim: 50       # RFF frequency count m; projected feature width = 2*m = 100
+    map_num_steps: 50000
+    age_min: 18
+    age_max: 45
+    start_year: ~          # null → no lower bound: all available years
+    end_year: ~            # null → no upper bound: all available years
+    injury: true
+    censor_survival_at_injury: true
+    validation_scheme: ~   # no holdout scheme
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_causal/prefit/map
+
+  # Stage 2 — freeze Stage 1's counterfactual params, sample ONLY the injury-specific sites. The
+  # "injury" token + injury: true make dispatch_model select ConvexMaxInjuryRFFTVLinearLVM, which
+  # already carries the AR(1)/calendar trend (it derives from ConvexMaxInjuryTVLinearLVM ->
+  # ConvexMaxARTVLinearLVM) alongside the RFF feature map — i.e. this IS the concave RFF + AR +
+  # injury variant; there is no separate AR-injury-RFF class to select.
+  nba_convex_max_tvrflvm_AR_injury_causal:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    map_num_steps: 50000
+    age_min: 18
+    age_max: 45
+    start_year: ~
+    end_year: ~
+    injury: true
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_injury_causal/map
+      mcmc:
+        mcmc_init: map     # seed NUTS from the Stage 1 prefit MAP
+        model_dir:        model_output/nba_convex_max_tvrflvm_AR_injury_causal/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_AR_causal/prefit/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_AR_causal/prefit/map/samples.pkl
+        # Freeze = intersection of these names with the prefit samples.pkl keys (main.py only fixes
+        # params it finds in the loaded MAP blob), so names must match the SAVED site names.
+        # Beyond the linear AR causal stage-2 list this adds:
+        #   W, lengthscale               — the RFF feature map (frequencies (m,r) + ARD bandwidth (r,)),
+        #                                  sampled in ConvexMaxRFFTVLinearLVM._resolve_latent_X_structured.
+        #                                  Omit them and the counterfactual latent map is re-sampled.
+        # Left free on purpose: the survival-hazard globals (eta_global_log / gamma_global_log) and
+        # sigma, sigma_beta, sigma_beta_binomial, sigma_negative_binomial — re-fit under the injury
+        # likelihood (matches the linear causal pair).
+        fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
+                       sigma_W_proj, W_proj, sigma_X, X, W, lengthscale,
+                       exit, sigma_exit_scale, exit_rate,
                        rho_ar, sigma_ar, beta_ar, AR_0]
         thinning: 250
 
