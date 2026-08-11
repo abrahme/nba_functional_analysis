@@ -49,7 +49,7 @@ from model.hsgp import  diag_spectral_density, make_psi_gamma,  vmap_make_convex
 jax.config.update("jax_enable_x64", True)
 from model.inference_utils import get_latent_sites, create_metric_trajectory_map
 from model.model_utils import compute_residuals_map, compute_priors, apply_detrend_for_offsets, compute_linear_predictor_mean_offsets, summarize_metric_error_observed_substitutions, summarize_metric_error_injury_splits, summarize_normalized_weighted_metric_residuals_by_age, write_coverage_tables
-from data.data_utils import create_fda_data, create_surv_data, create_validation_mask
+from data.data_utils import create_fda_data, create_surv_data, create_validation_mask, season_available_fraction, build_injury_timing
 from model.inference_inputs import dispatch_model, fda_injury_flag
 
 
@@ -161,7 +161,9 @@ if __name__ == "__main__":
         _year_filter += f" & year >= {start_year}"
     if end_year is not None:
         _year_filter += f" & year <= {end_year}"
-    data_all = pd.read_csv("data/injury_player_cleaned.csv").query(_year_filter)
+    # injury_data_csv: config override for the player panel (e.g. the placebo panel with
+    # pseudo-onsets assigned to never-injured players — data_causal/make_placebo_injury_csv.py).
+    data_all = pd.read_csv(args.get("injury_data_csv") or "data/injury_player_cleaned.csv").query(_year_filter)
     data_all["split"] = np.random.choice(["train", "test"], size=len(data_all), p=[0.8, 0.2])
     # data_all = data_all.groupby("id").filter(lambda x: x["year"].min() <= cohort_year) ### filter out players who entered the league after this cohort year
     data_all["first_major_injury"] = (
@@ -176,6 +178,14 @@ if __name__ == "__main__":
             },
         )
     )
+    # Optional coarse mechanism grouping — must match model/inference_inputs.py exactly.
+    if args.get("injury_type_grouping") == "mechanism4":
+        data_all["first_major_injury"] = data_all["first_major_injury"].replace({
+            "Achilles": "Tendon Rupture", "Quad/Patellar": "Tendon Rupture",
+            "ACL": "Knee Structural", "Meniscus": "Knee Structural",
+            "Foot Fracture": "Fracture", "Lower Body Fracture": "Fracture",
+            "Hip": "Axial", "Back/Spine": "Axial",
+        })
     data_all['first_major_injury'] = (
     data_all['first_major_injury']
             .astype('category')
@@ -189,7 +199,12 @@ if __name__ == "__main__":
     data_all["usg"] /= 100
     data_all["usg"] += .01
     data_all["simple_exposure"] = 1
-    data_all["games_exposure"] = np.maximum(data_all["total_games"], data_all["games"]) ### 82 or whatever
+    # Games exposure rectified to AVAILABLE games on v2 panels: the schedule share outside the
+    # absence window [injury_date, return_date). GP% then measures propensity-to-play-when-
+    # available; the rehab window's mechanically impossible games leave the denominator.
+    _avail = season_available_fraction(data_all)
+    _sched = data_all["total_games"] if _avail is None else np.round(data_all["total_games"] * _avail)
+    data_all["games_exposure"] = np.maximum(_sched, data_all["games"]) ### 82 or whatever
     data_all["pct_minutes"] = (data_all["minutes"] / data_all["games"]) / 48
     data_all["retirement"] = 1
 
@@ -297,6 +312,14 @@ if __name__ == "__main__":
     for _k in _ATTR_KNOBS:
         if _k in _prior_knobs:
             setattr(model, _k, _bkv(_prior_knobs[_k]))
+    # Fixed empirical injury-effect scales (removes the hierarchical-variance funnel that wrecked
+    # Stage-2 convergence). Set before initialize_priors; no-op for non-injury models.
+    if injury:
+        from model.inference_inputs import injury_prior_scales as _inj_scales
+        _inj_s, _inj_h, _inj_sl = _inj_scales(data, metrics)
+        model.injury_effect_scale = _inj_s
+        model.injury_hazard_scale = _inj_h
+        model.injury_slope_scale = _inj_sl
     model.initialize_priors(scale_values = scale_values)
     _apply_prior_knobs(model, _prior_knobs, metrics=metrics)
     initial_params = {}
@@ -631,6 +654,14 @@ if __name__ == "__main__":
         model_args["offsets"].update({"exit_times": exit_times - age_min + 1e-6, "entrance_times": entrance_times - age_min + 1e-6, "right_censor": right_censor})
         model_args["offsets"]["injury_indicator"] = injury_masks
         model_args["offsets"]["injury_type"] = injury_types
+        # Continuous injury timing (v2 panels) — must mirror model/inference_inputs.py, which
+        # feeds the export path. Without these the model silently falls back to discrete
+        # delta_t (use_injury_continuous/use_injury_decay become no-ops).
+        _timing = build_injury_timing(data, age_min=age_min, age_max=age_max)
+        if _timing is not None:
+            (model_args["offsets"]["injury_w"],
+             model_args["offsets"]["injury_dt_lo"],
+             model_args["offsets"]["injury_dt_hi"]) = _timing
         model_args.update({"hsgp_params": hsgp_params})
         if "tvlinearlvm" in model_name and "convex" not in model_name:
             model_args["offsets"].update({
@@ -646,7 +677,11 @@ if __name__ == "__main__":
                     mu = _d_init["mu"] + _d_init["trend_ar"]
                     obs, preds = create_metric_trajectory_map(mu, [], Y, exposures, metric_output, metrics)
                     
-                    avg_sd, autocorr, lognormal_params, beta_params = compute_residuals_map(preds["y"], obs["y"], exposures, metric_output, metrics, initial_params["sigma"], initial_params.get("sigma_negative_binomial",1),
+                    # `sigma` (Gaussian obs scale) only exists when the panel has a gaussian head;
+                    # an all-count/binomial panel (e.g. athleticism) never creates the site, and
+                    # compute_residuals_map ignores the value for non-gaussian families. Defaulted
+                    # like its sigma_negative_binomial / sigma_beta neighbours rather than indexed.
+                    avg_sd, autocorr, lognormal_params, beta_params = compute_residuals_map(preds["y"], obs["y"], exposures, metric_output, metrics, initial_params.get("sigma", 1.0), initial_params.get("sigma_negative_binomial",1),
                                                             initial_params.get("sigma_beta_binomial", 0), initial_params.get("sigma_beta",1),
                                                             ar_metric_indices=jnp.array(de_trend_indices))
                     print(avg_sd, autocorr)
@@ -816,7 +851,10 @@ if __name__ == "__main__":
 
     if map_inference:
         if "max" in model_name:
-            print("sigma", samples["sigma__loc"])
+            # `sigma` is the Gaussian observation scale; it only exists when the metric panel has
+            # at least one gaussian head. Panels made entirely of count/binomial metrics (e.g. the
+            # athleticism panel) never create the site, so this is a .get, not a lookup.
+            print("sigma", samples.get("sigma__loc", "n/a (no gaussian metric in this panel)"))
             alpha_time = samples["alpha__loc"]
             print("alpha_time", alpha_time)
             # Reconstruct via the model's OWN forward (single source): compute_curves rebuilds X via

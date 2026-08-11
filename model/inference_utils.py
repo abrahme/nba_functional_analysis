@@ -137,6 +137,16 @@ def posterior_peaks_to_df(posterior_peak_samples, ids, metrics):
 
 def posterior_injury_to_df(posterior_injury_samples, player_ids, metrics, ages, injury_ids, injury_types=None, injury_at_age=None, injury_column="injured"):
     N_chains, N_samples, K, N, T, I = posterior_injury_samples.shape
+    # The injury-effect array is (chains, draws, k, n, T, i) but the prior-mean form used by
+    # model_export has n == 1: the effect depends on (metric, age, injury_type) only, not on the
+    # player. Indexing player_ids[n_idx] then stamps EVERY row with player_ids[0] — which is the
+    # synthetic "No Name" placeholder — producing a player column that looks real, matches nothing,
+    # and silently empties any downstream join on it. Emit NA instead so the column cannot be
+    # mistaken for a usable key; consumers should join these draws on injury_type.
+    _player_col = (
+        np.array(player_ids)[np.arange(N)] if N == len(player_ids)
+        else np.full(N, np.nan, dtype=object)
+    )
     chain_idx, sample_idx, k_idx, n_idx, t_idx, i_idx = np.meshgrid(
         np.arange(N_chains),
         np.arange(N_samples),
@@ -151,7 +161,7 @@ def posterior_injury_to_df(posterior_injury_samples, player_ids, metrics, ages, 
         'chain': chain_idx.ravel(),
         'sample': sample_idx.ravel(),
         'metric': np.array(metrics)[k_idx.ravel()],
-        'player': np.array(player_ids)[n_idx.ravel()],
+        'player': _player_col[n_idx.ravel()],
         'age': np.array(ages)[t_idx.ravel()],
         'id': np.array(injury_ids)[i_idx.ravel()],
         'value': posterior_injury_samples.ravel(),
@@ -315,80 +325,107 @@ def create_metric_trajectory_all(posterior_mean_samples, observations, exposures
     obs_exposure_map = {m: e for m, e in zip(metrics, exposure_names)}
     has_retirement = "retirement" in metrics
     retirement_index = metrics.index("retirement") if has_retirement else None ### 1 -> playing, 0 --> retired
-    minutes_index = metrics.index("pct_minutes")
-    games_index = metrics.index("games")  
-    ### first sample retirement (if present)
-    if has_retirement:
-        post_retirement = jsc.special.expit(posterior_mean_samples[..., retirement_index, :, :])
-        exposure_retirement = exposures[retirement_index]
-        exposure_retirement = exposure_retirement.at[jnp.isnan(exposure_retirement)].set(1)
-        exposure_retirement = jnp.astype(exposure_retirement, jnp.int64)
-        posterior_predictions_retirement = BinomialLogits(posterior_mean_samples[..., retirement_index, :, :], total_count = exposure_retirement).sample(key = next_key())
-        obs_retirement = observations[retirement_index]
+    # The exposure cascade (retirement -> games -> minutes -> everything else) only exists for
+    # panels that actually model games and minutes. A panel whose exposures are directly observed
+    # -- e.g. the athleticism panel, which is per-possession -- has no cascade to simulate, so each
+    # metric uses its OWN exposure instead. Existing box-score panels contain both heads and take
+    # the identical path as before.
+    has_cascade = ("pct_minutes" in metrics) and ("games" in metrics)
+    minutes_index = metrics.index("pct_minutes") if has_cascade else None
+    games_index = metrics.index("games") if has_cascade else None
+    # Count-family output units: per-36-minutes under the cascade, per-100-possessions without it.
+    _count_scale = 36.0 if has_cascade else 100.0
+    posteriors, obs_normalized = {}, {}
+    posterior_predictions_min_exposure = None
+    posterior_predictions_games_exposure = None
+    if has_cascade:
+        ### first sample retirement (if present)
+        if has_retirement:
+            post_retirement = jsc.special.expit(posterior_mean_samples[..., retirement_index, :, :])
+            exposure_retirement = exposures[retirement_index]
+            exposure_retirement = exposure_retirement.at[jnp.isnan(exposure_retirement)].set(1)
+            exposure_retirement = jnp.astype(exposure_retirement, jnp.int64)
+            posterior_predictions_retirement = BinomialLogits(posterior_mean_samples[..., retirement_index, :, :], total_count = exposure_retirement).sample(key = next_key())
+            obs_retirement = observations[retirement_index]
 
-    ### then sample games
-    post_games = posterior_mean_samples[..., games_index, :, :]
-    exposure_games = exposures[games_index]
-    exposure_games = exposure_games.at[jnp.isnan(exposure_games)].set(82)
-    exposure_games = jnp.astype(exposure_games, jnp.int64)
+        ### then sample games
+        post_games = posterior_mean_samples[..., games_index, :, :]
+        exposure_games = exposures[games_index]
+        exposure_games = exposure_games.at[jnp.isnan(exposure_games)].set(82)
+        exposure_games = jnp.astype(exposure_games, jnp.int64)
 
-    posterior_predictions_games = BetaBinomial(concentration0= (1-jsc.special.expit(post_games)) * posterior_kappa_samples[beta_bin_index][..., None, None],
-                                               concentration1=jsc.special.expit(post_games) * posterior_kappa_samples[beta_bin_index][..., None, None],
-                                               total_count=exposure_games[None, None, ...]).sample(key = next_key())
-    beta_bin_index += 1
-    obs_games = observations[games_index]
-    # posterior_predictions_games_exposure = jnp.where(~jnp.isnan(obs_games)[None, None, ...], obs_games[None,None,...], jnp.squeeze(posterior_predictions_games))
-    posterior_predictions_games_exposure = posterior_predictions_games * posterior_predictions_retirement if has_retirement else posterior_predictions_games
-    if condition_on_observed:
-        # When conditioning on observed exposures: replace sampled games with observed games
-        # wherever the observation is not NaN (i.e. training cells and filled-in holdout cells).
-        posterior_predictions_games_exposure = jnp.where(
-            ~jnp.isnan(obs_games)[None, None, ...],
-            obs_games[None, None, ...],
-            posterior_predictions_games_exposure,
-        )
-    #### then sample minutes
-    post_min = posterior_mean_samples[..., minutes_index, :, :]
-    posterior_predictions_min = BetaProportion(jsc.special.expit(post_min), posterior_dispersion_samples[beta_index][..., None, None] * (posterior_predictions_games_exposure + 1)).sample(key = next_key()) * (48 * posterior_predictions_games)
-    beta_index += 1
-    # posterior_predictions_min = posterior_predictions_min.at[posterior_predictions_games == 0].set(0)
-    obs_min = observations[minutes_index]
-    posterior_predictions_min_exposure = jnp.where(~jnp.isnan(obs_min)[None, None, ...], obs_min[None,None,...] * 48 * exposure_games, posterior_predictions_min)
-    posteriors = {"games": posterior_predictions_games / exposure_games, "minutes":jnp.where(posterior_predictions_games == 0, 0, posterior_predictions_min / (posterior_predictions_games * 48))}
-    obs_normalized = {"games": obs_games / exposure_games, "minutes": obs_min}
-    if has_retirement:
-        posteriors["retirement"] = jsc.special.expit(post_retirement)
-        obs_normalized["retirement"] = obs_retirement
+        posterior_predictions_games = BetaBinomial(concentration0= (1-jsc.special.expit(post_games)) * posterior_kappa_samples[beta_bin_index][..., None, None],
+                                                   concentration1=jsc.special.expit(post_games) * posterior_kappa_samples[beta_bin_index][..., None, None],
+                                                   total_count=exposure_games[None, None, ...]).sample(key = next_key())
+        beta_bin_index += 1
+        obs_games = observations[games_index]
+        # posterior_predictions_games_exposure = jnp.where(~jnp.isnan(obs_games)[None, None, ...], obs_games[None,None,...], jnp.squeeze(posterior_predictions_games))
+        posterior_predictions_games_exposure = posterior_predictions_games * posterior_predictions_retirement if has_retirement else posterior_predictions_games
+        if condition_on_observed:
+            # When conditioning on observed exposures: replace sampled games with observed games
+            # wherever the observation is not NaN (i.e. training cells and filled-in holdout cells).
+            posterior_predictions_games_exposure = jnp.where(
+                ~jnp.isnan(obs_games)[None, None, ...],
+                obs_games[None, None, ...],
+                posterior_predictions_games_exposure,
+            )
+        #### then sample minutes
+        post_min = posterior_mean_samples[..., minutes_index, :, :]
+        posterior_predictions_min = BetaProportion(jsc.special.expit(post_min), posterior_dispersion_samples[beta_index][..., None, None] * (posterior_predictions_games_exposure + 1)).sample(key = next_key()) * (48 * posterior_predictions_games)
+        beta_index += 1
+        # posterior_predictions_min = posterior_predictions_min.at[posterior_predictions_games == 0].set(0)
+        obs_min = observations[minutes_index]
+        posterior_predictions_min_exposure = jnp.where(~jnp.isnan(obs_min)[None, None, ...], obs_min[None,None,...] * 48 * exposure_games, posterior_predictions_min)
+        posteriors = {"games": posterior_predictions_games / exposure_games, "minutes":jnp.where(posterior_predictions_games == 0, 0, posterior_predictions_min / (posterior_predictions_games * 48))}
+        obs_normalized = {"games": obs_games / exposure_games, "minutes": obs_min}
+        if has_retirement:
+            posteriors["retirement"] = jsc.special.expit(post_retirement)
+            obs_normalized["retirement"] = obs_retirement
+
     ### sample all the poisson metrics using posterior predictions log min as exposure, and sample obpm / dbpm using sqrt(minutes) as exposure
     
     for metric_index, metric_output in enumerate(metric_outputs):
         metric = metrics[metric_index]
-        skip_indices = [minutes_index, games_index] + ([retirement_index] if has_retirement else [])
+        skip_indices = ([minutes_index, games_index] if has_cascade else []) + ([retirement_index] if has_retirement else [])
         if (metric_index in skip_indices) :
             continue 
         exposure  = exposures[metric_index]
+        # Without a cascade, the exposure this metric was FIT with is the one to predict with.
+        # data_utils stores it transformed per family (log for count, sqrt(1+x) for gaussian/beta,
+        # raw integer for binomial), so invert to the natural scale the samplers below expect.
+        if has_cascade:
+            _exp_use = posterior_predictions_min_exposure
+        elif metric_output in ("poisson", "negative-binomial"):
+            _exp_use = jnp.exp(exposure)[None, None, ...]
+        elif metric_output in ("gaussian", "beta"):
+            _exp_use = (jnp.square(exposure) - 1.0)[None, None, ...]
+        else:
+            _exp_use = exposure[None, None, ...]
         obs = observations[metric_index]
         post = posterior_mean_samples[..., metric_index, :, :]
         if metric_output == "gaussian":
-            scale = posterior_variance_samples[gaussian_index][..., None, None] / (posterior_predictions_min_exposure + 1)
+            # Likelihood is Normal(mu, sigma / sqrt(1 + minutes)) — gaussian exposure is stored as
+            # sqrt(1 + minutes) (data_utils). Dividing by (minutes + 1) here understated the
+            # observation noise by ~sqrt(minutes) (15-50x), collapsing the predictive intervals.
+            scale = posterior_variance_samples[gaussian_index][..., None, None] / jnp.sqrt(_exp_use + 1)
             dist = Normal()
             posterior_predictions = (dist.sample(key = next_key(), sample_shape=post.shape) * scale + post)
             # posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_min_exposure < 1)].set(-2.0)
             gaussian_index += 1
             obs_normal = obs
         elif metric_output in ["poisson", "negative-binomial"]:
-            rate = jnp.exp(post) * posterior_predictions_min_exposure
+            rate = jnp.exp(post) * _exp_use
             if metric_output == "poisson":
                 dist = Poisson(rate = rate)
             elif metric_output == "negative-binomial":
                 dist = NegativeBinomial2(mean = rate, concentration=posterior_neg_bin_samples[neg_bin_index][..., None, None])
                 neg_bin_index += 1
-            posterior_predictions = 36 * (dist.sample(key = next_key()) / posterior_predictions_min_exposure)  ### per 36 min statistics
+            posterior_predictions = _count_scale * (dist.sample(key = next_key()) / _exp_use)  ### per 36 min (cascade) / per 100 poss (no cascade)
             # posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_min_exposure == 0)].set(0) ### set to 0 wherever
-            obs_normal = 36.0 * (obs / jnp.exp(exposure))
+            obs_normal = _count_scale * (obs / jnp.exp(exposure))
         elif metric_output in ["binomial", "beta-binomial"]:
             exp_name = obs_exposure_map[metric]
-            if exp_name in posteriors:
+            if exp_name in posteriors and has_cascade:
                 exp_values = posteriors[exp_name] *  ( posterior_predictions_min_exposure / 36)
                 counts = (jnp.where(~jnp.isnan(exposure)[None, None, ...], exposure[None,None,...], exp_values))
             else:
@@ -403,7 +440,7 @@ def create_metric_trajectory_all(posterior_mean_samples, observations, exposures
             obs_normal = obs / exposure
 
         elif metric_output == "beta":
-            dist = BetaProportion(jsc.special.expit(post), posterior_dispersion_samples[beta_index][..., None, None] * (posterior_predictions_games_exposure + 1))
+            dist = BetaProportion(jsc.special.expit(post), posterior_dispersion_samples[beta_index][..., None, None] * ((posterior_predictions_games_exposure + 1) if has_cascade else (_exp_use + 1)))
             posterior_predictions = dist.sample(key = next_key())
             obs_normal = obs
             beta_index += 1
@@ -454,7 +491,7 @@ def create_metric_trajectory(posterior_mean_samples, player_index, observations,
         obs = observations[metric_index, player_index]
         post = posterior_mean_samples[..., metric_index, :]
         if metric_output == "gaussian":
-            scale = posterior_variance_samples[gaussian_index][..., None] / jnp.sqrt(posterior_predictions_min_exposure)
+            scale = posterior_variance_samples[gaussian_index][..., None] / jnp.sqrt(posterior_predictions_min_exposure + 1)
             dist = Normal()
             posterior_predictions = (dist.sample(key = next_key(), sample_shape=post.shape) * scale + post)
             posterior_predictions = posterior_predictions.at[jnp.where(posterior_predictions_min_exposure < 1.0)].set(-2.0)

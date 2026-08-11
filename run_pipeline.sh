@@ -37,6 +37,8 @@ model_name() {
         cosine_AR)      echo "nba_convex_max_cosine_tvlinearlvm_AR_${scheme}" ;;
         rflvm)          echo "nba_convex_max_tvrflvm_${scheme}" ;;
         rflvm_AR)       echo "nba_convex_max_tvrflvm_AR_${scheme}" ;;
+        rflvm_split)    echo "nba_convex_max_tvrflvm_split_${scheme}" ;;
+        rflvm_split_AR) echo "nba_convex_max_tvrflvm_split_AR_${scheme}" ;;
         injury_rff)     echo "nba_convex_max_tvrflvm_injury_${scheme}" ;;
         injury_cut)     echo "nba_convex_max_tvlinearlvm_injury_${scheme}" ;;
         injury_rff_cut) echo "nba_convex_max_tvrflvm_injury_${scheme}" ;;
@@ -56,6 +58,8 @@ model_dir() {
         cosine_AR)      echo "model_output/nba_convex_max_cosine_tvlinearlvm_AR/${scheme}/mcmc" ;;
         rflvm)          echo "model_output/nba_convex_max_tvrflvm/${scheme}/mcmc" ;;
         rflvm_AR)       echo "model_output/nba_convex_max_tvrflvm_AR/${scheme}/mcmc" ;;
+        rflvm_split)    echo "model_output/nba_convex_max_tvrflvm_split/${scheme}/mcmc" ;;
+        rflvm_split_AR) echo "model_output/nba_convex_max_tvrflvm_split_AR/${scheme}/mcmc" ;;
         injury_rff)     echo "model_output/nba_convex_max_tvrflvm_injury/${scheme}/mcmc" ;;
         injury_cut)     echo "model_output/nba_convex_max_tvlinearlvm_injury/${scheme}/cut_mcmc" ;;
         injury_rff_cut) echo "model_output/nba_convex_max_tvrflvm_injury/${scheme}/cut_mcmc" ;;
@@ -118,6 +122,8 @@ parse_model_choices() {
             8) SELECTED_MODELS+=(cosine_AR) ;;
             9)  SELECTED_MODELS+=(rflvm) ;;
             10) SELECTED_MODELS+=(rflvm_AR) ;;
+            14) SELECTED_MODELS+=(rflvm_split) ;;
+            15) SELECTED_MODELS+=(rflvm_split_AR) ;;
             11) SELECTED_MODELS+=(injury_rff) ;;
             12) SELECTED_MODELS+=(injury_cut) ;;
             13) SELECTED_MODELS+=(injury_rff_cut) ;;

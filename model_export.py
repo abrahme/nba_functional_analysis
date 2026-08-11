@@ -11,7 +11,7 @@ from jax import config, vmap
 from numpyro.diagnostics import print_summary
 from numpyro.infer.util import log_density as _log_density
 config.update("jax_enable_x64", True)
-from data.data_utils import create_fda_data, average_peak_differences, average_range_differences, create_surv_data
+from data.data_utils import create_fda_data, average_peak_differences, average_range_differences, create_surv_data, season_available_fraction
 import numpyro
 import jax.numpy as jnp
 from model.model_utils import compute_residuals_map, compute_priors, make_survival_linear_injury_mcmc, apply_detrend_for_offsets, make_survival_linear_mcmc
@@ -48,12 +48,33 @@ if __name__ == "__main__":
                         help="write only the concave-loadings/canonical-curve parquets and exit — "
                              "skips log-posterior, latent-X, trajectory, injury, survival, and ELPPD "
                              "exports (cheap re-run feeding model_diagnostics.r's curvature plots)")
+    parser.add_argument("--coverage_only", action="store_true",
+                        help="write only the trajectory block feeding coverage.r (posterior_ar / "
+                             "posterior_ar_conditional / peaks / mu / latent-ar / calendar-trend) and "
+                             "exit — skips modal-latent, log-posterior, concave, injury, survival, "
+                             "ELPPD and derivative exports (targeted re-run after sampler fixes)")
+    parser.add_argument("--with_elppd", action="store_true",
+                        help="modifier for --coverage_only: additionally run the per-sample "
+                             "log-loss/ELPPD block (and the survival exports it needs) before "
+                             "exiting — for ELPPD-checking pilot variants without a full export")
+    parser.add_argument("--peaks_no_re", action="store_true",
+                        help="zero the per-player curve random effects (c/t_offset_re, curve_re) "
+                             "and write ONLY the resulting peaks to posterior_peaks_ar_shared / "
+                             "posterior_peak_vals_ar_shared, then exit. These are the ARCHETYPAL "
+                             "peaks -- the shared component f^k(X_p,t) with no idiosyncratic "
+                             "offset -- and are what the peak-age / peak-value PCA figures must "
+                             "use: the nugget is orthogonal to X by construction, so including it "
+                             "injects an uninterpretable noise direction into axes whose whole "
+                             "meaning is archetypal. Prediction/coverage keeps the RE-inclusive peaks.")
     numpyro.set_platform("cpu")
     _cli = vars(parser.parse_args())
     cfg = resolve_model_config(_cli["model_config"], _cli["model_name"], inference_method=_cli["inference_method"])
 
     model_name      = _cli["model_name"]
     _concave_only   = _cli["concave_only"]
+    _coverage_only  = _cli["coverage_only"]
+    _with_elppd     = _cli["with_elppd"]
+    _peaks_no_re    = _cli["peaks_no_re"]
     _is_naive       = "naive" in model_name
     model_dir       = cfg.get("model_dir") or f"model_output/{model_name}/{_cli['inference_method']}"
     os.makedirs(model_dir, exist_ok=True)
@@ -62,6 +83,10 @@ if __name__ == "__main__":
     basis_dims      = cfg["basis_dims"]
     approx_x_dim    = cfg["approx_x_dim"]
     injury          = cfg["injury"]
+    if _coverage_only and injury:
+        raise SystemExit("--coverage_only does not support injury models: latent_val would omit "
+                         "the injury effect (added inside the injury export block) and posterior_ar "
+                         "would be wrong. Run a full export instead.")
     censor_survival_at_injury = cfg.get("censor_survival_at_injury", False)
     position_group  = cfg["position_group"]
     players         = cfg["player_names"]
@@ -80,7 +105,13 @@ if __name__ == "__main__":
         _year_filter += f" & year >= {start_year}"
     if end_year is not None:
         _year_filter += f" & year <= {end_year}"
-    data = pd.read_csv("data/injury_player_cleaned.csv").query(_year_filter)
+    # Must mirror main.py's panel resolution. This was hardcoded to the base panel while main.py
+    # read cfg["injury_data_csv"], so any run on an alternate panel (placebo, symmetric_v2, the
+    # athleticism panel) was FIT on one dataframe and EXPORTED against a different one. Fatal for
+    # panels with different metric columns; silently wrong for panels that only relabel injuries.
+    _panel_csv = cfg.get("injury_data_csv") or "data/injury_player_cleaned.csv"
+    print(f"[export] panel: {_panel_csv}")
+    data = pd.read_csv(_panel_csv).query(_year_filter)
     # data = data.groupby("id").filter(lambda x: x["year"].min() <= cohort_year) ### filter out players who entered the league after this cohort year
     # data = data.groupby("id").filter(lambda x: len(x) >= 3) ### just test to keep guys who have played at least 3 years
     data["first_major_injury"] = (
@@ -95,11 +126,24 @@ if __name__ == "__main__":
             },
         )
     )
+    # Coarse mechanism grouping — MUST mirror main.py exactly. Without this the model is FIT on 4
+    # mechanism groups while the export builds categories from the 8 ungrouped names, so
+    # injury_type_labels is silently mismatched to the model's injury codes and every per-type
+    # effect is attributed to the wrong injury (e.g. code 1 = "Axial", 19 players, was being
+    # labelled "ACL"). Same class of defect as the panel path: the export must replicate main.py's
+    # data prep, not a subset of it.
+    if cfg.get("injury_type_grouping") == "mechanism4":
+        data["first_major_injury"] = data["first_major_injury"].replace({
+            "Achilles": "Tendon Rupture", "Quad/Patellar": "Tendon Rupture",
+            "ACL": "Knee Structural", "Meniscus": "Knee Structural",
+            "Foot Fracture": "Fracture", "Lower Body Fracture": "Fracture",
+            "Hip": "Axial", "Back/Spine": "Axial",
+        })
     data['first_major_injury'] = (
     data['first_major_injury']
             .astype('category')
             .cat.set_categories(
-                ['None'] + 
+                ['None'] +
                 [c for c in pd.unique(data['first_major_injury']) if c != 'None'],
                 ordered=False
             ))
@@ -107,19 +151,26 @@ if __name__ == "__main__":
     injury_type_labels = [inj for inj in data["first_major_injury"].cat.categories if inj != "None"]
     injury_type_ids = np.arange(1, len(injury_type_labels) + 1)
 
-    names = data.groupby("id")["name"].first().values.tolist()
-
     data["log_min"] = np.log(data["minutes"])
     data["usg"] /= 100
     data["usg"] += .01
     data["simple_exposure"] = 1
-    data["games_exposure"] = np.maximum(data["total_games"], data["games"]) ### 82 or whatever
+    # Games exposure must be rectified to AVAILABLE games exactly as main.py does, or GP% is FIT
+    # against one denominator and EXPORTED against another. Measured on injury_player_cleaned_v2:
+    # 590 rows (2.9%, all post-injury) differ by a mean of 28.5 games -- e.g. a rehab season fit
+    # with denominator 51 was being exported as 82.
+    _avail = season_available_fraction(data)
+    _sched = data["total_games"] if _avail is None else np.round(data["total_games"] * _avail)
+    data["games_exposure"] = np.maximum(_sched, data["games"]) ### 82 or whatever
     data["pct_minutes"] = (data["minutes"] / data["games"]) / 48
     data["retirement"] = 1
     _fake_n = age_max - age_min + 1
     fake_data = pd.DataFrame({"age": range(age_min, age_max + 1), "id": 99999999, "year": range(2000, 2000 + _fake_n), "name": "No Name"})
     fake_data = fake_data.reindex(columns=data.columns)
     data = pd.concat([data, fake_data], ignore_index=True)
+    # computed AFTER the synthetic-player append, matching main.py (otherwise this list is one
+    # short and any name->index lookup is shifted)
+    names = data.groupby("id")["name"].first().values.tolist()
     _age_cols = range(age_min, age_max + 1)
     validation_mask = data[["year", "age", "id"]].pivot(columns="age", index="id", values=f"year").reindex(columns=_age_cols).apply(
                                                                         lambda r: r.dropna().iloc[0] + (np.array(list(_age_cols)) - r.dropna().index[0]) if r.notna().any() else r,
@@ -169,14 +220,24 @@ if __name__ == "__main__":
     _score_mask_np = (np.asarray(_score_mask, dtype=bool)
                       if _score_mask is not None else np.asarray(validation_mask, dtype=bool))
 
+    # NOTE ordering: main.py computes these BEFORE appending the synthetic player, this runs
+    # AFTER, and the two do not agree -- the gaussian/beta branch is a merge on `year`, not a
+    # transform, so the extra rows change the join. Measured: all 17 *_league_avg columns differ,
+    # propagating to 446 cells of the de_trend tensor. Currently INERT because every config has
+    # de_trend_metrics: [] and main.py zeroes de_trend under an empty mask, so no shipped number
+    # is affected -- but it would bite silently the moment era de-trending is switched on.
+    # Excluding the synthetic player here reproduces main.py's values exactly.
+    _real = data["id"] != 99999999
     for metric, metric_type, exposure in zip(metrics, metric_output, exposure_list):
         if metric_type in ["gaussian", "beta"]:
-            league_avg_broadcasted = data.groupby(["year"]).apply(
+            league_avg_broadcasted = data[_real].groupby(["year"]).apply(
             lambda g: (g[metric]*g[exposure]).sum() / g[exposure].sum()).reset_index().rename(columns={0: f"{metric}_league_avg"})
-            
-            data = data.merge(league_avg_broadcasted)
+
+            data = data.merge(league_avg_broadcasted, on="year", how="left")
         elif metric_type in ["poisson", "negative-binomial", "binomial", "beta-binomial", "bernoulli"]:
-            data[f"{metric}_league_avg"] = data.groupby("year")[metric].transform("sum") / data.groupby("year")[exposure].transform("sum")
+            _num = data[_real].groupby("year")[metric].sum()
+            _den = data[_real].groupby("year")[exposure].sum()
+            data[f"{metric}_league_avg"] = data["year"].map(_num / _den)
     
     if players:
         pattern = r"class-of-(\d{4})"
@@ -308,6 +369,24 @@ if __name__ == "__main__":
     _mcmc_sampled_keys = set(results_mcmc.keys())
     results_mcmc = {**results_map, **results_mcmc}
 
+    # ── Legacy centered-X normalization ─────────────────────────────────────────────────────
+    # The plain GP models (nba_tvlinearlvm / nba_tvlinearlvm_AR) were fit under the CENTERED X
+    # parameterization: their stored "X" site is TOTAL X. The current classes rebuild
+    # X = Z@W_proj + sigma_X * X_site from the substituted site, which double-applies the
+    # covariate mean and shrinks by the MAP sigma_X — verified to shift e.g. USG predictions by
+    # ~3 obs-SDs per player (coverage collapse to 2.8-16%). Pin the legacy semantics exactly:
+    # X_used = X_stored (W_proj = 0, sigma_X = 1). Convex/RFF families are non-centered and
+    # untouched.
+    # Legacy fits predating the sampled sigma_X site were fit with the class default 1.0
+    # (models.py "structured prior for X"); supply it so the standard non-centered
+    # reconstruction X = Z @ W_proj + sigma_X * X_raw applies unchanged. W_proj is genuine and
+    # is NOT touched — the large apparent bias that motivated an earlier pin here traced to the
+    # random-effect fallthrough handled at model construction, not to the X reconstruction.
+    if "sigma_X" not in results_mcmc:
+        for _dct in (results_map, results_mcmc):
+            _dct["sigma_X"] = jnp.asarray(1.0)
+        print("[legacy] sigma_X absent -> pinned to the fit-time default 1.0 for", model_name)
+
     # Fixed MAP params (alpha, sigma_t, sigma_c, …) were not sampled by MCMC so
     # they have no chain/draw leading dims. Detect (chains, draws) from a
     # known MCMC-sampled param and broadcast any fixed param to match, so
@@ -352,15 +431,16 @@ if __name__ == "__main__":
     # Capability gate (was `"linear" in model_name`): the structured-prior models (linear, cosine,
     # RFF) all sample W_proj, so key off its presence rather than the name.
     _is_rff = "rflvm" in model_name
-    _supports_modal_exports = (not _is_naive) and ("W_proj" in results_mcmc) and (not _concave_only)
+    _supports_modal_exports = (not _is_naive) and ("W_proj" in results_mcmc) and (not _concave_only) and (not _coverage_only)
     if _supports_modal_exports and _is_rff:
-        # The RFF model has a SINGLE shared kernel — there is no separate peak-age/peak-value/curvature
-        # latent representation to decompose (those modalities differ only via per-metric weights in the
-        # shared 2m-dim feature space, not via the latent geometry). To stay faithful to the model, emit
-        # ONE latent rescaled by the per-dimension ARD relevance sqrt(lengthscale): in the kernel the
-        # effective input is sqrt(l) ⊙ X (scaled_W = W·sqrt(l)), so sqrt(l_j) is dim j's relevance.
-        # The per-modality files are intentionally omitted; latent_space.r skips the per-modality
-        # clusterings when they are absent.
+        # The shared-kernel RFF model has a SINGLE kernel — there is no separate peak-age/peak-value/
+        # curvature latent representation to decompose (those modalities differ only via per-metric
+        # weights in the shared 2m-dim feature space, not via the latent geometry). To stay faithful to
+        # the model, emit ONE latent rescaled by the per-dimension ARD relevance sqrt(lengthscale): in
+        # the kernel the effective input is sqrt(l) ⊙ X (scaled_W = W·sqrt(l)), so sqrt(l_j) is dim j's
+        # relevance. For the shared-kernel model the per-modality files are intentionally omitted;
+        # latent_space.r skips the per-modality clusterings when they are absent. The SPLIT model
+        # (per-modality bandwidths) re-emits them below.
         _ell_sqrt = jnp.sqrt(results_mcmc["lengthscale"])                 # (chains, draws, r)
         _X_rescaled = _scale_X_samples(results_mcmc["X"], _ell_sqrt)
         posterior_X_to_df(
@@ -373,6 +453,31 @@ if __name__ == "__main__":
             axis=1,
         )
         _phi_rescaled_df.to_parquet(os.path.join(model_dir, "phi_X_rescaled.parquet"), index=False)
+
+        # Split-RFF model (ConvexMaxSplitRFFTVLinearLVM): each modality has its OWN RFF kernel
+        # (frequency draw + ARD bandwidth: lengthscale = curvature, lengthscale_t_max,
+        # lengthscale_c_max), so a per-modality latent geometry exists again — sqrt(l_mod) ⊙ X is
+        # the effective input of that modality's kernel (the frequency draw is kernel noise).
+        # Emit the same per-modality files the linear model emits so latent_space.r's modality
+        # archetype clusterings run for this model. Keyed off site presence, not the model name
+        # (results_mcmc is back-filled from the MAP samples when the lengthscales are fixed at MCMC).
+        if "lengthscale_t_max" in results_mcmc and "lengthscale_c_max" in results_mcmc:
+            for _mod_tag, _ls_key in (("peak_age", "lengthscale_t_max"),
+                                      ("peak_value", "lengthscale_c_max"),
+                                      ("curvature", "lengthscale")):
+                _ls_sqrt = jnp.sqrt(jnp.asarray(results_mcmc[_ls_key]))   # (chains, draws, r) or (r,)
+                _X_mod = _scale_X_samples(results_mcmc["X"], _ls_sqrt)
+                posterior_X_to_df(
+                    _X_mod, id_df["id"], id_df["name"], id_df["minutes"], id_df["position_group"], []
+                ).to_parquet(
+                    os.path.join(model_dir, f"posterior_latent_X_{_mod_tag}.parquet"), index=False
+                )
+                _ls_sqrt_map = np.sqrt(np.array(results_map[_ls_key]))    # (r,)
+                _phi_mod = np.array(results_map["X"]) * _ls_sqrt_map[None, :]
+                pd.concat(
+                    [pd.DataFrame(_phi_mod, columns=[f"Dim {i+1}" for i in range(_phi_mod.shape[1])]), id_df],
+                    axis=1,
+                ).to_parquet(os.path.join(model_dir, f"phi_X_{_mod_tag}.parquet"), index=False)
     elif _supports_modal_exports:
         latent_dim = results_map["X"].shape[1]
         if "t_max_raw" in results_mcmc and "c_max" in results_mcmc and "beta" in results_mcmc:
@@ -437,7 +542,7 @@ if __name__ == "__main__":
                 _phi_curv_df.to_parquet(
                     os.path.join(model_dir, f"phi_X_curvature_m{_m_tag}.parquet"), index=False
                 )
-    if not _concave_only:
+    if not (_concave_only or _coverage_only):
         _summary_vars = ["sigma_beta", "sigma_beta_binomial", "sigma", "sigma_ar", "sigma_negative_binomial"]
         _summary_subset = {k: results_mcmc[k] for k in _summary_vars if k in results_mcmc}
         summary = az.summary(_summary_subset)
@@ -447,7 +552,7 @@ if __name__ == "__main__":
     # Export per-sample dispersion parameters labelled by metric so model_diagnostics.r
     # can compute posterior log-loss intervals without needing to know index order.
     _disp_rows = []
-    if _concave_only:
+    if _concave_only or _coverage_only:
         metrics_disp_iter = []
     else:
         metrics_disp_iter = list(zip(metrics, metric_output))
@@ -483,15 +588,16 @@ if __name__ == "__main__":
         pd.concat(_disp_rows, ignore_index=True).to_parquet(
             os.path.join(model_dir, "posterior_dispersion.parquet"), index=False
         )
-    survival_injury_keys = {
-        "gamma_global_log",
-        "exit",
-        "exit_rate",
-        "injury_factor",
-        "injury_exit_loading",
-        "injury_exit_global_offset",
-    }
-    has_survival_injury = all(key in results_mcmc for key in survival_injury_keys)
+    # Injury hazard sites: the current models draw a per-type array (injury_exit_raw, scaled by
+    # sigma_injury_exit around injury_exit_global_offset); legacy pkls carry the retired factor
+    # parameterisation (injury_factor @ injury_exit_loading). Accept either.
+    _surv_base_keys = {"gamma_global_log", "exit", "exit_rate", "injury_exit_global_offset"}
+    _has_new_exit = {"injury_exit_raw", "sigma_injury_exit"} <= results_mcmc.keys()
+    _has_legacy_exit = {"injury_factor", "injury_exit_loading"} <= results_mcmc.keys()
+    has_survival_injury = (
+        all(key in results_mcmc for key in _surv_base_keys)
+        and (_has_new_exit or _has_legacy_exit)
+    )
 
     _, surv_data_set, _ = create_surv_data(data, basis_dims, ["left", "right"], ["retirement"] * 2, [], validation_year=validation_year, age_min=age_min, age_max=age_max)
     surv_masks = jnp.stack([data_entity["censored"] for data_entity in surv_data_set], -1)
@@ -553,6 +659,27 @@ if __name__ == "__main__":
     for _ak in _ATTRIBUTE_KNOBS:
         if _ak in _pk:
             setattr(lp_model, _ak, _build_knob_value(_pk[_ak]))
+    # Curve random effects must reflect HOW THE MODEL WAS FIT, not the dispatch default. The
+    # non-injury default turns c/t-offset and curve REs on; if the fitted samples carry no such
+    # site, compute_curves' _resolve_prior falls through to the PRIOR and draws a fresh
+    # N(0,1) offset for every (player, metric) — silently injecting random per-player shifts into
+    # every exported prediction. Older fits (e.g. the nba_tvlinearlvm* ablations) predate the REs
+    # and hit exactly this path. Gate each RE on the presence of its site in the samples.
+    for _re_flag, _re_site in (("use_c_offset_re", "c_offset_re"),
+                               ("use_t_offset_re", "t_offset_re"),
+                               ("use_curve_re", "curve_re")):
+        if getattr(lp_model, _re_flag, False) and _re_site not in results_mcmc:
+            setattr(lp_model, _re_flag, False)
+            print(f"[export] {_re_site} absent from samples -> {_re_flag}=False (fit had no RE)")
+    # --peaks_no_re: substitute ZEROS for the fitted random effects so compute_curves returns the
+    # shared/archetypal curve f^k(X_p, t). The sites stay "present" (so the flags above keep the
+    # RE code path live and the substitution actually bites) but contribute nothing.
+    if _peaks_no_re:
+        for _re_site in ("c_offset_re", "t_offset_re", "curve_re"):
+            for _dct in (results_map, results_mcmc):
+                if _re_site in _dct:
+                    _dct[_re_site] = jnp.zeros_like(jnp.asarray(_dct[_re_site]))
+        print("[export] --peaks_no_re: c/t_offset_re and curve_re zeroed -> archetypal peaks")
     lp_model.initialize_priors(scale_values=scale_values)
     apply_prior_knobs(lp_model, _pk, metrics=metrics)
 
@@ -591,8 +718,8 @@ if __name__ == "__main__":
             "num_de_trend": len(de_trend_metrics),
             "ref_year_idx": _ref_year_idx,
         }
-        if _concave_only:
-            print("log posterior skipped (--concave_only)")
+        if _concave_only or _coverage_only:
+            print("log posterior skipped (--concave_only/--coverage_only)")
         elif _mcmc_leading is not None:
             _nc, _nd = _mcmc_leading
             # Identify the latent (non-observed) sample sites the model actually uses
@@ -659,7 +786,9 @@ if __name__ == "__main__":
             _Z = obs_covariates                                      # (n, 2)
             # MAP total X
             _W_map   = results_map["W_proj"]                         # (2, r)
-            _sX_map  = results_map["sigma_X"]                        # scalar
+            # Legacy runs predate the sigma_X site; the model classes default sigma_X->1.0 when
+            # absent (models.py "structured prior for X" note) — mirror that here.
+            _sX_map  = results_map.get("sigma_X", jnp.asarray(1.0))  # scalar
             _X_loc_map = _Z @ _W_map                                 # (n, r)
             _X_raw_map = jnp.zeros((_Z.shape[0], basis_dims))
             _free_raw_map = results_map.get("X_free", results_map.get("X"))
@@ -672,7 +801,7 @@ if __name__ == "__main__":
 
             # MCMC total X — results_mcmc["X"] now contains assembled X_raw (chains, draws, n, r)
             _W_mc  = results_mcmc["W_proj"]                          # (chains, draws, 2, r) or (2, r)
-            _sX_mc = results_mcmc["sigma_X"]                         # (chains, draws) or scalar
+            _sX_mc = results_mcmc.get("sigma_X", jnp.asarray(1.0))   # (chains, draws) or scalar
             _X_loc_mc = jnp.einsum("...pr,np->...nr", _W_mc, _Z)    # (chains, draws, n, r)
             X_mcmc_aug = _X_loc_mc + _sX_mc[..., None, None] * results_mcmc["X"]  # (chains, draws, n, r)
             # NOTE: do NOT overwrite results_mcmc["X"] — the curve reconstruction (compute_curves under
@@ -724,7 +853,7 @@ if __name__ == "__main__":
     # is added separately via _compute_player_ar (zero for non-AR).
     def _curves_under_substitute(params):
         def f():
-            d = dict(lp_model.compute_curves(*_curve_args, include_derivs=not _concave_only, include_loadings=True))
+            d = dict(lp_model.compute_curves(*_curve_args, include_derivs=not (_concave_only or _coverage_only), include_loadings=not _coverage_only))
             d["ar"] = lp_model._compute_player_ar()
             return d
         return numpyro.handlers.substitute(numpyro.handlers.seed(f, jax.random.PRNGKey(0)), data=params)()
@@ -766,10 +895,12 @@ if __name__ == "__main__":
         TREND_AR_map = de_trend_adjusted
 
     mu += TREND_AR_map
-    if not _concave_only:
+    if not (_concave_only or _coverage_only):
         obs, preds = create_metric_trajectory_map(mu, [], Y, exposures, metric_output, metrics)
 
-        avg_sd, autocorr, lognormal_params, beta_params = compute_residuals_map(preds["y"], obs["y"], exposures, metric_output, metrics, results_map["sigma"], results_map.get("sigma_negative_binomial", 0),
+        # `sigma` is absent when the panel has no gaussian head (see _disp below) -- default it
+        # like the sigma_negative_binomial / sigma_beta arguments beside it.
+        avg_sd, autocorr, lognormal_params, beta_params = compute_residuals_map(preds["y"], obs["y"], exposures, metric_output, metrics, results_map.get("sigma", 1.0), results_map.get("sigma_negative_binomial", 0),
                                                                     results_map.get("sigma_beta_binomial", 0), results_map.get("sigma_beta", 1))
     
     # avg_sd = jnp.ones((len(metrics))) * .01
@@ -799,7 +930,7 @@ if __name__ == "__main__":
         def _one_draw(carry):
             draw, key = carry
             def f():
-                d = dict(lp_model.compute_curves(*_curve_args, include_derivs=not _concave_only, include_loadings=True))
+                d = dict(lp_model.compute_curves(*_curve_args, include_derivs=not (_concave_only or _coverage_only), include_loadings=not _coverage_only))
                 if _concave_only:
                     # Return only what the concave block needs — XLA then dead-code-eliminates
                     # the mu/core-tensor einsums, so each draw's forward is nearly free.
@@ -811,9 +942,12 @@ if __name__ == "__main__":
         _d_mc = {k: v.reshape(_nc, _nd, *v.shape[1:]) for k, v in _d_mc.items()}
         if not _concave_only:
             mu_mcmc = _d_mc["mu"]; tmax_mcmc = _d_mc["t_max"]; cmax_mcmc = _d_mc["c_max"]
-            AR = _d_mc["ar"]; first_deriv = _d_mc["first_deriv"]
-            second_deriv = _d_mc["second_deriv"]; third_deriv = _d_mc["third_deriv"]
-            TREND_AR_mcmc = _d_mc["trend_ar"]
+            AR = _d_mc["ar"]; TREND_AR_mcmc = _d_mc["trend_ar"]
+            if _coverage_only:
+                first_deriv = second_deriv = third_deriv = None
+            else:
+                first_deriv = _d_mc["first_deriv"]
+                second_deriv = _d_mc["second_deriv"]; third_deriv = _d_mc["third_deriv"]
 
     if not _concave_only:
         latent_val = mu_mcmc + AR + TREND_AR_mcmc
@@ -985,42 +1119,136 @@ if __name__ == "__main__":
         raise SystemExit(0)
 
     if injury:
-        injury_loading = results_mcmc["injury_loading"]
-        injury_factor = results_mcmc["injury_factor"]
-        injury_mean_prior = jnp.einsum("...ip, ...kp -> ...ki", injury_factor, injury_loading)
-        # (chains, draws, k, i)
-        _injury_global_offset = results_mcmc.get("injury_global_offset", jnp.zeros(injury_mean_prior.shape[-2]))
-        _sigma_injury = results_mcmc.get("sigma_injury")       # (chains, draws, k) or None
-        _injury_time_raw = results_mcmc.get("injury_time_raw") # (chains, draws, j, i) or None
-        if _sigma_injury is not None and _injury_time_raw is not None:
-            injury_effect_raw = (
-                injury_mean_prior[:, :, :, None, None, :]                                              # (chains, draws, k, 1, 1, i)
-                + _injury_global_offset[:, :, :, None, None, None]                                    # (chains, draws, k, 1, 1, 1)
-                + _sigma_injury[:, :, :, None, None, None] * _injury_time_raw[:, :, None, None, :, :] # (chains, draws, k, 1, j, i)
-            )  # (chains, draws, k, 1, j, i)
+        # Static (n, j) mask of injured player-seasons and its nonzero index — MUST match the
+        # np.nonzero(row-major) order models.py uses to lay out injury_resid_raw's columns.
+        _inj_nj = np.asarray(injury_types[0])            # (n, j) type codes, same across metrics
+        _idx_n, _idx_j = np.nonzero(_inj_nj > 0)         # (S,) each — injured player-seasons
+        _inj_type_s = _inj_nj[_idx_n, _idx_j].astype(int)  # (S,) type code per injured season
+
+        _new_struct = "injury_raw" in results_mcmc
+        if _new_struct:
+            # ── Current structure: full (k, i) metric x type array (global mean + type deviation).
+            # Mean includes the global offset (unlike the legacy export, which wrote the factor
+            # product without it) so posterior_injury_prior_mean is the TOTAL type-level effect.
+            _injury_global_offset = results_mcmc["injury_global_offset"]   # (c, d, k)
+            _sigma_injury = results_mcmc["sigma_injury"]                   # (c, d, k)
+            injury_mean_prior = (
+                _injury_global_offset[..., None]
+                + _sigma_injury[..., None] * results_mcmc["injury_raw"]
+            )  # (c, d, k, i)
+            injury_effect_raw = injury_mean_prior[:, :, :, None, None, :]  # (c, d, k, 1, 1, i)
+            # The per-player-season residual was dropped (unidentified). Older pkls that still carry
+            # it get it added back; current pkls have no such site, so the effect is purely the
+            # (metric, type) mean, constant across a type's player-seasons.
+            _injury_resid = (
+                results_mcmc["sigma_injury_resid"][..., None] * results_mcmc["injury_resid_raw"]
+                if "injury_resid_raw" in results_mcmc else None
+            )  # (c, d, k, S) or None
+            # Decline-acceleration variant: per-year (metric, type) slope in time-since-onset.
+            _slope_mean = (
+                results_mcmc["injury_slope_global_offset"][..., None]
+                + results_mcmc["sigma_injury_slope"][..., None] * results_mcmc["injury_slope_raw"]
+            ) if "injury_slope_raw" in results_mcmc else None  # (c, d, k, i) or None
         else:
-            injury_effect_raw = (
-                injury_mean_prior[:, :, :, None, None, :]
-                + _injury_global_offset[:, :, :, None, None, None]
-            )  # (chains, draws, k, 1, 1, i) — decay model fallback
+            # ── Legacy factor pkls (incl. the decay model) ──
+            injury_loading = results_mcmc["injury_loading"]
+            injury_factor = results_mcmc["injury_factor"]
+            _factor_mean = jnp.einsum("...ip, ...kp -> ...ki", injury_factor, injury_loading)
+            _injury_global_offset = results_mcmc.get("injury_global_offset", jnp.zeros(_factor_mean.shape[:-1]))
+            injury_mean_prior = _factor_mean + _injury_global_offset[..., None]  # (c, d, k, i)
+            _sigma_injury = results_mcmc.get("sigma_injury")       # (c, d, k) or None
+            _injury_time_raw = results_mcmc.get("injury_time_raw") # (c, d, j, i) or None
+            if _sigma_injury is not None and _injury_time_raw is not None:
+                injury_effect_raw = (
+                    injury_mean_prior[:, :, :, None, None, :]
+                    + _sigma_injury[:, :, :, None, None, None] * _injury_time_raw[:, :, None, None, :, :]
+                )  # (c, d, k, 1, j, i)
+            else:
+                injury_effect_raw = injury_mean_prior[:, :, :, None, None, :]  # decay fallback
+            _injury_resid = None
+            _slope_mean = None
+
         injury_effect_padded = jnp.concatenate(
             [jnp.zeros(injury_effect_raw.shape[:-1] + (1,), dtype=injury_effect_raw.dtype),
              injury_effect_raw],
             axis=-1
         )  # (..., k, 1, T, i+1) — take_along_axis broadcasts over n
         injury_effect = jnp.take_along_axis(injury_effect_padded, injury_types[..., None][None, None], -1).squeeze(-1)
+        if _injury_resid is not None:
+            # scatter the residual onto its (n, j) cells — same index order as the model's forward
+            injury_effect = injury_effect.at[:, :, :, _idx_n, _idx_j].add(_injury_resid)
+        # Slope variant: add tau_slope[k, type] * (t - t0) on injured cells, matching the forward.
+        _delta_nj = None
+        if _slope_mean is not None:
+            _inj_ind_nj = np.asarray(injury_masks[0]) if np.asarray(injury_masks).ndim == 3 else np.asarray(injury_masks)
+            _t0_n = np.argmax(_inj_ind_nj.astype(float), axis=-1)                                   # (n,)
+            _delta_nj = np.maximum(np.arange(_inj_nj.shape[1])[None, :] - _t0_n[:, None], 0.0)      # (n, j)
+            _slope_padded = jnp.concatenate(
+                [jnp.zeros(_slope_mean.shape[:-1] + (1,), dtype=_slope_mean.dtype), _slope_mean], axis=-1)
+            _slope_knj = jnp.take_along_axis(
+                _slope_padded[:, :, :, None, None, :], injury_types[..., None][None, None], -1
+            ).squeeze(-1)  # (c, d, k, n, j)
+            injury_effect = injury_effect + _slope_knj * jnp.asarray(_delta_nj)[None, None, None]
         latent_val = latent_val + injury_effect
 
-        injury_posterior_df = posterior_injury_to_df(
-            injury_effect_raw,
-            id_df["id"].to_numpy(),
-            metrics,
-            list(range(age_min, age_max + 1)),
-            injury_type_ids,
-            injury_type_labels,
-            injury_at_age=jnp.any(injury_masks, axis=0).astype(jnp.int32),
-        )
+        if _new_struct:
+            # ── Current structure: write one row per (chain, draw, metric, injured player-season)
+            # with REAL player ids — replacing the old type-indexed table whose broadcast player axis
+            # stamped every row with the placeholder id and silently broke every player-keyed join.
+            # value = that player's (metric, type) mean, plus the per-season residual if the pkl
+            # still carries one (dropped in the current model). Rows for the same injury type share
+            # the mean; keeping them per-player-season keeps the R ATT join simple and correct.
+            _S = int(_idx_n.size)
+            _nc, _nd, _nk = injury_mean_prior.shape[:3]
+            _mean_sel = jnp.take(injury_mean_prior, _inj_type_s - 1, axis=-1)     # (c, d, k, S)
+            if _injury_resid is not None:
+                _mean_sel = _mean_sel + _injury_resid
+            if _slope_mean is not None:
+                # per-season realized effect includes the slope at that season's time-since-onset
+                _delta_s = jnp.asarray(_delta_nj[_idx_n, _idx_j])                 # (S,)
+                _mean_sel = _mean_sel + jnp.take(_slope_mean, _inj_type_s - 1, axis=-1) * _delta_s[None, None, None, :]
+            _effect_s = np.asarray(_mean_sel)
+            _ci, _di, _ki, _si = np.meshgrid(
+                np.arange(_nc), np.arange(_nd), np.arange(_nk), np.arange(_S), indexing="ij")
+            _player_ids_np = id_df["id"].to_numpy()
+            _labels_np = np.array(injury_type_labels)
+            injury_posterior_df = pd.DataFrame({
+                "chain":  _ci.ravel(),
+                "sample": _di.ravel(),
+                "metric": np.array(list(metrics))[_ki.ravel()],
+                "player": _player_ids_np[_idx_n[_si.ravel()]],
+                "age":    (age_min + _idx_j[_si.ravel()]).astype(int),
+                "id":     _inj_type_s[_si.ravel()],
+                "injury_type": _labels_np[_inj_type_s[_si.ravel()] - 1],
+                "value":  _effect_s.ravel(),
+            })
+        else:
+            injury_posterior_df = posterior_injury_to_df(
+                injury_effect_raw,
+                id_df["id"].to_numpy(),
+                metrics,
+                list(range(age_min, age_max + 1)),
+                injury_type_ids,
+                injury_type_labels,
+                injury_at_age=jnp.any(injury_masks, axis=0).astype(jnp.int32),
+            )
         injury_posterior_df.to_parquet(os.path.join(model_dir, "posterior_injury_samples.parquet"), index=False)
+
+        # Horizon estimand (slope variant): injury_effect_h2 = tau_level + 2*tau_slope, the total
+        # (metric, type) effect two years after onset — the headline identified quantity when level
+        # and slope trade off over short post-injury windows.
+        if "injury_effect_h2" in results_mcmc:
+            _h2 = np.asarray(results_mcmc["injury_effect_h2"])   # (c, d, k, i)
+            _hc, _hd, _hk, _hi = _h2.shape
+            _hci, _hdi, _hki, _hii = np.meshgrid(
+                np.arange(_hc), np.arange(_hd), np.arange(_hk), np.arange(_hi), indexing="ij")
+            pd.DataFrame({
+                "chain":  _hci.ravel(),
+                "sample": _hdi.ravel(),
+                "metric": np.array(list(metrics))[_hki.ravel()],
+                "injury_type": np.array(injury_type_labels)[_hii.ravel()],
+                "value":  _h2.ravel(),
+            }).to_parquet(os.path.join(model_dir, "posterior_injury_horizon.parquet"), index=False)
 
         # Export player-specific injury effect (already selected by injury_type) — shape (chains, draws, k, n, j)
         injury_effect_player_df = posterior_to_df(
@@ -1031,14 +1259,29 @@ if __name__ == "__main__":
         )
         injury_effect_player_df.to_parquet(os.path.join(model_dir, "posterior_injury_effect.parquet"), index=False)
 
+        # Per-type exit-hazard effect draws (..., i) — the same array the survival exports use.
+        # Current structure: offset + sigma * raw; legacy: factor product + offset.
+        _injury_exit_effect = None
+        if _has_new_exit:
+            _injury_exit_effect = (
+                results_mcmc["injury_exit_global_offset"][..., None]
+                + results_mcmc["sigma_injury_exit"][..., None] * results_mcmc["injury_exit_raw"]
+            )  # (c, d, i)
+        elif _has_legacy_exit:
+            _injury_exit_effect = jnp.einsum(
+                "...ip, ...p -> ...i", results_mcmc["injury_factor"], results_mcmc["injury_exit_loading"])
+            if "injury_exit_global_offset" in results_mcmc:
+                _injury_exit_effect = _injury_exit_effect + results_mcmc["injury_exit_global_offset"][..., None]
+
+        # No per-player hazard residual in the current model (dropped for the same identification
+        # reason as the metric residual); the hazard effect is the per-injury-type shift alone.
+        _injury_exit_resid_n = None
+
         injury_prior_mean_export = injury_mean_prior
         injury_prior_metrics = list(metrics)
-        if "injury_exit_loading" in results_mcmc:
-            injury_exit_prior_mean = jnp.einsum("...ip, ...p -> ...i", injury_factor, results_mcmc["injury_exit_loading"])
-            if "injury_exit_global_offset" in results_mcmc:
-                injury_exit_prior_mean = injury_exit_prior_mean + results_mcmc["injury_exit_global_offset"][..., None]
+        if _injury_exit_effect is not None:
             injury_prior_mean_export = jnp.concatenate(
-                [injury_prior_mean_export, injury_exit_prior_mean[:, :, None, :]],
+                [injury_prior_mean_export, _injury_exit_effect[:, :, None, :]],
                 axis=2,
             )
             injury_prior_metrics = injury_prior_metrics + ["exit_hazard"]
@@ -1051,8 +1294,14 @@ if __name__ == "__main__":
         )
         injury_prior_df.to_parquet(os.path.join(model_dir, "posterior_injury_prior_mean.parquet"), index=False)
 
-        # Export global injury offsets (per metric + survival) separately
-        _go = np.array(_injury_global_offset)                          # (chains, draws, k)
+        # Export the per-metric GLOBAL injury effect. Use the IDENTIFIED quantity — the mean of the
+        # type-level effects, mean_i(injury_mean_prior[.,.,k,i]) — NOT the raw injury_global_offset
+        # site. The raw offset is aliased with the type deviations by an additive constant (shift it
+        # between them and the effect is unchanged), so across chains it is non-identified
+        # (rhat ~10) and can differ from the true mean effect by an arbitrary amount — materially,
+        # even flipping sign for some metrics. The mean over types is invariant to that alias and is
+        # what "the global injury offset for metric k" actually means.
+        _go = np.array(injury_mean_prior.mean(axis=-1))                # (chains, draws, k) — identified
         _n_chains, _n_draws, _k = _go.shape
         _ci, _si, _ki = np.meshgrid(np.arange(_n_chains), np.arange(_n_draws), np.arange(_k), indexing="ij")
         global_offset_df = pd.DataFrame({
@@ -1062,8 +1311,9 @@ if __name__ == "__main__":
             "value":  _go.ravel(),
         })
         _ci2, _si2 = np.meshgrid(np.arange(_n_chains), np.arange(_n_draws), indexing="ij")
-        if "injury_exit_global_offset" in results_mcmc:
-            _ego = np.array(results_mcmc["injury_exit_global_offset"])
+        if _injury_exit_effect is not None:
+            # identified mean over injury types on the hazard, same treatment
+            _ego = np.array(np.asarray(_injury_exit_effect).mean(axis=-1))
             global_offset_df = pd.concat([global_offset_df, pd.DataFrame({
                 "chain": _ci2.ravel(), "sample": _si2.ravel(),
                 "metric": "exit_hazard", "value": _ego.ravel(),
@@ -1073,15 +1323,19 @@ if __name__ == "__main__":
         injury_effect = jnp.zeros_like(latent_val)
 
     surv_posterior = None
-    if has_survival_injury and injury:
+    if _coverage_only and (not _with_elppd) and os.path.exists(os.path.join(model_dir, "posterior_exit_age_sample.parquet")):
+        # survival exports are unaffected by the trajectory-noise fix — skip for --coverage_only,
+        # but ONLY when the artifact already exists (fresh dirs, e.g. pilots, still need it:
+        # coverage.r reads posterior_exit_age_sample/posterior_exit_survival unconditionally).
+        pass
+    elif has_survival_injury and injury:
             surv_posterior = make_survival_linear_injury_mcmc(
                 X=_X_surv,
                 gamma_global_log=results_mcmc["gamma_global_log"],
                 exit=results_mcmc["exit"],
                 exit_rate=results_mcmc["exit_rate"],
-                injury_factor=results_mcmc["injury_factor"],
-                injury_exit_loading=results_mcmc["injury_exit_loading"],
-                injury_exit_global_offset=results_mcmc["injury_exit_global_offset"],
+                injury_exit_effect=_injury_exit_effect,
+                injury_exit_player_resid=_injury_exit_resid_n,
                 injury_indicator=injury_masks,
                 injury_type=injury_types,
                 entrance_times=Y_surv[:, 0] - age_min + 1e-6,
@@ -1106,9 +1360,8 @@ if __name__ == "__main__":
                 gamma_global_log=results_mcmc["gamma_global_log"],
                 exit=results_mcmc["exit"],
                 exit_rate=results_mcmc["exit_rate"],
-                injury_factor=results_mcmc["injury_factor"],
-                injury_exit_loading=results_mcmc["injury_exit_loading"],
-                injury_exit_global_offset=results_mcmc["injury_exit_global_offset"],
+                injury_exit_effect=_injury_exit_effect,
+                injury_exit_player_resid=_injury_exit_resid_n,
                 injury_indicator=jnp.zeros_like(injury_masks),
                 injury_type=jnp.zeros_like(injury_types),   # type=0 → true no-injury baseline
                 entrance_times=Y_surv[:, 0] - age_min + 1e-6,
@@ -1167,9 +1420,8 @@ if __name__ == "__main__":
                 gamma_global_log=results_mcmc["gamma_global_log"],
                 exit=results_mcmc["exit"],
                 exit_rate=results_mcmc["exit_rate"],
-                injury_factor=results_mcmc["injury_factor"],
-                injury_exit_loading=results_mcmc["injury_exit_loading"],
-                injury_exit_global_offset=results_mcmc["injury_exit_global_offset"],
+                injury_exit_effect=_injury_exit_effect,
+                injury_exit_player_resid=_injury_exit_resid_n,
                 injury_indicator=injury_masks,
                 injury_type=injury_types,
                 entrance_times=_inj_ent_dur,
@@ -1391,57 +1643,89 @@ if __name__ == "__main__":
 
 
 
-    make_diagnostic_heatmap(
-        latent_val,
-        n_players_sel,
-        n_ages,
-        ages,
-        os.path.join(model_dir, "plots", "posterior_latent_ar.png"),
-        player_labels=all_player_labels,
-    )
-    make_diagnostic_heatmap(
-        mu_mcmc,
-        n_players_sel,
-        n_ages,
-        ages,
-        os.path.join(model_dir, "plots", "posterior_mu_ar.png"),
-        player_labels=all_player_labels,
-    )
-    make_rhat_summary_barchart(
-        latent_val,
-        os.path.join(model_dir, "plots", "rhat_summary_latent_ar.png"),
-        metric_labels=metrics,
-    )
-    make_rhat_summary_barchart(
-        mu_mcmc,
-        os.path.join(model_dir, "plots", "rhat_summary_mu_ar.png"),
-        metric_labels=metrics,
-    )
+    if not _coverage_only:
+        make_diagnostic_heatmap(
+            latent_val,
+            n_players_sel,
+            n_ages,
+            ages,
+            os.path.join(model_dir, "plots", "posterior_latent_ar.png"),
+            player_labels=all_player_labels,
+        )
+        make_diagnostic_heatmap(
+            mu_mcmc,
+            n_players_sel,
+            n_ages,
+            ages,
+            os.path.join(model_dir, "plots", "posterior_mu_ar.png"),
+            player_labels=all_player_labels,
+        )
+        make_rhat_summary_barchart(
+            latent_val,
+            os.path.join(model_dir, "plots", "rhat_summary_latent_ar.png"),
+            metric_labels=metrics,
+        )
+        make_rhat_summary_barchart(
+            mu_mcmc,
+            os.path.join(model_dir, "plots", "rhat_summary_mu_ar.png"),
+            metric_labels=metrics,
+        )
 
 
 
 
-    _summary_vars = ["sigma_beta", "sigma_beta_binomial"]
+    # Summarise whatever dispersion sites this panel actually has. Was hardcoded to
+    # [sigma_beta, sigma_beta_binomial], which yields an empty dict -- and an arviz
+    # ValueError -- for a panel with no beta/beta-binomial head (e.g. the all-count/binomial
+    # athleticism panel). Listing all four also makes the summary more informative for the
+    # box-score panel, which has every family.
+    _summary_vars = ["sigma", "sigma_beta", "sigma_beta_binomial", "sigma_negative_binomial"]
     _summary_subset = {k: results_mcmc[k] for k in _summary_vars if k in results_mcmc}
-    summary = az.summary(_summary_subset)
-    summary.to_parquet(os.path.join(model_dir, "posterior_variance_summary.parquet"), index=False)
+    if _summary_subset:
+        summary = az.summary(_summary_subset)
+        summary.to_parquet(os.path.join(model_dir, "posterior_variance_summary.parquet"), index=False)
+    else:
+        print("[export] no dispersion sites in this panel -- skipping posterior_variance_summary")
 
     peaks    = tmax_mcmc + basis.mean() if tmax_mcmc is not None else None
     peak_val = cmax_mcmc if cmax_mcmc is not None else None
-    
-    _neg_bin_samples = jnp.transpose(results_mcmc["sigma_negative_binomial"], (2, 0, 1)) if "sigma_negative_binomial" in results_mcmc else None
+
+    if _peaks_no_re:
+        # Archetypal (RE-free) peaks for the peak-age / peak-value PCA figures.
+        if peaks is not None:
+            posterior_peaks_to_df(peaks, id_df["id"], metrics).to_parquet(
+                os.path.join(model_dir, "posterior_peaks_ar_shared.parquet"), index=False)
+        if peak_val is not None:
+            posterior_peaks_to_df(peak_val, id_df["id"], metrics).to_parquet(
+                os.path.join(model_dir, "posterior_peak_vals_ar_shared.parquet"), index=False)
+        print("--peaks_no_re: wrote posterior_peaks_ar_shared / posterior_peak_vals_ar_shared; exiting")
+        raise SystemExit(0)
+
+
+    def _disp(_name):
+        """Posterior dispersion samples for a family that may be absent from this panel.
+
+        A metric panel only creates the dispersion site for families it actually contains:
+        the athleticism panel is all count/binomial, so it has sigma_negative_binomial but no
+        `sigma` (gaussian), `sigma_beta` (beta) or `sigma_beta_binomial` (beta-binomial).
+        create_metric_trajectory_all coerces None -> 1 and never reads the value for a family
+        the panel does not contain, so None is the correct thing to pass.
+        """
+        return jnp.transpose(results_mcmc[_name], (2, 0, 1)) if _name in results_mcmc else None
+
+    _neg_bin_samples = _disp("sigma_negative_binomial")
     _, pos = create_metric_trajectory_all(latent_val, Y, exposures,
                                             metric_output, metrics, exposure_list,
-                                            jnp.transpose(results_mcmc["sigma"], (2, 0, 1)),
-                                            jnp.transpose(results_mcmc["sigma_beta"],(2, 0, 1)),
-                                            posterior_kappa_samples=jnp.transpose(results_mcmc["sigma_beta_binomial"], (2, 0, 1)),
+                                            _disp("sigma"),
+                                            _disp("sigma_beta"),
+                                            posterior_kappa_samples=_disp("sigma_beta_binomial"),
                                             posterior_neg_bin_samples=_neg_bin_samples,
                                             )
     _, pos_mu = create_metric_trajectory_all(mu_mcmc + TREND_AR_mcmc, Y, exposures,
                                             metric_output, metrics, exposure_list,
-                                            jnp.transpose(results_mcmc["sigma"], (2, 0, 1)),
-                                            jnp.transpose(results_mcmc["sigma_beta"],(2, 0, 1)),
-                                            posterior_kappa_samples=jnp.transpose(results_mcmc["sigma_beta_binomial"], (2, 0, 1)),
+                                            _disp("sigma"),
+                                            _disp("sigma_beta"),
+                                            posterior_kappa_samples=_disp("sigma_beta_binomial"),
                                             posterior_neg_bin_samples=_neg_bin_samples,
                                             )
     
@@ -1449,42 +1733,49 @@ if __name__ == "__main__":
     posterior_df = posterior_to_df(pos, id_df["id"], metrics, range(age_min, age_max + 1))
     posterior_df.to_parquet(os.path.join(model_dir, "posterior_ar.parquet"), index=False)
 
-    # Conditional posterior: for holdout cells, condition on observed games and pct_minutes as
-    # exposures so that only metric-rate uncertainty (FG2A/36, etc.) is propagated.  This enables
-    # "conditional coverage" in model_diagnostics.r — coverage that removes the contribution of
-    # minutes/games uncertainty and tests only the rate predictions.
-    minutes_index = metrics.index("pct_minutes")
-    games_index   = metrics.index("games")
-    _pct_min_pivot = (
-        data.pivot_table(index="id", columns="age", values="pct_minutes", aggfunc="first")
-        .reindex(index=id_df["id"].tolist(), columns=range(age_min, age_max + 1))
-    )
-    _pct_min_obs = jnp.array(_pct_min_pivot.values.astype(np.float64))  # (n, j)
-    _holdout_pct_obs = jnp.array(_score_mask_np) & ~jnp.isnan(_pct_min_obs)
+    # Conditional coverage conditions holdout cells on observed games/pct_minutes exposures.
+    # A panel without those heads has no exposure cascade to condition on (its exposures are
+    # directly observed, e.g. per-possession), so the artifact is undefined -- skip it rather
+    # than crash on metrics.index("pct_minutes").
+    if ("pct_minutes" in metrics) and ("games" in metrics):
+        # Conditional posterior: for holdout cells, condition on observed games and pct_minutes as
+        # exposures so that only metric-rate uncertainty (FG2A/36, etc.) is propagated.  This enables
+        # "conditional coverage" in model_diagnostics.r — coverage that removes the contribution of
+        # minutes/games uncertainty and tests only the rate predictions.
+        minutes_index = metrics.index("pct_minutes")
+        games_index   = metrics.index("games")
+        _pct_min_pivot = (
+            data.pivot_table(index="id", columns="age", values="pct_minutes", aggfunc="first")
+            .reindex(index=id_df["id"].tolist(), columns=range(age_min, age_max + 1))
+        )
+        _pct_min_obs = jnp.array(_pct_min_pivot.values.astype(np.float64))  # (n, j)
+        _holdout_pct_obs = jnp.array(_score_mask_np) & ~jnp.isnan(_pct_min_obs)
 
-    _games_pivot = (
-        data.pivot_table(index="id", columns="age", values="games", aggfunc="first")
-        .reindex(index=id_df["id"].tolist(), columns=range(age_min, age_max + 1))
-    )
-    _games_obs = jnp.array(_games_pivot.values.astype(np.float64))  # (n, j)
-    _holdout_games_obs = jnp.array(_score_mask_np) & ~jnp.isnan(_games_obs)
+        _games_pivot = (
+            data.pivot_table(index="id", columns="age", values="games", aggfunc="first")
+            .reindex(index=id_df["id"].tolist(), columns=range(age_min, age_max + 1))
+        )
+        _games_obs = jnp.array(_games_pivot.values.astype(np.float64))  # (n, j)
+        _holdout_games_obs = jnp.array(_score_mask_np) & ~jnp.isnan(_games_obs)
 
-    Y_conditional = (
-        Y
-        .at[minutes_index].set(jnp.where(_holdout_pct_obs, _pct_min_obs, Y[minutes_index]))
-        .at[games_index].set(jnp.where(_holdout_games_obs, _games_obs, Y[games_index]))
-    )
-    _, pos_conditional = create_metric_trajectory_all(
-        latent_val, Y_conditional, exposures,
-        metric_output, metrics, exposure_list,
-        jnp.transpose(results_mcmc["sigma"], (2, 0, 1)),
-        jnp.transpose(results_mcmc["sigma_beta"], (2, 0, 1)),
-        posterior_kappa_samples=jnp.transpose(results_mcmc["sigma_beta_binomial"], (2, 0, 1)),
-        posterior_neg_bin_samples=_neg_bin_samples,
-        condition_on_observed=True,
-    )
-    posterior_conditional_df = posterior_to_df(pos_conditional, id_df["id"], metrics, range(age_min, age_max + 1))
-    posterior_conditional_df.to_parquet(os.path.join(model_dir, "posterior_ar_conditional.parquet"), index=False)
+        Y_conditional = (
+            Y
+            .at[minutes_index].set(jnp.where(_holdout_pct_obs, _pct_min_obs, Y[minutes_index]))
+            .at[games_index].set(jnp.where(_holdout_games_obs, _games_obs, Y[games_index]))
+        )
+        _, pos_conditional = create_metric_trajectory_all(
+            latent_val, Y_conditional, exposures,
+            metric_output, metrics, exposure_list,
+            _disp("sigma"),
+            _disp("sigma_beta"),
+            posterior_kappa_samples=_disp("sigma_beta_binomial"),
+            posterior_neg_bin_samples=_neg_bin_samples,
+            condition_on_observed=True,
+        )
+        posterior_conditional_df = posterior_to_df(pos_conditional, id_df["id"], metrics, range(age_min, age_max + 1))
+        posterior_conditional_df.to_parquet(os.path.join(model_dir, "posterior_ar_conditional.parquet"), index=False)
+    else:
+        print("[export] no games/pct_minutes heads -- skipping posterior_ar_conditional")
 
     if peaks is not None:
         posterior_peaks = posterior_peaks_to_df(peaks, id_df["id"], metrics)
@@ -1497,9 +1788,9 @@ if __name__ == "__main__":
     if injury and ("counterfactual" not in model_name):
         _, pos_counterfactual = create_metric_trajectory_all(mu_mcmc + AR + TREND_AR_mcmc, Y, exposures,
                                         metric_output, metrics, exposure_list,
-                                        jnp.transpose(results_mcmc["sigma"], (2, 0, 1)),
-                                        jnp.transpose(results_mcmc["sigma_beta"],(2, 0, 1)),
-                                        posterior_kappa_samples=jnp.transpose(results_mcmc["sigma_beta_binomial"], (2, 0, 1)),
+                                        _disp("sigma"),
+                                        _disp("sigma_beta"),
+                                        posterior_kappa_samples=_disp("sigma_beta_binomial"),
                                         posterior_neg_bin_samples=_neg_bin_samples,
                                         )
         posterior_counterfactual_df = posterior_to_df(pos_counterfactual, id_df["id"], metrics, range(age_min, age_max + 1))
@@ -1545,6 +1836,10 @@ if __name__ == "__main__":
             _de_trend_metric_names,
             os.path.join(model_dir, "plots", "calendar_year_trends", f"{model_name}_calendar_year_trends.png"),
         )
+
+    if _coverage_only and not _with_elppd:
+        print("--coverage_only: trajectory/coverage artifacts written, skipping log-loss/ELPPD and remaining exports")
+        raise SystemExit(0)
 
     # ── Per-sample log-loss (posterior interval for predictive accuracy) ─────────
     # For each (chain, draw), compute avg NLL per metric on holdout and in-sample
@@ -1763,6 +2058,10 @@ if __name__ == "__main__":
             )
     except Exception as _e:
         print(f"[warn] per-sample log-loss/ELPPD export skipped: {_e}")
+
+    if _coverage_only and _with_elppd:
+        print("--coverage_only --with_elppd: trajectory + log-loss/ELPPD artifacts written, skipping remaining exports")
+        raise SystemExit(0)
 
     if third_deriv is not None:
         posterior_third_deriv = posterior_peaks_to_df(third_deriv, id_df["id"], metrics)

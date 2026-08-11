@@ -1887,7 +1887,16 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         # baseline hazard (exit_raw = make_psi_gamma(psi_x, exit)/sqrt(norm) * sigma_exit_scale).
         self.prior["sigma_exit_scale"] = HalfNormal(0.5)
         self.prior["eta_global_log"] = Normal(jnp.log(0.04), 0.5)
-        self.prior["gamma_global_log"] = Normal(jnp.log(0.15), 0.3)
+        # gamma_global_log is the linear predictor of the Gompertz aging rate (see
+        # _gompertz_gamma). Unbounded parameterization: gamma = exp(.), so centre at log(0.15).
+        # Bounded parameterization (gamma_max set): gamma = gamma_max * sigmoid(.), so centre at
+        # logit(0.15 / gamma_max) to keep the SAME implied prior median aging rate of 0.15/yr.
+        _gmax_prior = getattr(self, "gamma_max", None)
+        if _gmax_prior is None:
+            self.prior["gamma_global_log"] = Normal(jnp.log(0.15), 0.3)
+        else:
+            _p = min(max(0.15 / float(_gmax_prior), 1e-4), 1 - 1e-4)
+            self.prior["gamma_global_log"] = Normal(float(np.log(_p / (1 - _p))), 0.3)
         self.prior["exit_rate"] = Normal(0.0, 0.1)
         # self.prior["t_offset"] = Uniform(-5, 5)
         # self.prior["c_offset"] = Normal(0, .1)
@@ -1910,6 +1919,10 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         self.prior["sigma_curve"] = 0.5   # loose-ish log-amplitude scale; a in ~[0.37, 2.7] at +-2sd
         self.prior["curve_re"]    = Normal()   # (n, k) unit-normal residual on log curvature amplitude
         self.prior["t_offset_re"]    = Normal()          # (n, k) unit-normal residual on peak AGE (centered years)
+        # Linear-factor offset heads (structured alternative to the nuggets above): (r, k) latent
+        # loadings, active only under use_c_linear / use_t_linear (see _resolve_c/t_linear).
+        self.prior["lambda_c"]       = Normal()          # (r, k) peak-value loadings on X
+        self.prior["lambda_t"]       = Normal()          # (r, k) peak-age loadings on X
         self.prior["rho_year_ar"]   = Uniform(0.9, 0.99)  # positive persistence only; allows near-unit-root for 40-yr era trends
         self.prior["sigma_year_ar"] = HalfNormal(.05)  # loosened: z~N(0,1) needs to give ~0.05/yr to track era trends (e.g. fg3a +1.6 log units over 43 yrs)
         self.prior["beta_year_ar"]  = Normal()
@@ -1952,9 +1965,12 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
                 X = X.at[sample_fixed_indices].set(
                     self.prior["X"].at[sample_fixed_indices].get()
                 )
+            self._latent_X_cache = X   # for the linear-factor offset heads (_resolve_c/t_offset)
             return X
         X_raw = self._resolve_prior("X")
-        return x_loc + x_scale * X_raw
+        X_total = x_loc + x_scale * X_raw
+        self._latent_X_cache = X_total  # for the linear-factor offset heads (_resolve_c/t_offset)
+        return X_total
 
     def _resolve_c_offset(self, offsets):
         """Population c_max anchor, optionally plus a hierarchical player x metric level
@@ -1966,7 +1982,7 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         if c_offset is None:
             c_offset = offsets["c_max"]
         if not getattr(self, "use_c_offset_re", False):
-            return c_offset
+            return self._resolve_c_linear(c_offset, offsets)
         c_max_var = offsets.get("c_max_var", None)
         sigma_c_offset_unit = self._resolve_prior("sigma_c_offset", sample_shape=(self.k,))
         sigma_c_offset = (
@@ -1974,7 +1990,29 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
             if c_max_var is not None else sigma_c_offset_unit
         )
         c_offset_re = self._resolve_prior("c_offset_re", sample_shape=(self.n, self.k))
-        return c_offset + sigma_c_offset[None, :] * c_offset_re
+        return self._resolve_c_linear(c_offset + sigma_c_offset[None, :] * c_offset_re, offsets)
+
+    def _resolve_c_linear(self, c_offset, offsets):
+        """Linear-factor peak-value head (structured alternative to the c_offset_re nugget):
+        c_offset += sigma_c * (X @ lambda_c) / 0.33, i.e. a linear-kernel component on the
+        peak-value GP. lambda_c ~ N(0,1) is (r, k) — per-metric loadings on the latent — and the
+        0.33 = sqrt(E||X_p||^2) normalizer (measured at the flagship MAP, mean ||X||^2 = 0.11)
+        gives the term the same marginal prior variance as the nugget it replaces, so the
+        nugget-vs-factor comparison is run on an equal prior budget. Active only when
+        self.use_c_linear is set."""
+        if not getattr(self, "use_c_linear", False):
+            return c_offset
+        X_lin = getattr(self, "_latent_X_cache", None)
+        if X_lin is None:
+            return c_offset
+        c_max_var = offsets.get("c_max_var", None)
+        sigma_c_offset_unit = self._resolve_prior("sigma_c_offset", sample_shape=(self.k,))
+        sigma_c = (
+            sigma_c_offset_unit * jnp.sqrt(jnp.asarray(c_max_var))
+            if c_max_var is not None else sigma_c_offset_unit
+        )
+        lambda_c = self._resolve_prior("lambda_c", sample_shape=(self.r, self.k))
+        return c_offset + sigma_c[None, :] * (X_lin @ lambda_c) / 0.33
 
     def _resolve_t_offset(self, offsets):
         """Population peak-age anchor, optionally plus a hierarchical player x metric peak-age
@@ -1985,7 +2023,7 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         if t_offset is None:
             t_offset = offsets["t_max"]
         if not getattr(self, "use_t_offset_re", False):
-            return t_offset
+            return self._resolve_t_linear(t_offset, offsets)
         t_max_var = offsets.get("t_max_var", None)
         sigma_t_offset_unit = self._resolve_prior("sigma_t_offset", sample_shape=(self.k,))
         sigma_t_offset = (
@@ -1993,7 +2031,24 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
             if t_max_var is not None else sigma_t_offset_unit
         )
         t_offset_re = self._resolve_prior("t_offset_re", sample_shape=(self.n, self.k))
-        return t_offset + sigma_t_offset[None, :] * t_offset_re
+        return self._resolve_t_linear(t_offset + sigma_t_offset[None, :] * t_offset_re, offsets)
+
+    def _resolve_t_linear(self, t_offset, offsets):
+        """Linear-factor peak-age head; mirror of _resolve_c_linear (see its docstring for the
+        prior-budget normalization). Active only when self.use_t_linear is set."""
+        if not getattr(self, "use_t_linear", False):
+            return t_offset
+        X_lin = getattr(self, "_latent_X_cache", None)
+        if X_lin is None:
+            return t_offset
+        t_max_var = offsets.get("t_max_var", None)
+        sigma_t_offset_unit = self._resolve_prior("sigma_t_offset", sample_shape=(self.k,))
+        sigma_t = (
+            sigma_t_offset_unit * jnp.sqrt(jnp.asarray(t_max_var))
+            if t_max_var is not None else sigma_t_offset_unit
+        )
+        lambda_t = self._resolve_prior("lambda_t", sample_shape=(self.r, self.k))
+        return t_offset + sigma_t[None, :] * (X_lin @ lambda_t) / 0.33
 
     def _resolve_curve_amp(self):
         """Per-player x metric multiplicative curvature amplitude on the quadratic descent term,
@@ -2042,8 +2097,30 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
         eta = jnp.exp(eta_global_log + exit_raw)[:, None]   # (n, 1) — baseline hazard
         gamma_base = make_psi_gamma(psi_x, exit_rate)[:, None] / jnp.sqrt(norm)  # (n, 1): kernel-self-cov scaled-dot-product, matching exit_raw/eta
         gamma_global_log = self._resolve_prior("gamma_global_log")
-        gamma = jnp.exp(gamma_global_log + gamma_base)       # (n, 1) — aging rate
+        gamma = self._gompertz_gamma(gamma_global_log + gamma_base)       # (n, 1) — aging rate
         return eta, gamma
+
+    def _gompertz_gamma(self, logit_or_log):
+        """Gompertz aging rate from its linear predictor.
+
+        Default (gamma_max unset): exp(.), the historical parameterization.
+
+        With `gamma_max` set (knob), gamma = gamma_max * sigmoid(.), which BOUNDS the aging rate
+        by construction. Motivation: a direct Gompertz MLE on this data -- with the model's own
+        draft-age entrance and left-truncation -- gives gamma = 0.09-0.17, matching the
+        N(log 0.15, 0.3) prior. But MAP (a point estimate, so no volume penalty) instead buys
+        sigma_exit_scale ~ 20 (prior HalfNormal(0.5)) and exit_rate mean +0.33 (prior N(0,0.1))
+        to memorise individual exit ages, driving the effective gamma to 21-41 and making the
+        exported hazard 50% non-finite. Those values are then FROZEN into Stage 2 by design (they
+        are the injury-free survival counterfactual, the analogue of the frozen curve parameters),
+        so the corruption propagates and cannot be sampled away. Bounding gamma makes the
+        exponent gamma*t <= gamma_max * age_span, so overflow is impossible without any clamp on
+        the likelihood, and keeps the aging rate inside the range the data and prior agree on.
+        """
+        _gmax = getattr(self, "gamma_max", None)
+        if _gmax is None:
+            return jnp.exp(logit_or_log)
+        return float(_gmax) * jax.nn.sigmoid(logit_or_log)
 
     def compute_survival_likelihood(self, X, offsets = {}) -> None:
         required_keys = ("entrance_times", "exit_times", "right_censor")
@@ -2487,7 +2564,7 @@ class ConvexMaxTVLinearLVM(ConvexMaxTVRFLVM):
                 exit_raw = make_psi_gamma(psi_x, exit_param) / jnp.sqrt(X.shape[-1]) * sampled.get("sigma_exit_scale", 1.0)
                 gamma_base = make_psi_gamma(psi_x, exit_rate)[:, None] / jnp.sqrt(X.shape[-1])
                 gamma_global_log = sampled.get("gamma_global_log", jnp.log(0.15))
-                gamma = jnp.exp(gamma_global_log + gamma_base)  # (n, 1)
+                gamma = self._gompertz_gamma(gamma_global_log + gamma_base)  # (n, 1)
                 eta_global_log = sampled.get("eta_global_log", jnp.log(0.04))
                 eta = jnp.exp(eta_global_log + exit_raw)[:, None]  # (n, 1)
 
@@ -3289,7 +3366,7 @@ class NaiveLinearLVM(ConvexMaxTVLinearLVM):
         eta_global_log = self._resolve_prior("eta_global_log", sample_shape=(self.n, 1))
         eta = jnp.exp(eta_global_log)        # (n, 1) — per-player baseline hazard
         gamma_global_log = self._resolve_prior("gamma_global_log", sample_shape=(self.n, 1))
-        gamma = jnp.exp(gamma_global_log)    # (n, 1) — per-player aging rate
+        gamma = self._gompertz_gamma(gamma_global_log)    # (n, 1) — per-player aging rate
 
         rc = jnp.ravel(offsets["right_censor"].astype(bool))
         exit_times = jnp.ravel(jnp.asarray(offsets["exit_times"]))
@@ -3741,6 +3818,93 @@ class ConvexMaxARRFFTVLinearLVM(ConvexMaxARTVLinearLVM, ConvexMaxRFFTVLinearLVM)
         ConvexMaxRFFTVLinearLVM.__init__(self, latent_rank, rff_dim, output_shape, basis, player_covariates)
 
 
+class ConvexMaxSplitRFFTVLinearLVM(ConvexMaxRFFTVLinearLVM):
+    """ConvexMaxRFFTVLinearLVM with a PER-MODALITY RFF kernel. The base RFF model shares ONE
+    feature map across the peak-age (t_max), peak-value (c_max) and curvature GPs, so a single
+    kernel must serve all three. Here each modality projects the SAME latent X through its OWN
+    frequency draw AND its own inverse-bandwidth:
+        phi_mod(x) = [cos((W_mod*sqrt(l_mod)) x), sin(.)] / sqrt(m),
+        (W_mod, l_mod) in { (W, lengthscale)                 -> curvature,
+                            (W_t_max, lengthscale_t_max)     -> peak age,
+                            (W_c_max, lengthscale_c_max)     -> peak value },
+    i.e. three SE kernels of independent per-dimension relevance over one latent geometry — peak
+    age can vary smoothly along dimensions the curvature kernel ignores, and vice versa. The
+    frequency draws must be INDEPENDENT for consistency: W is a sampled site (the frequency
+    realization is integrated over, not marginalized analytically), so a shared draw would make the
+    three modal feature maps perfectly correlated realizations — the joint prior would NOT be that
+    of three independent GPs, and the posterior over one shared W would have to reconcile all three
+    kernels at once. Independent W_mod ~ N(0, I) (each modality's own spectral draw, as in the
+    legacy ConvexMaxTVRFLVM's W/W_t_max/W_c_max) restores the product prior. The per-modality ARD
+    relevance vectors also mean model_export can again emit the per-modality latents that
+    latent_space.r's archetype clusterings consume (the shared-kernel RFF model omits them).
+
+    The curvature GP keeps the inherited site names "W"/"lengthscale", and the default _project_X
+    (hence the survival hazard and compute_curves' exported psi_x) still uses them — survival
+    deliberately reuses the curvature map rather than adding a fourth kernel. Hook point:
+    _build_t_max_curve / _build_c_max_curve are the single path by which EVERY forward
+    (compute_curves, the AR model_fn, the injury model_fn, the MAP-debug audits) builds the peak
+    curves, so swapping their psi_x for the modal projection needs no model_fn overrides. The
+    caches are (re)populated in _resolve_latent_X_structured, which always runs before the
+    builders in a given trace."""
+
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis, player_covariates=None) -> None:
+        super().__init__(latent_rank, rff_dim, output_shape, basis, player_covariates)
+        self._rff_X = None           # per-forward cache of the resolved latent (for the modal projections)
+        self._rff_W_t_max = None     # per-forward caches of the modal frequency draws
+        self._rff_W_c_max = None
+        self._rff_ls_t_max = None    # per-forward caches of the modal inverse-bandwidths
+        self._rff_ls_c_max = None
+
+    def initialize_priors(self, *args, **kwargs) -> None:
+        super().initialize_priors(*args, **kwargs)
+        # Same families as the curvature kernel's "W" (Normal, (m, r)) and "lengthscale"
+        # (HalfNormal, (r,)) — one independent pair per modality.
+        self.prior["W_t_max"] = Normal()
+        self.prior["W_c_max"] = Normal()
+        self.prior["lengthscale_t_max"] = HalfNormal()
+        self.prior["lengthscale_c_max"] = HalfNormal()
+
+    def _resolve_latent_X_structured(self, x_loc, x_scale, sample_free_indices, sample_fixed_indices):
+        # The parent samples W + the curvature lengthscale here (the single point that runs before
+        # every _project_X / curve-builder call in a trace); add the two modal kernels' sites and
+        # cache X so the builders can project it. Sampling in the builders instead would be fine
+        # for sites (each is called once) but would leave no X to project — the builders only see
+        # psi_x.
+        X = super()._resolve_latent_X_structured(x_loc, x_scale, sample_free_indices, sample_fixed_indices)
+        self._rff_W_t_max = self._resolve_prior("W_t_max", sample_shape=(self.m, self.r))
+        self._rff_W_c_max = self._resolve_prior("W_c_max", sample_shape=(self.m, self.r))
+        self._rff_ls_t_max = self._resolve_prior("lengthscale_t_max", sample_shape=(self.r,))[None]
+        self._rff_ls_c_max = self._resolve_prior("lengthscale_c_max", sample_shape=(self.r,))[None]
+        self._rff_X = X
+        return X
+
+    def _project_X_modal(self, W, lengthscale):
+        _, phi = self._build_rff_features(self._rff_X, W, lengthscale)
+        return phi   # (n, 2m), norm-1 like the shared map (amplitude via _kernel_self_cov = 1)
+
+    def _build_t_max_curve(self, psi_x, t_max_raw, sigma_t_max, t_offset, prior: bool, **kwargs):
+        # Swap in the peak-age feature map; fall back to the shared psi_x on a standalone call
+        # made before any X resolution (mirrors the parent's _project_X fallback).
+        if self._rff_X is not None and self._rff_W_t_max is not None:
+            psi_x = self._project_X_modal(self._rff_W_t_max, self._rff_ls_t_max)
+        return super()._build_t_max_curve(psi_x, t_max_raw, sigma_t_max, t_offset, prior, **kwargs)
+
+    def _build_c_max_curve(self, psi_x, c_max_raw, sigma_c_max, c_offset, prior: bool, **kwargs):
+        if self._rff_X is not None and self._rff_W_c_max is not None:
+            psi_x = self._project_X_modal(self._rff_W_c_max, self._rff_ls_c_max)
+        return super()._build_c_max_curve(psi_x, c_max_raw, sigma_c_max, c_offset, prior, **kwargs)
+
+
+class ConvexMaxARSplitRFFTVLinearLVM(ConvexMaxARTVLinearLVM, ConvexMaxSplitRFFTVLinearLVM):
+    """ConvexMaxARTVLinearLVM with the split-bandwidth RFF latent kernel. Mirrors
+    ConvexMaxARRFFTVLinearLVM: the AR(1)/calendar-trend forward comes from ConvexMaxARTVLinearLVM,
+    the per-modality feature maps from ConvexMaxSplitRFFTVLinearLVM via the MRO (the AR model_fn's
+    _build_max_curves resolves to the split builders; _project_X stays the curvature map)."""
+
+    def __init__(self, latent_rank: int, rff_dim: int, output_shape: tuple, basis, player_covariates=None) -> None:
+        ConvexMaxSplitRFFTVLinearLVM.__init__(self, latent_rank, rff_dim, output_shape, basis, player_covariates)
+
+
 class TVLinearLVM(ConvexMaxTVLinearLVM):
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
@@ -3981,17 +4145,88 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
 
     def initialize_priors(self, *args, **kwargs) -> None:
         super().initialize_priors(*args, **kwargs)
+        # injury_factor is retained for the exit-hazard effect (compute_survival_likelihood);
+        # injury_loading / injury_time_raw are no longer used by this class's metric effect but stay
+        # defined because ConvexMaxDecayInjuryTVLinearLVM still builds its decay form from them.
         self.prior["injury_factor"] = Normal(0, 1)
         self.prior["injury_loading"] = Normal(0, 1)
         self.prior["injury_global_offset"] = Normal(0, 1)
+        # Non-centred raws for the injury hierarchy built in model_fn:
+        #   injury_raw       (k, i) -> (metric, injury type) mean, scale sigma_injury, centred on
+        #                              injury_global_offset[k]
+        #   injury_resid_raw (k, n_injured_seasons) -> iid residual across player and season,
+        #                              scale sigma_injury_resid, centred on that (k, i) mean
+        self.prior["injury_raw"] = Normal(0, 1)
+        self.prior["injury_slope_raw"] = Normal(0, 1)
+        self.prior["injury_acute_raw"] = Normal(0, 1)   # (k, i) acute/recovery magnitude (continuous-time path)
         self.prior["sigma_c"] = HalfNormal(1.5)           # unit-scale: multiplied by sqrt(c_max_var) per metric in model_fn; loosened to allow elite-player peaks (LeBron, KG, etc.)
         self.prior["sigma_t"] = HalfNormal()
         self.prior["injury_exit_loading"] = Normal(0, 1)
-        self.prior["injury_exit_global_offset"] = Normal(0, 1)
-        self.prior["sigma_injury_exit"] = HalfNormal()
         self.prior["injury_exit_raw"] = Normal()
         self.prior["injury_time_raw"] = Normal()
-        self.prior["sigma_injury"] = HalfNormal()
+
+        # Injury-effect variances. When empirical per-metric scales are supplied (model.injury_effect_
+        # scale / .injury_hazard_scale, set in build_inference_inputs / main.py), the three hierarchy
+        # levels are FIXED to s_k/sqrt(3) each so the marginal prior SD of every player-time-metric
+        # effect equals the empirical link-scale effect SD s_k — and, crucially, the scales are
+        # constants rather than sampled HalfNormals, which removes the Neal's-funnel geometry that
+        # made Stage-2 non-convergent (sampled sigma -> 0). The exit hazard uses the scalar hazard
+        # scale the same way. Absent the empirical scales (e.g. a bare unit test), fall back to the
+        # previous sampled HalfNormal / Normal(0,1) behaviour.
+        _s = getattr(self, "injury_effect_scale", None)     # (k,) empirical link-scale SD, or None
+        _sh = getattr(self, "injury_hazard_scale", None)    # scalar log-hazard SD, or None
+        if _s is not None:
+            # Metric effect is a TWO-level hierarchy (global metric mean + per-(metric, injury type)
+            # deviation) — the per-player-season residual was dropped: with one observation per
+            # (player, season, metric) it was soft-confounded with the type mean (the residual
+            # sample-mean and the type mean traded off), leaving chains stuck in different basins
+            # (injury_raw rhat ~8, injury_resid_raw ~164). Even split so the marginal prior SD of a
+            # player-time-metric effect still equals the empirical link-scale SD s_k: sqrt(2*(s_k/√2)^2)=s_k.
+            _lvl = jnp.asarray(_s) / jnp.sqrt(2.0)          # even-halves per-level SD, (k,)
+            self.prior["injury_global_offset"] = Normal(jnp.zeros(self.k), _lvl)
+            self.prior["sigma_injury"] = _lvl              # FIXED constant (k,)
+            # Exit hazard is also two-level (global + per-type), no per-player residual — split the
+            # log-hazard scale evenly so the marginal per-type prior SD equals s_exit.
+            _hlvl = float(_sh) / (2.0 ** 0.5)
+            self.prior["injury_exit_global_offset"] = Normal(0.0, _hlvl)
+            self.prior["sigma_injury_exit"] = jnp.asarray(_hlvl)       # FIXED scalar
+            # Decline-acceleration (slope) prior: per-year link-scale change after onset, same
+            # fixed two-level construction. Scale = s_k spread per typical post-injury year
+            # (injury_slope_scale from injury_prior_scales), so the cumulative slope effect over
+            # an average observed post-injury span stays within the empirical effect range.
+            if bool(getattr(self, "use_injury_slope", 0)):
+                _ssl = getattr(self, "injury_slope_scale", None)
+                _sl = jnp.asarray(_ssl) if _ssl is not None else jnp.asarray(_s) / 3.0
+                _sl_lvl = _sl / jnp.sqrt(2.0)
+                self.prior["injury_slope_global_offset"] = Normal(jnp.zeros(self.k), _sl_lvl)
+                self.prior["sigma_injury_slope"] = _sl_lvl             # FIXED constant (k,)
+            # Acute/recovery magnitude (continuous-time path): the transient deficit at return,
+            # decaying with the fixed recovery timescale. Acute deficits are level-sized, so it
+            # shares the level's empirical scale split (s_k / sqrt(2) per hierarchy level).
+            if bool(getattr(self, "use_injury_decay", 0)):
+                self.prior["injury_acute_global_offset"] = Normal(jnp.zeros(self.k), _lvl)
+                self.prior["sigma_injury_acute"] = _lvl                # FIXED constant (k,)
+        else:
+            self.prior["injury_global_offset"] = Normal(0, 1)
+            self.prior["sigma_injury"] = HalfNormal()
+            self.prior["injury_exit_global_offset"] = Normal(0, 1)
+            self.prior["sigma_injury_exit"] = HalfNormal()
+            if bool(getattr(self, "use_injury_slope", 0)):
+                self.prior["injury_slope_global_offset"] = Normal(0, 1)
+                self.prior["sigma_injury_slope"] = HalfNormal()
+            if bool(getattr(self, "use_injury_decay", 0)):
+                self.prior["injury_acute_global_offset"] = Normal(0, 1)
+                self.prior["sigma_injury_acute"] = HalfNormal()
+
+    def _resolve_prior_recorded(self, key, sample_shape=None):
+        """Resolve a prior and, when it is a FIXED constant (not a Distribution), register it as a
+        numpyro.deterministic so it still appears in the saved posterior samples exactly like a
+        sampled site. This keeps model_export / the R analysis unchanged when the injury variances
+        are fixed — they read `sigma_injury` etc. from the samples as before, now constant per draw."""
+        val = self._resolve_prior(key, sample_shape=sample_shape)
+        if not isinstance(self.prior.get(key), Distribution):
+            val = numpyro.deterministic(key, jnp.asarray(val))
+        return val
 
     def compute_survival_likelihood(self, X, injury_factor, offsets = {}) -> None:
         required_keys = ("entrance_times", "exit_times", "right_censor", "injury_indicator", "injury_type")
@@ -4014,12 +4249,17 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
         eta = jnp.exp(eta_global_log + exit_raw)[:, None]   # (n, 1)
 
         # Injury effect on aging rate γ
-        injury_exit_loading = self._resolve_prior("injury_exit_loading", sample_shape=(self.p,))
+        # ── Injury effect on the exit hazard ───────────────────────────────────────────────
+        # Same treatment as the metric effect: a full per-injury-type array drawn iid around a
+        # global mean, replacing injury_factor (i, p) @ injury_exit_loading (p,) -> (i,).
+        #     injury_exit_effect[i] ~ Normal(injury_exit_global_offset, sigma_injury_exit)
+        # Non-centred; type-specificity retained (injury_type selects the entry).
         injury_exit_global_offset = self._resolve_prior("injury_exit_global_offset")
-        injury_exit_raw = (
-            injury_exit_global_offset
-            + jnp.einsum("ip,p->i", injury_factor, injury_exit_loading)[None, None, :]
-        )  # (1, 1, i)
+        sigma_injury_exit = self._resolve_prior_recorded("sigma_injury_exit")
+        injury_exit_raw = self._resolve_prior("injury_exit_raw", sample_shape=(self.i,))  # (i,)
+        injury_exit_effect = (
+            injury_exit_global_offset + sigma_injury_exit * injury_exit_raw
+        )[None, None, :]  # (1, 1, i)
 
         injury_indicator = offsets["injury_indicator"]
         injury_type = offsets["injury_type"]
@@ -4029,18 +4269,22 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
             injury_type = injury_type[0]
 
         injury_exit_padded = jnp.concatenate(
-            [jnp.zeros(injury_exit_raw.shape[:-1] + (1,), dtype=injury_exit_raw.dtype),
-             injury_exit_raw],
+            [jnp.zeros(injury_exit_effect.shape[:-1] + (1,), dtype=injury_exit_effect.dtype),
+             injury_exit_effect],
             axis=-1,
         )  # (1, 1, i+1) — take_along_axis broadcasts over (n, t)
         injury_effect_exit = jnp.take_along_axis(
             injury_exit_padded, injury_type[..., None], -1
         ).squeeze(-1)  # (n, t)
 
+        # No per-player hazard residual: with one survival event per player it has the same
+        # weak-identification/confounding-with-the-type-effect issue as the dropped metric residual,
+        # so the hazard effect is the per-injury-type shift alone (two-level: global + type).
+
         # Aging rate γ — time-varying due to injury type at each interval
         gamma_base = make_psi_gamma(psi_x, exit_rate)[:, None] / jnp.sqrt(norm)  # (n, 1): kernel-self-cov scaled-dot-product, matching exit_raw/eta
         gamma_global_log = self._resolve_prior("gamma_global_log")
-        gamma = jnp.exp(gamma_global_log + gamma_base + injury_effect_exit)  # (n, t)
+        gamma = self._gompertz_gamma(gamma_global_log + gamma_base + injury_effect_exit)  # (n, t)
 
         rc = jnp.ravel(offsets["right_censor"].astype(bool))
         exit_times = jnp.ravel(jnp.asarray(offsets["exit_times"]))
@@ -4056,6 +4300,20 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
         seg_end_safe = jnp.where(valid_seg, seg_end, 0.0)
         valid_seg_float = valid_seg.astype(exit_times.dtype)
         ratio = eta / gamma  # (n, t) — time-varying
+        # NO clamp on the Gompertz exponent, deliberately. A cap here is worse than useless: the
+        # healthy regime sits at gamma*seg ~ 20-40, so a cap only binds once an injury boost
+        # inflates gamma, and there it FLATTENS the cumulative hazard -- making the censored
+        # log-factor (-H) *less* negative than the truth and manufacturing a spurious
+        # high-likelihood plateau. Observed consequence when a cap of 60 was in place: the exit
+        # offset drifted to +3.0 (gamma*seg -> 850) and the kink at the boundary collapsed NUTS'
+        # step size, freezing every other injury site at its MAP initialisation.
+        #
+        # With the priors as specified -- gamma_global_log ~ N(log 0.15, 0.3) and a per-type exit
+        # effect of prior SD ~0.5 -- gamma stays O(0.1-0.4) and the exponent stays O(10), far
+        # inside float range. Blow-ups are therefore a signal that the fit has left the region the
+        # priors describe (the (eta, gamma) ridge: gamma sat at +5.5 prior SDs with eta at -2.5),
+        # and the correct response is to fix that identification problem, not to clip the
+        # likelihood and hide it.
         delta_H = valid_seg_float * ratio * (
             jnp.exp(gamma * seg_end_safe) - jnp.exp(gamma * seg_start_safe)
         )
@@ -4204,23 +4462,112 @@ class ConvexMaxInjuryTVLinearLVM(ConvexMaxARTVLinearLVM):
             TREND_AR = TREND_AR.at[ar_global_indices].set(trend_ar_nj)
         else:
             TREND_AR = jnp.zeros((self.k, self.n, self.j))
-        injury_loading = self._resolve_prior("injury_loading", sample_shape=(self.k, self.p))
-        injury_factor = self._resolve_prior("injury_factor", sample_shape=(self.i, self.p))
+        # ── Injury effect on the performance metrics ────────────────────────────────────────
+        # A FULL (metric x injury type) array, drawn iid around a global metric-level mean:
+        #     injury_effect_raw[k, i] ~ Normal(injury_global_offset[k], sigma_injury[k])
+        # written non-centred (mu + sigma * raw) to keep the hierarchy well conditioned.
+        #
+        # This REPLACES the rank-p factorisation
+        #     injury_mean_prior = injury_factor (i, p) @ injury_loading (k, p) -> (k, i)
+        # with a directly-sampled array of the same (k, i) shape, so metric x type effects are no
+        # longer forced through a shared p-dimensional subspace and each cell is free. The shared
+        # injury_time_raw (j, i) curve is dropped too — the effect is constant over seasons once a
+        # player is injured. Type-specificity is retained: injury_type still selects the column.
+        #
+        # The exit-hazard effect uses the same treatment, so injury_factor / injury_loading are no
+        # longer drawn anywhere in this model.
+        injury_factor = None
         injury_global_offset = self._resolve_prior("injury_global_offset", sample_shape=(self.k,))
-        injury_mean_prior = jnp.einsum("ip, kp -> ki", injury_factor, injury_loading)
-        sigma_injury = self._resolve_prior("sigma_injury", sample_shape=(self.k,))  # (k,)
-        injury_time_raw = self._resolve_prior("injury_time_raw", sample_shape=(self.j, self.i))  # (j, i)
+        sigma_injury = self._resolve_prior_recorded("sigma_injury", sample_shape=(self.k,))  # (k,) fixed or sampled
+        injury_raw = self._resolve_prior("injury_raw", sample_shape=(self.k, self.i))  # (k, i)
         injury_effect_raw = (
-            injury_global_offset[:, None, None, None]                              # (k, 1, 1, 1)
-            + injury_mean_prior[:, None, None, :]                                  # (k, 1, 1, i)
-            + sigma_injury[:, None, None, None] * injury_time_raw[None, None, :, :]  # (k, 1, j, i)
-        )  # (k, 1, j, i) — uniform over players, time-varying per injury type
+            injury_global_offset[:, None, None, None]                       # (k, 1, 1, 1)
+            + (sigma_injury[:, None] * injury_raw)[:, None, None, :]        # (k, 1, 1, i)
+        )  # (k, 1, 1, i) — the (metric, injury type) mean
         injury_effect_padded = jnp.concatenate(
             [jnp.zeros(injury_effect_raw.shape[:-1] + (1,), dtype=injury_effect_raw.dtype),
              injury_effect_raw],
             axis=-1
-        )  # (k, 1, j, i+1) — take_along_axis broadcasts over n
-        injury_effect = jnp.take_along_axis(injury_effect_padded, injury_type[..., None], -1).squeeze(-1)
+        )  # (k, 1, 1, i+1) — column 0 is the "no injury" zero; take_along_axis broadcasts over n, j
+        injury_effect = jnp.take_along_axis(
+            injury_effect_padded, injury_type[..., None], -1
+        ).squeeze(-1)  # (k, n, j) — every injured season sits at its (metric, type) mean; no residual
+
+        # ── Continuous injury clock (v2 panels; use_injury_continuous) ─────────────────────
+        # offsets carry, per (player, season): w = fraction of PLAYED time post-injury and the
+        # played post-injury segment [dt_lo, dt_hi] in years since the injury date. The level
+        # (and every term below) is gated by w instead of the discrete season indicator, so an
+        # interrupted season whose minutes were all pre-injury play (w=0) is modeled healthy,
+        # and a mid-season comeback carries exactly its post-return fraction.
+        _w_cont = offsets.get("injury_w", None)
+        _use_cont = bool(getattr(self, "use_injury_continuous", 0)) and _w_cont is not None
+        if _use_cont:
+            _w_nj = _w_cont[0] if _w_cont.ndim == 3 else _w_cont            # (n, j)
+            _dtlo = offsets["injury_dt_lo"]; _dtlo = _dtlo[0] if _dtlo.ndim == 3 else _dtlo
+            _dthi = offsets["injury_dt_hi"]; _dthi = _dthi[0] if _dthi.ndim == 3 else _dthi
+            injury_effect = injury_effect * _w_nj[None, :, :]
+
+        # ── Decline-acceleration (slope) augmentation ──────────────────────────────────────
+        # injury_effect[k,n,t] = 1{t >= t0_n} * (tau_level[k,i] + tau_slope[k,i] * (t - t0_n)):
+        # a per-year link-scale slope in time-since-onset, the metric-side counterpart of the
+        # hazard's aging-rate acceleration. A pure level shift is confounded with the AR residual
+        # and with selection at return; the slope captures "injuries speed the decline".
+        # use_injury_slope_only=1 zeroes the level term (pure-acceleration ablation; the level
+        # sites are still sampled from their prior but do not enter mu).
+        if bool(getattr(self, "use_injury_slope", 0)):
+            injury_slope_global = self._resolve_prior("injury_slope_global_offset", sample_shape=(self.k,))
+            sigma_injury_slope = self._resolve_prior_recorded("sigma_injury_slope", sample_shape=(self.k,))
+            injury_slope_raw = self._resolve_prior("injury_slope_raw", sample_shape=(self.k, self.i))  # (k, i)
+            injury_slope_km = injury_slope_global[:, None] + sigma_injury_slope[:, None] * injury_slope_raw  # (k, i)
+            slope_padded = jnp.concatenate(
+                [jnp.zeros((self.k, 1, 1, 1), dtype=injury_slope_km.dtype),
+                 injury_slope_km[:, None, None, :]],
+                axis=-1
+            )  # (k, 1, 1, i+1)
+            slope_knj = jnp.take_along_axis(slope_padded, injury_type[..., None], -1).squeeze(-1)  # (k, n, j)
+            if _use_cont:
+                # Continuous clock: slope evaluated at the played post-segment midpoint, gated
+                # by the post fraction w (slope_knj is already zero for the never-injured via
+                # the type-0 padding, exactly as in the discrete path).
+                delta_t = 0.5 * (_dtlo + _dthi) * _w_nj                                       # (n, j)
+            else:
+                _inj_ind_nj = injury_indicator[0] if injury_indicator.ndim == 3 else injury_indicator  # (n, j)
+                t0_index = jnp.argmax(_inj_ind_nj.astype(jnp.float32), axis=-1)                        # (n,)
+                delta_t = jnp.maximum(jnp.arange(self.j, dtype=jnp.float32)[None, :] - t0_index[:, None], 0.0)  # (n, j)
+            _level_km = injury_global_offset[:, None] + sigma_injury[:, None] * injury_raw  # (k, i)
+            if bool(getattr(self, "use_injury_slope_only", 0)):
+                injury_effect = jnp.zeros_like(injury_effect)
+                _level_km = jnp.zeros_like(_level_km)
+            injury_effect = injury_effect + slope_knj * delta_t[None, :, :]
+            # Horizon estimand: total effect h years after onset — well identified even when
+            # level and slope trade off over short post-injury windows.
+            numpyro.deterministic("injury_effect_h2", _level_km + 2.0 * injury_slope_km)  # (k, i)
+
+        # ── Acute/recovery term (continuous clock only; use_injury_decay) ──────────────────
+        # A transient (metric x type) deficit decaying with the fixed recovery timescale tau,
+        # interval-averaged in closed form over the played post-segment [dt_lo, dt_hi]:
+        #   <e^{-u/tau}>_[lo,hi] = tau/(hi-lo) * (e^{-lo/tau} - e^{-hi/tau}).
+        # Separates the return-year deficit from the persistent level/slope, which the discrete
+        # line-through-a-V parameterization structurally conflated (recovery read as +slope).
+        if _use_cont and bool(getattr(self, "use_injury_decay", 0)):
+            _acute_global = self._resolve_prior("injury_acute_global_offset", sample_shape=(self.k,))
+            _sigma_acute = self._resolve_prior_recorded("sigma_injury_acute", sample_shape=(self.k,))
+            _acute_raw = self._resolve_prior("injury_acute_raw", sample_shape=(self.k, self.i))
+            _acute_km = _acute_global[:, None] + _sigma_acute[:, None] * _acute_raw          # (k, i)
+            _acute_padded = jnp.concatenate(
+                [jnp.zeros((self.k, 1, 1, 1), dtype=_acute_km.dtype),
+                 _acute_km[:, None, None, :]], axis=-1)                                       # (k,1,1,i+1)
+            _acute_knj = jnp.take_along_axis(_acute_padded, injury_type[..., None], -1).squeeze(-1)  # (k,n,j)
+            _tau = float(getattr(self, "injury_recovery_tau", 0.75))
+            _span = jnp.maximum(_dthi - _dtlo, 1e-6)
+            _decay_avg = jnp.where(
+                _dthi > _dtlo,
+                _tau / _span * (jnp.exp(-jnp.maximum(_dtlo, 0.0) / _tau) - jnp.exp(-jnp.maximum(_dthi, 0.0) / _tau)),
+                jnp.exp(-jnp.maximum(_dtlo, 0.0) / _tau),
+            )                                                                                 # (n, j)
+            injury_effect = injury_effect + _acute_knj * (_w_nj * _decay_avg)[None, :, :]
+            numpyro.deterministic("injury_acute_km", _acute_km)
+
         mu_base = self._compute_convex_mu(
             psi_x,
             weights,
@@ -4431,7 +4778,7 @@ class ConvexMaxDecayInjuryTVLinearLVM(ConvexMaxInjuryTVLinearLVM):
         # Aging rate γ — time-varying via decayed injury effect
         gamma_base = make_psi_gamma(psi_x, exit_rate)[:, None] / jnp.sqrt(norm)  # (n, 1): kernel-self-cov scaled-dot-product, matching exit_raw/eta
         gamma_global_log = self._resolve_prior("gamma_global_log")
-        gamma = jnp.exp(gamma_global_log + gamma_base + injury_effect_exit)  # (n, t)
+        gamma = self._gompertz_gamma(gamma_global_log + gamma_base + injury_effect_exit)  # (n, t)
 
         rc = jnp.ravel(offsets["right_censor"].astype(bool))
         exit_times = jnp.ravel(jnp.asarray(offsets["exit_times"]))

@@ -225,6 +225,304 @@ models:
         fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
         thinning: ~
 
+  # REs-on pilot (star-bias lever): identical to the flagship AR-RFF but with the per-player
+  # peak-value and peak-age random effects ENABLED (curve_re stays off — documented tail
+  # inflator). Targets the star mean-bias measured by coverage_by_quality.csv after the
+  # export-noise fix: top-career-OBPM-tercile OBPM coverage 73.9% with HIGHER abs bias and
+  # NARROWER intervals than the bottom tercile — a bias failure the demeaned AR(1) cannot absorb.
+  # Peak-VALUE RE only: c_offset_re on, t_offset_re OFF. The peak-age RE contributes variance
+  # without discrimination -- decomposing the OBPM peak-age posterior, the shared (RBF) component
+  # gives within-player SD 1.01 against a between-player SD of 2.08 (ratio 0.48, players well
+  # separated), but adding the age RE doubles the within-player SD to 2.06 while the between-player
+  # spread barely moves (2.26), pushing the ratio to 0.92 -- i.e. a player's own uncertainty
+  # swallows the differences between players and peak age becomes uninterpretable (Jokic, with 10
+  # seasons and an observed peak, still gets a 95% CI 8.5 years wide). The peak-VALUE RE behaves
+  # well by the same measure (ratio 0.44) and is what fixes the star-coverage bias this whole
+  # exercise was aimed at, so it is retained.
+  nba_convex_max_tvrflvm_AR_re_c_only:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    map_num_steps: 150000
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: 0
+      use_c_offset_re: 1
+      use_t_offset_re: 0
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_re_c_only/map
+      mcmc:
+        mcmc_init: map
+        model_dir:        model_output/nba_convex_max_tvrflvm_AR_re_c_only/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_AR_re_c_only/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_AR_re_c_only/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_tvrflvm_AR_re_c_only_stratified_next_k:
+    model_dir: model_output/nba_convex_max_tvrflvm_AR_re_c_only/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
+  nba_convex_max_tvrflvm_AR_re_on:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    map_num_steps: 150000
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: 0
+      use_c_offset_re: 1
+      use_t_offset_re: 1
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_re_on/map
+      mcmc:
+        mcmc_init: map
+        model_dir:        model_output/nba_convex_max_tvrflvm_AR_re_on/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_AR_re_on/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_AR_re_on/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_tvrflvm_AR_re_on_holdout_last_k:
+    model_dir: model_output/nba_convex_max_tvrflvm_AR_re_on/holdout_last_k/map
+    validation_scheme: holdout_last_k
+
+  nba_convex_max_tvrflvm_AR_re_on_stratified_next_k:
+    model_dir: model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
+  # ATHLETICISM panel (PBPStats shot-location / contact metrics, possessions as exposure).
+  # Same model class and priors as the adopted RE spec above -- only the OBSERVABLES change.
+  #
+  # Why: the main panel's metrics measure how MUCH a player produces, which a skilled player can
+  # hold flat after an injury by changing how he plays. These measure HOW he produces -- whether he
+  # still gets to the rim, finishes there, creates his own shot, draws contact inside the arc, and
+  # jumps for his own miss -- so the latent space encodes athleticism/explosiveness, not quality.
+  #
+  # Deliberately EXCLUDES obpm/dbpm/usg/pct_minutes. Including them lets "good at basketball" load
+  # onto X, which is exactly the confounding this panel exists to avoid: a high-OBPM player would
+  # otherwise read as immune to injury effects because the embedding already encodes his quality.
+  # Measured support for the split: the panel's first factor holds 48.5% of variance raw and 49.6%
+  # after residualising on obpm/dbpm/usage/TsPct/minutes -- i.e. it is essentially orthogonal to
+  # quality. at_rim_unast (R^2 = 0.06 vs quality) and self_oreb (0.09) are the ANCHORS that
+  # identify the athleticism factor; steals was dropped (r = -0.09 with the factor, it is lateral
+  # quickness, a different construct) and all 3pt unassisted shares were dropped (age slope
+  # ~ -0.003, flat -- a pull-up three is not a burst skill).
+  #
+  # Exposure is possessions, not minutes: minutes conflates with pace, which drifts across the
+  # 1997-2026 window. Residual era drift after possession-normalising is small (|10-20%| over 28
+  # years, <1%/yr), so de_trend_metrics stays [] as in the adopted spec -- but if peaks look
+  # era-contaminated, enabling it for putback_pts / blocks_at_rim (-17%, -20%) is the first thing
+  # to try.
+  #
+  # start_year is 1997 by default, which matters here: play-by-play does not exist before that and
+  # the athleticism columns would be all-missing. Coverage on 1997+ is 87.7% (2,338 players).
+  nba_convex_max_tvrflvm_AR_athl:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    map_num_steps: 150000
+    fixed_param_path: ~
+    fixed_params: []
+    injury_data_csv: data/athleticism_panel.csv
+    metrics:
+      # --- rim pressure: can he still get there, and finish? ---
+      - {name: at_rim_fga,    distribution: negative-binomial, exposure: off_poss}
+      - {name: at_rim_fgm,    distribution: binomial,          exposure: at_rim_fga}
+      # ANCHOR -- self-creation at the rim, least quality-contaminated metric in the set
+      - {name: at_rim_unast,  distribution: binomial,          exposure: at_rim_fgm}
+      # getting stuffed = less lift (OFFENSIVE field; see build_athleticism_panel.py naming trap)
+      - {name: fg2a_blocked,  distribution: binomial,          exposure: fg2a_pbp}
+      # --- contact generation inside the arc ---
+      - {name: sfd_2pt,       distribution: negative-binomial, exposure: off_poss}
+      - {name: and1_2pt,      distribution: poisson,           exposure: off_poss}
+      # --- second jump / verticality ---
+      - {name: putback_pts,   distribution: negative-binomial, exposure: off_poss}
+      - {name: self_oreb,     distribution: poisson,           exposure: off_poss}   # ANCHOR
+      # --- defensive verticality ---
+      - {name: blocks_at_rim, distribution: poisson,           exposure: def_poss}
+      - {name: blocks_pbp,    distribution: poisson,           exposure: def_poss}
+    prior_knobs:
+      use_curve_re: 0
+      use_c_offset_re: 1
+      use_t_offset_re: 1
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_athl/map
+      mcmc:
+        mcmc_init: map
+        model_dir:        model_output/nba_convex_max_tvrflvm_AR_athl/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_AR_athl/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_AR_athl/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_tvrflvm_AR_athl_stratified_next_k:
+    model_dir: model_output/nba_convex_max_tvrflvm_AR_athl/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
+  # REs + LINEAR peak-value kernel. The RFF/SE kernel is stationary, so the peak-value readout
+  # reverts toward the neighbourhood mean and compresses elite players: regressing the shared
+  # (RE-free) ceiling on observed best OBPM for well-measured players gives slope 0.31 (1.0 =
+  # no compression), and the best sextile sits 4.14 BELOW what it has already produced. The
+  # nugget lifts the slope only to 0.49 -- it is unstructured, so it cannot know that a
+  # high-X player should extrapolate higher; it can only memorise players it has seen. Adding
+  # k_lin to the peak-value process (k_SE + k_lin + nugget) lets the ceiling keep rising along
+  # the quality direction of X, which is what a draft-cohort projection needs. Peak AGE keeps
+  # the SE kernel: the compression problem is specific to the value.
+  # REs + LOOSENED peak-value amplitude prior. Diagnosis: the OBPM peak-value process is pinned
+  # against its amplitude cap -- sigma_c[obpm] = 2.09 (raw OBPM units; metrics are NOT normalised,
+  # process_data is called without normalize) against a modeled shared peak-value SD of 2.06, i.e.
+  # 98% of the cap. It is the ONLY metric in that state: the other 16 use 2-22% of their sigma_c.
+  # A process that can only span +/-2.09 around the population mean cannot represent players whose
+  # true peaks are 6-8, which is exactly the compression we measure (slope of shared ceiling on
+  # observed best = 0.31; the top sextile sits 4.14 below what it has already produced).
+  #
+  # Two things kept it small: the prior InverseGamma(2, 1) puts the prior mean at 1, and sigma_c is
+  # in fixed_params so MCMC inherits the MAP value and can never relax it. Loosening the prior to
+  # InverseGamma(2, 4) (prior mean 4, still heavy-tailed) lets MAP find a larger amplitude, which
+  # then propagates into the frozen MCMC value. Only this variant's prior changes -- the shared
+  # &convex_sigma_c anchor is untouched so the adopted spec and the in-flight rollout are unaffected.
+  #
+  # Expected effect: decompressed OBPM peaks, higher ceilings for elite players, and LESS work for
+  # the poorly-mixed nugget (ESS 5-12) since the shared component can now carry the level itself.
+  nba_convex_max_tvrflvm_AR_re_sc:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    map_num_steps: 150000
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: 1
+      use_t_offset_re: 1
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: {dist: InverseGamma, args: [2, 4]}
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_re_sc/map
+      mcmc:
+        mcmc_init: map
+        model_dir:        model_output/nba_convex_max_tvrflvm_AR_re_sc/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_AR_re_sc/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_AR_re_sc/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_tvrflvm_AR_re_sc_stratified_next_k:
+    model_dir: model_output/nba_convex_max_tvrflvm_AR_re_sc/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
+  nba_convex_max_tvrflvm_AR_re_lin:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    map_num_steps: 150000
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: 1
+      use_t_offset_re: 1
+      use_c_linear: 1
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_re_lin/map
+      mcmc:
+        mcmc_init: map
+        model_dir:        model_output/nba_convex_max_tvrflvm_AR_re_lin/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_AR_re_lin/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_AR_re_lin/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_tvrflvm_AR_re_lin_stratified_next_k:
+    model_dir: model_output/nba_convex_max_tvrflvm_AR_re_lin/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
+  nba_convex_max_tvrflvm_AR_re_on_holdout_first_k:
+    model_dir: model_output/nba_convex_max_tvrflvm_AR_re_on/holdout_first_k/map
+    validation_scheme: holdout_first_k
+
+  nba_convex_max_tvrflvm_AR_re_on_random_interior:
+    model_dir: model_output/nba_convex_max_tvrflvm_AR_re_on/random_interior/map
+    validation_scheme: random_interior
+
+  nba_convex_max_tvrflvm_AR_re_on_holdout_peak:
+    model_dir: model_output/nba_convex_max_tvrflvm_AR_re_on/holdout_peak/map
+    validation_scheme: holdout_peak
+
+  # Linear-factor pilot (nugget replacement test): both iid REs OFF, both linear-factor heads ON
+  # (c/t offset = sigma * X @ lambda / 0.33 — a linear-kernel component on the peak GPs, equal
+  # prior budget to the nuggets). Tests whether the star corrections are encodable in the shared
+  # latent when X is free to reorganize; compare coverage_by_quality + ELPPD against _re_on.
+  nba_convex_max_tvrflvm_AR_linear:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    map_num_steps: 150000
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      use_c_linear: 1
+      use_t_linear: 1
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_linear/map
+      mcmc:
+        mcmc_init: map
+        model_dir:        model_output/nba_convex_max_tvrflvm_AR_linear/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_AR_linear/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_AR_linear/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, lengthscale, sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_tvrflvm_AR_linear_holdout_last_k:
+    model_dir: model_output/nba_convex_max_tvrflvm_AR_linear/holdout_last_k/map
+    validation_scheme: holdout_last_k
+
   nba_convex_max_tvrflvm_AR_holdout_last_k:
     model_dir: model_output/nba_convex_max_tvrflvm_AR/holdout_last_k/map
     validation_scheme: holdout_last_k
@@ -243,6 +541,86 @@ models:
 
   nba_convex_max_tvrflvm_AR_stratified_next_k:
     model_dir: model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
+  # ── ConvexMaxSplitRFFTVLinearLVM (per-modality RFF kernels) ──────────────────
+  # Same machinery as nba_convex_max_tvrflvm, but the peak-age / peak-value / curvature GPs each get
+  # their OWN independent RFF kernel: own frequency draw AND own ARD lengthscale (sites: W_t_max /
+  # lengthscale_t_max, W_c_max / lengthscale_c_max alongside the curvature W / lengthscale).
+  # Independent draws are required for consistency — W is sampled (integrated), so one shared draw
+  # would correlate the three kernel realizations instead of giving three independent GPs. "split"
+  # in the name selects the class in dispatch_model. Restores a per-modality latent geometry, so
+  # model_export emits the per-modality rescaled latents and latent_space.r's modality archetype
+  # clusterings run for this model.
+  nba_convex_max_tvrflvm_split:
+    m_time: 5
+    basis_dims: 10   # latent rank r
+    approx_x_dim: 50       # RFF frequency count m; projected feature width = 2*m = 100
+    map_num_steps: 50000
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_split/map
+      mcmc:
+        mcmc_init: map
+        model_dir:        model_output/nba_convex_max_tvrflvm_split/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_split/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_split/map/samples.pkl
+        # All THREE RFF bandwidths fixed at MAP (same rationale as the shared-kernel entry: pins the
+        # kernel scales and removes the W*sqrt(lengthscale) ridges); the three frequency draws
+        # (W, W_t_max, W_c_max) stay sampled.
+        fixed_params: [alpha, lengthscale_deriv, lengthscale, lengthscale_t_max, lengthscale_c_max,
+                       sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_tvrflvm_split_stratified_next_k:
+    model_dir: model_output/nba_convex_max_tvrflvm_split/stratified_next_k/map
+    validation_scheme: stratified_next_k
+
+  # ── ConvexMaxARSplitRFFTVLinearLVM (split-bandwidth RFF + AR(1)/calendar-year trend) ─
+  nba_convex_max_tvrflvm_split_AR:
+    m_time: 5
+    basis_dims: 10   # latent rank r
+    approx_x_dim: 50
+    map_num_steps: 50000
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_split_AR/map
+      mcmc:
+        mcmc_init: map
+        model_dir:        model_output/nba_convex_max_tvrflvm_split_AR/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_split/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_split/map/samples.pkl
+        # Three bandwidths fixed at MAP — see the non-AR split entry.
+        fixed_params: [alpha, lengthscale_deriv, lengthscale, lengthscale_t_max, lengthscale_c_max,
+                       sigma_t, sigma_c, sigma_exit_scale, sigma_W_proj, sigma_X]
+        thinning: ~
+
+  nba_convex_max_tvrflvm_split_AR_stratified_next_k:
+    model_dir: model_output/nba_convex_max_tvrflvm_split_AR/stratified_next_k/map
     validation_scheme: stratified_next_k
 
   # ── alpha fixed-vs-learnable A/B comparison (REs off, tuned scale knobs) ──────
@@ -929,9 +1307,11 @@ models:
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm_causal/prefit/map/samples.pkl
         # The survival-hazard globals (eta_global_log / gamma_global_log) are deliberately NOT
         # frozen — they are re-fit under the injury likelihood, like the dispersion params.
+        # Dispersion frozen at Stage-1 healthy value (part of the counterfactual noise model).
         fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
                        sigma_W_proj, W_proj, sigma_X, X,
-                       exit, sigma_exit_scale, exit_rate]
+                       exit, sigma_exit_scale, exit_rate,
+                       sigma, sigma_beta, sigma_beta_binomial, sigma_negative_binomial]
         thinning: 250
 
   nba_convex_max_tvlinearlvm_AR_injury_causal:
@@ -950,10 +1330,13 @@ models:
         init_path:        model_output/nba_convex_max_tvlinearlvm_AR_causal/prefit/map/samples.pkl
         fixed_param_path: model_output/nba_convex_max_tvlinearlvm_AR_causal/prefit/map/samples.pkl
         # Survival-hazard globals deliberately left free — see the non-AR causal entry above.
+        # Dispersion frozen at Stage-1 healthy value (part of the counterfactual noise model) — see
+        # the RFF causal entry below.
         fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
                        sigma_W_proj, W_proj, sigma_X, X,
                        exit, sigma_exit_scale, exit_rate,
-                       rho_ar, sigma_ar, beta_ar, AR_0]
+                       rho_ar, sigma_ar, beta_ar, AR_0,
+                       sigma, sigma_beta, sigma_beta_binomial, sigma_negative_binomial]
         thinning: 250
 
   # ── Two-Stage Causal Injury Pipeline: RFF leaf (concave RFF + AR + injury) ───
@@ -969,6 +1352,177 @@ models:
   # observations and censor_survival_at_injury censors the exit hazard at onset, so the curve /
   # latents are the injury-free fit. The name deliberately carries NO "injury" token, so
   # dispatch_model takes the non-injury RFF branch -> ConvexMaxARRFFTVLinearLVM (aging + AR only).
+  # ===== ATHLETICISM INJURY SUITE =====
+  # Mirrors the box-score ct_sym / ct_placebo_sym pair, on the athleticism panel. Same two-stage
+  # cut: the prefit fixes the injury-free counterfactual curves, then stage 2 samples ONLY the
+  # injury sites against the full likelihood.
+  # mcmc_init is median throughout -- see the box-score ct_sym entry for why map init freezes
+  # the continuous-time path.
+
+  # Stage 1: injury-free counterfactual on the SYMMETRIC panel.
+  nba_convex_max_tvrflvm_AR_athl_causal_sym_prefit:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    age_min: 18
+    age_max: 45
+    # start_year pinned to 1997 (NOT ~ as in the box-score suite): play-by-play does not exist
+    # before that, so earlier rows carry no athleticism data. The prefit and the injury run MUST
+    # share this window -- the cut freezes X by position, so a differing player set breaks it.
+    start_year: 1997
+    end_year: 2025
+    map_num_steps: 50000
+    injury: false
+    injury_data_csv: data/athleticism_panel_symmetric.csv
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    metrics:
+      - {name: at_rim_fga,    distribution: negative-binomial, exposure: off_poss}
+      - {name: at_rim_fgm,    distribution: binomial,          exposure: at_rim_fga}
+      - {name: at_rim_unast,  distribution: binomial,          exposure: at_rim_fgm}
+      - {name: fg2a_blocked,  distribution: binomial,          exposure: fg2a_pbp}
+      - {name: sfd_2pt,       distribution: negative-binomial, exposure: off_poss}
+      - {name: and1_2pt,      distribution: poisson,           exposure: off_poss}
+      - {name: putback_pts,   distribution: negative-binomial, exposure: off_poss}
+      - {name: self_oreb,     distribution: poisson,           exposure: off_poss}
+      - {name: blocks_at_rim, distribution: poisson,           exposure: def_poss}
+      - {name: blocks_pbp,    distribution: poisson,           exposure: def_poss}
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_athl_causal_sym/prefit/map
+
+  # Stage 2: the estimand.
+  nba_convex_max_tvrflvm_AR_athl_injury_causal_ct_sym:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    age_min: 18
+    age_max: 45
+    # start_year pinned to 1997 (NOT ~ as in the box-score suite): play-by-play does not exist
+    # before that, so earlier rows carry no athleticism data. The prefit and the injury run MUST
+    # share this window -- the cut freezes X by position, so a differing player set breaks it.
+    start_year: 1997
+    end_year: 2025
+    map_num_steps: 50000
+    num_warmup: 2000
+    injury: true
+    injury_data_csv: data/athleticism_panel.csv
+    injury_type_grouping: mechanism4
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    metrics:
+      - {name: at_rim_fga,    distribution: negative-binomial, exposure: off_poss}
+      - {name: at_rim_fgm,    distribution: binomial,          exposure: at_rim_fga}
+      - {name: at_rim_unast,  distribution: binomial,          exposure: at_rim_fgm}
+      - {name: fg2a_blocked,  distribution: binomial,          exposure: fg2a_pbp}
+      - {name: sfd_2pt,       distribution: negative-binomial, exposure: off_poss}
+      - {name: and1_2pt,      distribution: poisson,           exposure: off_poss}
+      - {name: putback_pts,   distribution: negative-binomial, exposure: off_poss}
+      - {name: self_oreb,     distribution: poisson,           exposure: off_poss}
+      - {name: blocks_at_rim, distribution: poisson,           exposure: def_poss}
+      - {name: blocks_pbp,    distribution: poisson,           exposure: def_poss}
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      use_injury_slope: 1
+      use_injury_continuous: 1
+      use_injury_decay: 1
+      injury_recovery_tau: 0.75
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_athl_injury_causal_ct_sym/map
+      mcmc:
+        mcmc_init: median
+        model_dir:        model_output/nba_convex_max_tvrflvm_AR_athl_injury_causal_ct_sym/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_AR_athl_causal_sym/prefit/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_AR_athl_causal_sym/prefit/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
+                       sigma_W_proj, W_proj, sigma_X, X, W, lengthscale,
+                       exit, sigma_exit_scale, exit_rate,
+                       rho_ar, sigma_ar, beta_ar, AR_0,
+                       sigma, sigma_beta, sigma_beta_binomial, sigma_negative_binomial]
+        thinning: 250
+
+  # Stage 2 calibration: same machinery, pseudo-onsets on never-injured players. Effects here
+  # should straddle zero; anything else means the pipeline manufactures signal.
+  nba_convex_max_tvrflvm_AR_athl_injury_causal_ct_placebo_sym:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    age_min: 18
+    age_max: 45
+    # start_year pinned to 1997 (NOT ~ as in the box-score suite): play-by-play does not exist
+    # before that, so earlier rows carry no athleticism data. The prefit and the injury run MUST
+    # share this window -- the cut freezes X by position, so a differing player set breaks it.
+    start_year: 1997
+    end_year: 2025
+    map_num_steps: 50000
+    num_warmup: 2000
+    injury: true
+    injury_data_csv: data/athleticism_panel_placebo.csv
+    injury_type_grouping: mechanism4
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    metrics:
+      - {name: at_rim_fga,    distribution: negative-binomial, exposure: off_poss}
+      - {name: at_rim_fgm,    distribution: binomial,          exposure: at_rim_fga}
+      - {name: at_rim_unast,  distribution: binomial,          exposure: at_rim_fgm}
+      - {name: fg2a_blocked,  distribution: binomial,          exposure: fg2a_pbp}
+      - {name: sfd_2pt,       distribution: negative-binomial, exposure: off_poss}
+      - {name: and1_2pt,      distribution: poisson,           exposure: off_poss}
+      - {name: putback_pts,   distribution: negative-binomial, exposure: off_poss}
+      - {name: self_oreb,     distribution: poisson,           exposure: off_poss}
+      - {name: blocks_at_rim, distribution: poisson,           exposure: def_poss}
+      - {name: blocks_pbp,    distribution: poisson,           exposure: def_poss}
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      use_injury_slope: 1
+      use_injury_continuous: 1
+      use_injury_decay: 1
+      injury_recovery_tau: 0.75
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_athl_injury_causal_ct_placebo_sym/map
+      mcmc:
+        mcmc_init: median
+        model_dir:        model_output/nba_convex_max_tvrflvm_AR_athl_injury_causal_ct_placebo_sym/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_AR_athl_causal_sym/prefit/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_AR_athl_causal_sym/prefit/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
+                       sigma_W_proj, W_proj, sigma_X, X, W, lengthscale,
+                       exit, sigma_exit_scale, exit_rate,
+                       rho_ar, sigma_ar, beta_ar, AR_0,
+                       sigma, sigma_beta, sigma_beta_binomial, sigma_negative_binomial]
+        thinning: 250
+
   nba_convex_max_tvrflvm_AR_causal_prefit:
     m_time: 5
     basis_dims: 10         # latent rank r
@@ -996,6 +1550,42 @@ models:
     regimes:
       map:
         model_dir: model_output/nba_convex_max_tvrflvm_AR_causal/prefit/map
+
+  # SYMMETRIC-CUT prefit: identical to nba_convex_max_tvrflvm_AR_causal_prefit but fit on the
+  # UNION panel (real injuries + the placebo's pseudo-onsets, data_causal/make_placebo_injury_csv.py)
+  # so BOTH cohorts are censored/masked at onset. Stage 1 is then equally blind to real and
+  # placebo post-onset fates: the placebo pass criterion (effect ~= 0) is fair, and
+  # real-minus-placebo is a valid calibrated hazard contrast. Motivated by the asymmetric
+  # placebo finding (placebo exit offset +2.7 vs real -0.6 — opposite signs, same instrument
+  # needed). Name carries no "injury" token -> non-injury RFF dispatch, as with the base prefit.
+  nba_convex_max_tvrflvm_AR_causal_sym_prefit:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    map_num_steps: 50000
+    age_min: 18
+    age_max: 45
+    start_year: ~
+    end_year: ~
+    injury: true
+    censor_survival_at_injury: true
+    injury_data_csv: data/injury_player_cleaned_symmetric.csv
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_causal_sym/prefit/map
 
   # Stage 2 — freeze Stage 1's counterfactual params, sample ONLY the injury-specific sites. The
   # "injury" token + injury: true make dispatch_model select ConvexMaxInjuryRFFTVLinearLVM, which
@@ -1042,10 +1632,369 @@ models:
         # Left free on purpose: the survival-hazard globals (eta_global_log / gamma_global_log) and
         # sigma, sigma_beta, sigma_beta_binomial, sigma_negative_binomial — re-fit under the injury
         # likelihood (matches the linear causal pair).
+        # Observation-noise dispersion is now FROZEN at the Stage-1 (healthy) value: it is part of
+        # the counterfactual observation model, and re-fitting it under the injury likelihood both
+        # leaks injury-period residuals into the counterfactual and creates a mean/dispersion ridge
+        # (one obs per player-season) that wrecked mixing. Frozen => cleaner cut + better geometry.
         fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
                        sigma_W_proj, W_proj, sigma_X, X, W, lengthscale,
                        exit, sigma_exit_scale, exit_rate,
-                       rho_ar, sigma_ar, beta_ar, AR_0]
+                       rho_ar, sigma_ar, beta_ar, AR_0,
+                       sigma, sigma_beta, sigma_beta_binomial, sigma_negative_binomial]
+        thinning: 250
+
+  # Stage 2, decline-acceleration variant: the injury effect gains a per-year slope in
+  # time-since-onset — injury_effect[k,n,t] = 1{t>=t0}(tau_level[k,i] + tau_slope[k,i]*(t-t0)) —
+  # the metric-side counterpart of the hazard's aging-rate acceleration. Same cut (same prefit,
+  # same fixed_params); only the injury sites (now incl. injury_slope_*) are sampled. The
+  # deterministic injury_effect_h2 (= level + 2*slope) is the reported horizon estimand.
+  nba_convex_max_tvrflvm_AR_injury_causal_slope:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    map_num_steps: 50000
+    age_min: 18
+    age_max: 45
+    start_year: ~
+    end_year: ~
+    injury: true
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      use_injury_slope: 1
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_injury_causal_slope/map
+      mcmc:
+        mcmc_init: map
+        model_dir:        model_output/nba_convex_max_tvrflvm_AR_injury_causal_slope/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_AR_causal/prefit/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_AR_causal/prefit/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
+                       sigma_W_proj, W_proj, sigma_X, X, W, lengthscale,
+                       exit, sigma_exit_scale, exit_rate,
+                       rho_ar, sigma_ar, beta_ar, AR_0,
+                       sigma, sigma_beta, sigma_beta_binomial, sigma_negative_binomial]
+        thinning: 250
+
+  # SYMMETRIC-CUT stage 2, real cohort: same slope model + real panel, but frozen against the
+  # symmetric prefit (both cohorts censored at onset in stage 1). Pairs with the _placebo_sym
+  # run for the calibrated hazard contrast (real minus placebo on the same instrument).
+  nba_convex_max_tvrflvm_AR_injury_causal_slope_sym:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    map_num_steps: 50000
+    age_min: 18
+    age_max: 45
+    start_year: ~
+    end_year: ~
+    injury: true
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      use_injury_slope: 1
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_injury_causal_slope_sym/map
+      mcmc:
+        mcmc_init: map
+        model_dir:        model_output/nba_convex_max_tvrflvm_AR_injury_causal_slope_sym/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_AR_causal_sym/prefit/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_AR_causal_sym/prefit/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
+                       sigma_W_proj, W_proj, sigma_X, X, W, lengthscale,
+                       exit, sigma_exit_scale, exit_rate,
+                       rho_ar, sigma_ar, beta_ar, AR_0,
+                       sigma, sigma_beta, sigma_beta_binomial, sigma_negative_binomial]
+        thinning: 250
+
+  # SYMMETRIC-CUT stage 2, placebo cohort: placebo panel + symmetric prefit. Pass criterion:
+  # effects ~= 0 (esp. the exit offset). Any residual is the baseline's conditional-calibration
+  # error, measured on the same instrument as _slope_sym — subtract, don't ignore.
+  nba_convex_max_tvrflvm_AR_injury_causal_slope_placebo_sym:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    map_num_steps: 50000
+    age_min: 18
+    age_max: 45
+    start_year: ~
+    end_year: ~
+    injury: true
+    injury_data_csv: data/injury_player_cleaned_placebo.csv
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      use_injury_slope: 1
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_injury_causal_slope_placebo_sym/map
+      mcmc:
+        mcmc_init: map
+        model_dir:        model_output/nba_convex_max_tvrflvm_AR_injury_causal_slope_placebo_sym/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_AR_causal_sym/prefit/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_AR_causal_sym/prefit/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
+                       sigma_W_proj, W_proj, sigma_X, X, W, lengthscale,
+                       exit, sigma_exit_scale, exit_rate,
+                       rho_ar, sigma_ar, beta_ar, AR_0,
+                       sigma, sigma_beta, sigma_beta_binomial, sigma_negative_binomial]
+        thinning: 250
+
+  # ═══ CONTINUOUS-TIME INJURY CAMPAIGN (v2 panels: date-based onsets + returns) ═══════════════
+  # Stage 1: symmetric prefit on the v2 UNION panel (real + pseudo onsets, both censored/masked
+  # at their date-based interrupted seasons). Stage 2 pair: continuous injury clock (w-gated
+  # level, midpoint slope, closed-form recovery decay), 4 mechanism groups, longer warmup.
+  nba_convex_max_tvrflvm_AR_causal_sym_v2_prefit:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    map_num_steps: 50000
+    age_min: 18
+    age_max: 45
+    start_year: ~
+    end_year: ~
+    injury: true
+    censor_survival_at_injury: true
+    injury_data_csv: data/injury_player_cleaned_symmetric_v2.csv
+    injury_type_grouping: mechanism4
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_causal_sym_v2/prefit/map
+
+  nba_convex_max_tvrflvm_AR_injury_causal_ct_sym:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    map_num_steps: 50000
+    num_warmup: 2000
+    age_min: 18
+    age_max: 45
+    start_year: ~
+    end_year: ~
+    injury: true
+    injury_data_csv: data/injury_player_cleaned_v2.csv
+    injury_type_grouping: mechanism4
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      use_injury_slope: 1
+      use_injury_continuous: 1
+      use_injury_decay: 1
+      injury_recovery_tau: 0.75
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_injury_causal_ct_sym/map
+      mcmc:
+        # mcmc_init MUST be median here, not map. `init_path` is the injury-free PREFIT, so a
+        # map init supplies only 2 of the 10 free sites and the 8 injury sites fall through to
+        # init_to_uniform; on the continuous-time path the chains then never move (within-chain
+        # SD ~1e-6, R-hat ~1e5 -- a "posterior" that is just its initialisation). Measured:
+        # switching to init_to_median raises within-chain SD from ~1e-6 to ~5e-2 on every injury
+        # site. Fixed plug-ins still load from fixed_param_path, so the cut is unchanged.
+        # The slope_* entries share the map+prefit pattern but do sample, so this is specific to
+        # the use_injury_continuous/use_injury_decay path.
+        mcmc_init: median
+        model_dir:        model_output/nba_convex_max_tvrflvm_AR_injury_causal_ct_sym/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_AR_causal_sym_v2/prefit/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_AR_causal_sym_v2/prefit/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
+                       sigma_W_proj, W_proj, sigma_X, X, W, lengthscale,
+                       exit, sigma_exit_scale, exit_rate,
+                       rho_ar, sigma_ar, beta_ar, AR_0,
+                       sigma, sigma_beta, sigma_beta_binomial, sigma_negative_binomial]
+        thinning: 250
+
+  nba_convex_max_tvrflvm_AR_injury_causal_ct_placebo_sym:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    map_num_steps: 50000
+    num_warmup: 2000
+    age_min: 18
+    age_max: 45
+    start_year: ~
+    end_year: ~
+    injury: true
+    injury_data_csv: data/injury_player_cleaned_placebo_v2.csv
+    injury_type_grouping: mechanism4
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      use_injury_slope: 1
+      use_injury_continuous: 1
+      use_injury_decay: 1
+      injury_recovery_tau: 0.75
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_injury_causal_ct_placebo_sym/map
+      mcmc:
+        # mcmc_init MUST be median here, not map. `init_path` is the injury-free PREFIT, so a
+        # map init supplies only 2 of the 10 free sites and the 8 injury sites fall through to
+        # init_to_uniform; on the continuous-time path the chains then never move (within-chain
+        # SD ~1e-6, R-hat ~1e5 -- a "posterior" that is just its initialisation). Measured:
+        # switching to init_to_median raises within-chain SD from ~1e-6 to ~5e-2 on every injury
+        # site. Fixed plug-ins still load from fixed_param_path, so the cut is unchanged.
+        # The slope_* entries share the map+prefit pattern but do sample, so this is specific to
+        # the use_injury_continuous/use_injury_decay path.
+        mcmc_init: median
+        model_dir:        model_output/nba_convex_max_tvrflvm_AR_injury_causal_ct_placebo_sym/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_AR_causal_sym_v2/prefit/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_AR_causal_sym_v2/prefit/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
+                       sigma_W_proj, W_proj, sigma_X, X, W, lengthscale,
+                       exit, sigma_exit_scale, exit_rate,
+                       rho_ar, sigma_ar, beta_ar, AR_0,
+                       sigma, sigma_beta, sigma_beta_binomial, sigma_negative_binomial]
+        thinning: 250
+
+  # Slope-only ablation: pure-acceleration reading (level term zeroed out of mu).
+  nba_convex_max_tvrflvm_AR_injury_causal_slope_only:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    map_num_steps: 50000
+    age_min: 18
+    age_max: 45
+    start_year: ~
+    end_year: ~
+    injury: true
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      use_injury_slope: 1
+      use_injury_slope_only: 1
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_injury_causal_slope_only/map
+      mcmc:
+        mcmc_init: map
+        model_dir:        model_output/nba_convex_max_tvrflvm_AR_injury_causal_slope_only/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_AR_causal/prefit/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_AR_causal/prefit/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
+                       sigma_W_proj, W_proj, sigma_X, X, W, lengthscale,
+                       exit, sigma_exit_scale, exit_rate,
+                       rho_ar, sigma_ar, beta_ar, AR_0,
+                       sigma, sigma_beta, sigma_beta_binomial, sigma_negative_binomial]
+        thinning: 250
+
+  # Placebo validation: same slope model, same cut, but on the PLACEBO panel — real injuries
+  # stripped, pseudo-onsets assigned to age-matched never-injured players (see
+  # data_causal/make_placebo_injury_csv.py). Recovered effects should be ~= 0; systematic nonzero
+  # posteriors here mean the pipeline/priors manufacture signal. Run AFTER regenerating the panel.
+  nba_convex_max_tvrflvm_AR_injury_causal_slope_placebo:
+    m_time: 5
+    basis_dims: 10
+    approx_x_dim: 50
+    map_num_steps: 50000
+    age_min: 18
+    age_max: 45
+    start_year: ~
+    end_year: ~
+    injury: true
+    injury_data_csv: data/injury_player_cleaned_placebo.csv
+    validation_scheme: ~
+    fixed_param_path: ~
+    fixed_params: []
+    prior_knobs:
+      use_curve_re: *re_off
+      use_c_offset_re: *re_off
+      use_t_offset_re: *re_off
+      use_injury_slope: 1
+      sigma: *convex_sigma
+      sigma_X: *convex_sigma_X
+      sigma_W_proj: *convex_sigma_W
+      sigma_t: *convex_sigma_t
+      sigma_c: *convex_sigma_c
+      alpha: *alpha_per_metric
+    regimes:
+      map:
+        model_dir: model_output/nba_convex_max_tvrflvm_AR_injury_causal_slope_placebo/map
+      mcmc:
+        mcmc_init: map
+        model_dir:        model_output/nba_convex_max_tvrflvm_AR_injury_causal_slope_placebo/mcmc
+        init_path:        model_output/nba_convex_max_tvrflvm_AR_causal/prefit/map/samples.pkl
+        fixed_param_path: model_output/nba_convex_max_tvrflvm_AR_causal/prefit/map/samples.pkl
+        fixed_params: [alpha, lengthscale_deriv, sigma_c, sigma_t, t_max_raw, c_max, beta,
+                       sigma_W_proj, W_proj, sigma_X, X, W, lengthscale,
+                       exit, sigma_exit_scale, exit_rate,
+                       rho_ar, sigma_ar, beta_ar, AR_0,
+                       sigma, sigma_beta, sigma_beta_binomial, sigma_negative_binomial]
         thinning: 250
 
   # ── NaiveLinearLVM (AR(1) per player per metric, no latent factors) ──────────

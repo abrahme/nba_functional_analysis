@@ -93,20 +93,74 @@ The negative impact of lower body injuries is most pronounced for athletic guard
 
 \subsubsection{Injury Effect Estimation}
 
-To move beyond individual case studies and quantify injury impact at the population level, we augment the concave mean model with injury-specific offsets.  For player $p$ with injury subtype $m$ onset at season $t^{*}_{pm}$, the mean model becomes:
+To move beyond individual case studies and quantify injury impact at the population level, we augment the concave mean model with injury-specific offsets.  The offsets follow a two-level hierarchy: a global metric-level mean and a fully parameterised metric-by-subtype effect (no low-rank factor structure is imposed --- each of the $K \times M$ cells is free).  Because a constant post-injury shift is partially confounded with the player--metric AR(1) residual and cannot express the intuition that injuries \emph{accelerate} decline, the effect has both a level and a per-year slope in time since onset --- the metric-side counterpart of the injury effect on the Gompertz aging rate.  For player $p$ with injury subtype $m$ onset at season $t^{*}_{pm}$, the mean model becomes:
 \begin{align}
-    \tau^{*}_k &\sim \mathcal{N}(0, I_d), \quad w_m \sim \mathcal{N}(0, I_d) \\
-    \tau^k_{ptm} &\sim \mathcal{N}(w_m^\top\tau^{*}_k,\; \sigma^2_{mk})  \\
-    \mu^k_{ptm} &= f^k(X_p,t) + \mathbb{I}\{ t > t^{*}_{pm} \}\,\tau^k_{ptm},
+    \bar{\tau}_k &\sim \mathcal{N}(0,\; \sigma^2_{0k}), \quad \bar{\lambda}_k \sim \mathcal{N}(0,\; \varsigma^2_{0k}), \quad \bar{\alpha}_k \sim \mathcal{N}(0,\; \sigma^2_{0k}) \\
+    \tau^k_{m} &\sim \mathcal{N}(\bar{\tau}_k,\; \sigma^2_{k}), \quad \lambda^k_{m} \sim \mathcal{N}(\bar{\lambda}_k,\; \varsigma^2_{k}), \quad \alpha^k_{m} \sim \mathcal{N}(\bar{\alpha}_k,\; \sigma^2_{k}) \\
+    \mu^k_{ptm} &= f^k(X_p,t) \;+\; w_{pt}\,\tau^k_{m} \;+\; \lambda^k_{m}\,\Delta_{pt} \;+\; \alpha^k_{m}\,w_{pt}\,\bar{D}_{pt}.
 \end{align}
-where $\tau^{*}_k \in \mathbb{R}^d$ are metric-level latent injury factors, $w_m \in \mathbb{R}^d$ are injury-subtype loadings, $\sigma^2_{mk}$ is a metric- and subtype-specific variance, and $d = 5$ is the injury factor dimension.  Players without the relevant injury subtype have $t^{*}_{pm} = \infty$ and contribute to the baseline.
 
-Figure~\ref{fig:injury_global} shows the posterior distribution of the global injury offset averaged across metrics and subtypes.  The offset is consistently negative, confirming that the model identifies a systematic post-injury production decline beyond what is explained by the aging curve alone.  Figure~\ref{fig:injury_type} breaks this down by injury subtype and metric, while Figure~\ref{fig:injury_survival} shows how the survival model translates injury type into differences in career length.
+The injury clock is \emph{continuous}, not a season-level indicator.  An NBA season is a year-long
+window but an injury occurs on a date inside it, so a discrete $\mathbb{I}\{t \ge t^{*}_{pm}\}$
+mislabels the interrupted season: it charges a full season's effect to a player hurt in April, and
+none to a player hurt in November who returns in March.  We therefore resolve each (player, season)
+to the fraction of \emph{played} time that falls after the injury date, $w_{pt} \in [0,1]$, and to
+the played post-injury segment $[\delta^{-}_{pt}, \delta^{+}_{pt}]$ measured in years since that
+date.  A season whose minutes were all played before the injury has $w_{pt}=0$ and is modelled
+healthy; a mid-season return carries exactly its post-return fraction.  Every injury term is gated
+by $w_{pt}$, and the slope is evaluated at the played-segment midpoint,
+$\Delta_{pt} = \tfrac{1}{2}(\delta^{-}_{pt}+\delta^{+}_{pt})\,w_{pt}$.  Players without the relevant
+subtype have $w_{pt} \equiv 0$ and contribute to the baseline.
+
+The three terms separate effects that a level-plus-slope parameterization structurally conflates.
+$\tau^k_m$ is the persistent level shift and $\lambda^k_m$ the additional per-year decline --- the
+metric-side counterpart of the hazard's aging-rate acceleration.  $\alpha^k_m$ is a \emph{transient}
+return-year deficit that decays with a fixed recovery timescale $\tau_{\mathrm{rec}} = 0.75$ years,
+entering through its closed-form average over the played post-segment,
+\[
+  \bar{D}_{pt} \;=\; \frac{\tau_{\mathrm{rec}}}{\delta^{+}_{pt}-\delta^{-}_{pt}}
+  \Bigl(e^{-\delta^{-}_{pt}/\tau_{\mathrm{rec}}} - e^{-\delta^{+}_{pt}/\tau_{\mathrm{rec}}}\Bigr).
+\]
+Without it, a player who is diminished on return and then recovers traces a V in time-since-onset,
+and a straight line through that V is fit as a \emph{positive} slope --- reading recovery as
+injuries making players better over time.  Separating the transient from the persistent components
+is what makes $\lambda^k_m$ interpretable as decline acceleration.
+where $\bar{\tau}_k$ is the global metric-level injury mean, $\tau^k_m$ is the level effect of subtype $m$ on metric $k$, and $\lambda^k_m$ is the additional per-year decline it induces.  All variances are \emph{fixed}, not learned: $\sigma^2_{0k} = \sigma^2_k = s_k^2/2$, where $s_k$ is the empirical link-scale standard deviation of the per-player pre/post-injury change for metric $k$ \emph{after subtracting the expected aging change over the same pre/post age composition implied by the never-injured per-age mean curve} (an age-matched difference-in-differences calibration), and $\varsigma^2_{0k} = \varsigma^2_k = (s_k/\bar{h})^2/2$ with $\bar{h}$ the mean observed post-injury span, so the cumulative slope effect over a typical post-injury window stays within the empirical effect range.  This calibrates the marginal prior standard deviation of a subtype effect to the empirically observed effect size while keeping the variances out of the posterior geometry (a learned hierarchical scale collapsing toward zero induces a funnel that prevents mixing).  We deliberately omit a per-player-season residual on the mean: with a single observation per player--season--metric it is not identified separately from the subtype mean and destabilises sampling.  The exit-hazard shift follows the same two-level construction (a global mean and a per-subtype effect, with the same fixed-variance calibration on the log-hazard scale, where the hazard scale is likewise age-matched: the standard deviation of residual log post-onset career length relative to never-injured players active at the same onset age).  Players without the relevant injury subtype have $t^{*}_{pm} = \infty$ and contribute to the baseline.
+
+Because level and slope trade off over short post-injury windows, the reported estimand is the \emph{horizon effect} $\Delta^k_m(h) = \tau^k_m + h\,\lambda^k_m$ at $h = 2$ years --- the total effect two seasons after onset --- which is well identified even when its components are individually uncertain.  It deliberately \emph{excludes} $\alpha^k_m$: by two years post-onset the acute term has decayed to $e^{-2/0.75} \approx 7\%$ of its initial value, so $\Delta^k_m(2)$ is the \emph{persistent} damage, with the recovery transient partialled out rather than averaged into it.  A \emph{slope-only} ablation ($\tau^k_m \equiv 0$) gives the pure-acceleration reading.  The acute magnitudes $\alpha^k_m$ are reported separately where the return-year deficit is of interest.
+
+\paragraph{Placebo calibration.}  The decisive validation is a \emph{placebo} fit.  Real injuries are stripped from the panel and pseudo-onsets are assigned to never-injured controls drawn by \emph{risk-set} (incidence-density) matching --- eligible controls at onset age $a_0$ are those active at $a_0$ and not yet injured \emph{by} $a_0$, a rule that uses only information available at $a_0$.\footnote{An earlier design drew controls from players never injured over their whole career.  That conditions on the future: injury exposure accumulates with playing time, so the never-injured are short-career-enriched, and their pseudo post-onset survival ran roughly one season short of the at-risk baseline ($3.55$ vs $4.45$ seasons).  Stage 2 absorbed the gap as a large spurious hazard effect.}  Crucially, the Stage-1 prefit is fit on the \emph{union} panel with both cohorts censored and masked at their onsets, so the frozen counterfactual is equally blind to real and placebo post-onset outcomes; without this symmetry the two cohorts are measured by differently-zeroed instruments and their difference is not interpretable.
+
+The placebo does not return zero.  On healthy players given fake onsets the pipeline recovers a large exit-hazard effect ($+2.94$ on the log aging-rate scale), nonzero level effects on $8/17$ metrics, and volume ``effects'' including a usage increase whose interval excludes zero.  These are properties of the instrument, not of injury: conditioning on survival to the onset age exposes a systematic optimism in the frozen Gompertz baseline, which the injury sites are the only free parameters able to absorb.  The reported estimand is therefore the \emph{calibrated contrast} --- the real-cohort effect minus the placebo effect, differenced draw by draw --- which cancels the shared instrument bias in the manner of a difference-in-differences, and whose validity rests on the assumption that a risk-set-matched healthy player responds to the machinery as an injured player would have absent injury.
+
+Two properties of that bias should be stated, because they bound how much the calibration can do.  First, it is not a single global offset that a common intercept would remove: across metric $\times$ subtype cells the placebo effect has mean $+0.08$ against a standard deviation of $0.33$ (ratio $0.25$), splits $31$ positive to $17$ negative, and is strongly metric-specific (MPG $+0.80$, GP\% $+0.34$, FG3M $+0.34$, OREB $-0.21$, BLK $-0.16$) and subtype-specific (Axial $+0.26$, Fracture $+0.09$, Knee Structural $+0.03$, Tendon Rupture $-0.07$).  The difference-in-differences is therefore taken cell by cell, which is what the $1{:}1$ risk-set matching within subtype supports --- the matched cohorts are near-identical in size ($19/156/116/46$ by subtype), onset age ($25.9$ vs $26.0$), and pre-onset composition.  Second, the correction is comparable in size to the quantity it corrects: the median $|$placebo$|$ is $0.099$ against a median $|$contrast$|$ of $0.081$, and in $28$ of $48$ usable cells the placebo effect \emph{exceeds} the raw effect it is subtracted from.  A contrast whose correction is larger than its signal is only as trustworthy as the assumption that the correction is right, and that assumption is not testable from the two fits: the cohorts are matched on everything observable at onset, but the real cohort genuinely plays less afterwards ($-8\%$ games, $-10\%$ minutes) --- which is the effect of interest, and cannot be matched away without conditioning on the outcome.  We therefore read the contrast as informative where the placebo correction is small relative to the raw effect, and as uninformative where it is not; the per-subtype results below are qualified on exactly this basis.
+
+\paragraph{Results (exit hazard).}  Under this calibration the effect of injury on career length is indistinguishable from zero: the exit-hazard contrast is $+0.07$ with a $95\%$ credible interval of $[-0.94, +1.08]$, and the real and placebo cohorts return nearly identical raw offsets ($+3.00$ and $+2.94$), so the apparent hazard effect is instrument bias rather than injury.
+
+This figure is under revision and should be treated as provisional.  It was computed before the initialisation defect described below was identified, and the exit-hazard site does not meet its stated diagnostic in any symmetric-cut fit currently on disk: in every such run the site is frozen at the same $O(10^{-6})$ within-chain scale as the metric sites, which is inconsistent with the $250/250$ distinct draws per chain reported alongside it.  Re-running with the corrected initialisation unfreezes the site, but it has not yet converged (split-$\hat{R} = 2.6$), so the interval is not yet a defensible posterior summary and additional warmup is required.  We report the value for continuity with the earlier analysis and flag it rather than silently carry it forward; the qualitative reading --- that the raw hazard offsets of the two cohorts are nearly identical, so the apparent effect is shared instrument bias --- is the part that does not depend on the sampler having converged.
+
+\paragraph{A Stage-2 initialisation defect, and what it did and did not affect.}  An earlier version of this analysis reported that the metric-side injury sites were unidentified: their within-chain standard deviation was $O(10^{-6})$ against a between-chain spread of $O(1)$, split-$\hat{R}$ was astronomically large, and any interval computed from them described the initialisation rather than the posterior.  We attributed this to Stage-2 geometry --- a metric block starved by a step size adapted to a better-conditioned hazard block --- and proposed separate mass matrices or a blocked sampler.  That diagnosis was wrong, and the correct one is worth recording because the failure mode is silent and general.
+
+Stage 2 seeds NUTS from the Stage-1 prefit, but the prefit is injury-free \emph{by construction}, so the initial-value dictionary covers only the two hazard-baseline sites and none of the eight injury sites.  NumPyro's \texttt{init\_to\_value} falls back to \texttt{init\_to\_uniform} for the missing entries; each chain then starts at an unrelated draw and, in the continuous-time parameterization, never moves.  Initialising every site consistently (\texttt{init\_to\_median}, with the frozen plug-in parameters still supplied from the prefit, so the cut is unchanged) raises the within-chain standard deviation on every injury site from $O(10^{-6})$ to $O(10^{-1})$ --- a change of five orders of magnitude from a one-line configuration fix, not a sampler redesign.  The defect was specific to the continuous-time runs: the discrete slope variants share the same initialisation pattern and sample without difficulty, which is why it was not caught by the diagnostics run on those fits.
+
+After the fix, $48$ of $68$ metric $\times$ subtype cells are usable ($\hat{R} < 1.05$ and a within-chain standard deviation bounded away from zero), spanning $15$ of the $17$ metrics.  \textbf{OBPM and DBPM are the exception}: all eight of their cells remain frozen at $O(10^{-4})$, so the two composite metrics --- precisely the ones the injury literature argues over --- still admit no claim.  A further $12$ cells move but have not converged ($\hat{R}$ up to $1.6$ on USG and MPG).  Intervals from the usable cells are conditional on the cut: Stage 1 is frozen at a point estimate, so they describe uncertainty in the injury sites \emph{given} the counterfactual, and understate marginal uncertainty accordingly.  They should not be read as full posterior intervals.
+
+\paragraph{Results (production), by injury mechanism.}  With the sites sampling, the calibrated contrast is readable for the first time, on the horizon-2 estimand $\Delta^k_m(2)$ and subject to the conditional-on-cut caveat above.  The pattern is mechanism-specific, and it is not the uniform post-injury decline the raw comparison in Figure~\ref{fig:inuries} suggests.
+
+\emph{Tendon rupture} (Achilles and quad/patellar, $n=46$) shows broad volume loss with no redistribution: free-throw attempts $-0.43$, three-point attempts $-0.42$, offensive rebounds $-0.32$, two-point attempts $-0.27$, games $-0.15$, all on the link scale, with defensive rebounds and made two-pointers also negative.  Every shot type falls together.  This is the group in which the reading is most secure, because the placebo correction is small there ($+0.09$, $+0.21$, $-0.18$ on the corresponding cells) --- the contrast is not an artifact of the correction.
+
+\emph{Knee structural} (ACL and meniscus, $n=116$) shows the opposite shape: contact-generating and interior activity falls (games $-0.37$, free-throw attempts $-0.13$, assists $-0.08$, steals $-0.06$) while \emph{three-point attempts rise} $+0.27$, roughly a $30\%$ increase in rate.  That is compensation rather than uniform decline --- a player who can no longer generate contact relocating his volume to the perimeter --- and it is the mechanism for which such a shift is most expected.
+
+\emph{Fracture} ($n=156$) shows broad reduction that, unlike knee-structural, \emph{includes} the perimeter (three-point attempts $-0.35$).  \emph{Axial} ($n=19$) we do not interpret: the placebo returns $+1.67$ on games against a raw effect of $-1.05$, so the contrast is entirely correction, on nineteen players.
+
+The substantive contribution here is the contrast between mechanisms rather than any single coefficient.  A pooled ``injury effect'' averages a uniform-loss group against a redistribution group and recovers something in between that describes neither; the empirical Figure~\ref{fig:inuries} comparison, which pools across subtypes and does not adjust for aging, is exactly the estimate this decomposition is meant to replace.
+
+This does not say injuries are costless.  The cost that the data measure directly is concentrated and mechanical: injured players retain a median $53\%$ of their pre-injury minutes in the interrupted season, and $4\%$ miss the entire following season --- quantities read off the observed schedule rather than estimated.  What the calibrated analysis establishes is narrower than the literature's usual claim: \emph{conditional on returning}, career length is statistically indistinguishable from that of risk-set-matched healthy players, and the width of the hazard interval bounds what can be said --- effects smaller than roughly $e^{1} \approx 2.7$-fold on the aging rate cannot be excluded, and effect sizes typical of the observational literature sit comfortably inside it.  The methodological contribution is the calibration itself: post-injury declines measured against raw or coarsely-matched baselines conflate age-related decline, regression from the high-usage seasons in which injuries occur, withdrawal of opportunity, and selection into who returns at all, and the placebo run shows this pipeline reproducing large ``effects'' on players who were never injured.  Whether a residual production effect survives that calibration is now partly answered: it does, for tendon rupture and for the perimeter shift after knee-structural injury, on $15$ of $17$ metrics and subject to the conditional-on-cut caveat --- but not for OBPM or DBPM, whose sites remain frozen, and not for career length, whose contrast is still awaiting a converged fit.  The strongest claim the calibrated analysis supports is about \emph{how} production is reorganised after specific injury mechanisms, not \emph{how much} total production is lost.
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_injury_causal/mcmc/plots/injury/injury_global_offset.png}
-    \caption{Posterior distribution of the global injury offset $\bar{\tau}$ averaged over metrics and injury subtypes. The mass below zero confirms a systematic post-injury production decline beyond age-related aging.}
+    \caption{Posterior distribution of the \emph{uncalibrated} global injury offset $\bar{\tau}$ averaged over metrics and injury subtypes. The mass below zero is the raw within-cohort estimate; the placebo fit recovers comparable mass on healthy players given pseudo-onsets, so this figure should be read against the calibrated contrasts reported in the text rather than as a causal effect.}
     \label{fig:injury_global}
 \end{figure}
 
@@ -133,7 +187,7 @@ To summarise the average treatment effect on the treated (ATT) across all injure
     \label{fig:att_by_metric}
 \end{figure}
 
-These estimates should be interpreted with care: the counterfactual is identified only under the assumption of no unmeasured confounding conditional on the latent player embedding and career history (see Limitations in Section~\ref{sec:conclusion}), and the sample is restricted to players who returned to play after injury, which may understate effects for the most severe cases.
+These estimates should be interpreted with care, and the figures above report the uncalibrated within-cohort quantities; the calibrated contrasts of the preceding section are the estimands we interpret causally.  The counterfactual is identified only under the assumption of no unmeasured confounding conditional on the latent player embedding and career history (see Limitations in Section~\ref{sec:conclusion}).  The metric-side effect is, moreover, explicitly \emph{survivor-conditioned}: it is the effect among players who logged post-injury seasons, a SACE-adjacent estimand rather than the population average effect of injury, and positive selection into return means it likely understates the population effect for the most severe cases.  The exit-hazard effect does not share this conditioning --- players whose careers ended at the injury remain in the cohort with their exit events labeled, so career-length consequences are informed by non-returners as well.
 
 \subsection{Archetype Discovery via Hierarchical Clustering}
 \label{sec:latent_space}
@@ -142,7 +196,7 @@ While the position-colored view confirms that the embedding respects broad categ
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/map/latent_pca_archetypes.png}
+    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/latent_space/map/latent_pca_archetypes.png}
     \caption{PCA of the posterior mean latent coordinates colored by discovered archetype ($k=4$, Ward clustering on Procrustes-aligned posterior mean coordinates).  PC1 and PC2 explain 29.9\% and 15.6\% of variance respectively.  Point size scales with career minutes.  The four archetypes partition the space in a way that transcends traditional positional labels.}
     \label{fig:latent_archetypes}
 \end{figure}
@@ -151,14 +205,14 @@ To understand what distinguishes these archetypes, we compute Frechet mean curve
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/frechet/mcmc/archetype_frechet_curves_basic.png}
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/latent_space/frechet/mcmc/archetype_frechet_curves_basic.png}
     \caption{Frechet archetype mean curves across metrics. Each panel shows the archetype-level mean trajectory, summarizing curve shape and timing differences that distinguish player types.}
     \label{fig:archetype_frechet_curves}
 \end{figure}
 
-Table~\ref{tab:archetype_summary} provides a quantitative characterisation of each archetype: posterior mean peak age and peak value per metric.
+Table~\ref{tab:archetype_summary} provides a quantitative characterisation of each archetype: posterior mean peak age and peak value per metric.  As with the peak-age and peak-value principal components of Section~\ref{sec:uncovering_metrics}, these archetype summaries are computed from the \emph{shared} component of the peak, $\big(t^{*}_k(X_p), f^{*}_k(X_p)\big)$, with the player--metric curve random effects $\varepsilon_{pk}$ set to zero.  The offsets are idiosyncratic by construction and near-orthogonal to $X_p$, so they carry no archetypal signal and would only blur a cross-player comparison; predictive quantities elsewhere in the paper retain them.
 
-\input{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/mcmc/archetype_summary_table.tex}
+\input{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/latent_space/mcmc/archetype_summary_table.tex}
 
 Several patterns emerge.  \emph{All four archetypes} peak late in FG3A (three-point attempt rate) and DBPM (defensive box plus/minus), consistent with the finding in Section~\ref{sec:uncovering_metrics} that these are skill-acquisition metrics that develop with experience regardless of player type.  The archetypes diverge most sharply on athleticism metrics (BLK, OREB, STL, USG) and on overall production ceiling.  Reading the cluster assignments directly from Figure~\ref{fig:latent_archetypes}:
 
@@ -166,19 +220,19 @@ The most telling cross-positional grouping is the archetype that unites elite pl
 
 Beyond peak timing and peak value, the archetypes also differ in the \emph{rate} of career ascent and decline.  For each posterior draw, we compute the mean pre-peak first derivative (the instantaneous rate of improvement from career start to peak age) and the mean post-peak first derivative (the instantaneous rate of decline from peak to career end), using the analytically derived GP first derivative at each observed age.  Figure~\ref{fig:archetype_slopes} summarises these by archetype and metric.  Figure~\ref{fig:archetype_slope_ratio} shows the asymmetry ratio (pre-peak slope divided by absolute post-peak slope): values greater than 1 indicate metrics for which the ascent to peak is slower than the subsequent decline, while values less than 1 indicate faster ascent than decline.  Archetypes with systematically higher asymmetry on athleticism metrics (BLK, OREB) and lower asymmetry on skill metrics (OBPM, AST) reflect the distinction between physical and cognitive aging: athleticism metrics are slow to develop and fast to erode, whereas skill metrics accumulate more rapidly and decline more gradually.
 
-\IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/mcmc/archetype_slopes.png}{%
+\IfFileExists{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/latent_space/mcmc/archetype_slopes.png}{%
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/mcmc/archetype_slopes.png}
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/latent_space/mcmc/archetype_slopes.png}
     \caption{Posterior mean GP first derivative before (left) and after (right) the peak age, by archetype and metric.  Points show the mean over posterior draws; intervals are 80\% credible intervals.  Slopes are in latent-space units per year; positive post-peak values indicate skill-based metrics that continue growing or plateau after the nominal peak.}
     \label{fig:archetype_slopes}
 \end{figure}%
 }{}
 
-\IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/mcmc/archetype_slope_ratio.png}{%
+\IfFileExists{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/latent_space/mcmc/archetype_slope_ratio.png}{%
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/mcmc/archetype_slope_ratio.png}
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/latent_space/mcmc/archetype_slope_ratio.png}
     \caption{Career arc asymmetry by archetype and metric: pre-peak slope divided by the absolute post-peak slope.  The dashed line at 1 marks symmetric careers.  Ratios above 1 indicate faster decline than ascent (common for athleticism metrics); ratios below 1 indicate faster ascent than decline (common for skill-acquisition metrics such as three-point shooting and playmaking).}
     \label{fig:archetype_slope_ratio}
 \end{figure}%
@@ -290,11 +344,11 @@ The peak-value analogue of the peak-age decomposition in Figure~\ref{fig:peaks} 
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.72\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/peaks/mcmc/peak_vals_pca.png}
+  \includegraphics[width=0.72\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/peaks/mcmc/peak_vals_pca.png}
 
   \vspace{1em}
 
-  \includegraphics[width=0.72\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/peaks/mcmc/peak_vals_pca_loadings.png}
+  \includegraphics[width=0.72\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/peaks/mcmc/peak_vals_pca_loadings.png}
   \caption{Posterior estimates of peak value by player (top) and the first two PCA loadings of the peak-value matrix (bottom). The same athleticism/skill grouping is reflected here, confirming that athleticism-reliant metrics not only peak earlier but also reach lower absolute ceilings relative to skill-based metrics.}
   \label{fig:peaks_vals}
 \end{figure}
@@ -320,8 +374,7 @@ The complete generative structure is summarised in Figure~\ref{fig:graphical_mod
 \node[latent] (peak_w)   at (-3.5, 6)   {$\nu^k,w^k$};
 \node[latent] (beta_gp)  at (-1.0, 6)   {$\beta$};
 \node[latent] (ar_par)   at ( 1.5, 6)   {$\rho^k,\sigma^k_{AR}$};
-\node[latent] (F)        at (-6.0, 4)   {$F_m$};
-\node[latent] (L)        at (-4.5, 2.5) {$L_k$};
+\node[latent] (F)        at (-6.0, 4)   {$\tau^k_m$};
 
 %% ── Player embedding and its feature-map projection ───────────────────────
 \node[latent] (X)        at (-3.5, 4)   {$X_p$};
@@ -337,7 +390,7 @@ The complete generative structure is summarised in Figure~\ref{fig:graphical_mod
 \node[latent] (ar)       at ( 1.5, 1.0) {$r^k_{pt}$};
 
 %% ── Injury offset ─────────────────────────────────────────────────────────
-\node[latent] (tau)      at (-4.0, 1.0) {$\tau^k_{ptm}$};
+\node[latent] (tau)      at (-4.0, 1.0) {$\tau^k_{m}$};
 
 %% ── Mean and observation ──────────────────────────────────────────────────
 \node[latent]   (mu)     at (-1.0,-0.5) {$\mu^k_{pt}$};
@@ -354,11 +407,9 @@ The complete generative structure is summarised in Figure~\ref{fig:graphical_mod
 \draw[arr] (phi)     -- (f);
 \draw[arr] (X)       -- (t_star);
 \draw[arr] (X)       -- (f_star);
-\draw[arr] (X)       -- (tau);
 \draw[arr] (t_star)  -- (f);
 \draw[arr] (f_star)  -- (f);
 \draw[arr] (F)       -- (tau);
-\draw[arr] (L)       -- (tau);
 \draw[arr] (f)       -- (mu);
 \draw[arr] (ar)      -- (mu);
 \draw[arr] (tau)     -- (mu);
@@ -375,7 +426,7 @@ The complete generative structure is summarised in Figure~\ref{fig:graphical_mod
 
 \end{tikzpicture}
 }
-\caption{Directed acyclic graph of the complete generative model. Shaded nodes are observed; unshaded nodes are latent. $Z_p, W$: structured prior mean $Z_p^\top W$ anchoring $X_p$ to draft position, height, and positional role. $\phi(\cdot)$: feature-map projection applied to the embedding before it enters the concave process, chosen so that $\phi(X_p)^\top\phi(X_{p'})\approx\mathcal{K}(X_p,X_{p'})$ --- the identity map $\phi(X_p)=X_p$ recovers the linear GPLVM, while random Fourier features (or another feature map) approximate a nonlinear kernel; $\theta_\phi$ collects its hyperparameters (kernel lengthscale and, for random features, the sampled frequencies). $\nu^k, w^k$: weight vectors reading peak age $t^*_{pk}$ and peak value $f^*_{pk}$ from the embedding. $\beta$: HSGP spectral weights for the concave trajectory $f^k(\phi(X_p),t)$. $\rho^k, \sigma^k_{AR}$: AR(1) parameters for the player-metric residual $r^k_{pt}$. $F_m, L_k$: injury-type factors and metric loadings for the injury offset $\tau^k_{ptm}$. $Y^k_{pt}$: observed statistic (Gaussian, Negative-Binomial, Beta, or Beta-Binomial, per Table~\ref{tab:metric_description}).}
+\caption{Directed acyclic graph of the complete generative model. Shaded nodes are observed; unshaded nodes are latent. $Z_p, W$: structured prior mean $Z_p^\top W$ anchoring $X_p$ to draft position, height, and positional role. $\phi(\cdot)$: feature-map projection applied to the embedding before it enters the concave process, chosen so that $\phi(X_p)^\top\phi(X_{p'})\approx\mathcal{K}(X_p,X_{p'})$ --- the identity map $\phi(X_p)=X_p$ recovers the linear GPLVM, while random Fourier features (or another feature map) approximate a nonlinear kernel; $\theta_\phi$ collects its hyperparameters (kernel lengthscale and, for random features, the sampled frequencies). $\nu^k, w^k$: weight vectors reading peak age $t^*_{pk}$ and peak value $f^*_{pk}$ from the embedding. $\beta$: HSGP spectral weights for the concave trajectory $f^k(\phi(X_p),t)$. $\rho^k, \sigma^k_{AR}$: AR(1) parameters for the player-metric residual $r^k_{pt}$. $\tau^k_m$: metric-by-injury-type mean injury offset applied to post-injury seasons (variances fixed to the empirical effect scale; no per-player-season residual). $Y^k_{pt}$: observed statistic (Gaussian, Negative-Binomial, Beta, or Beta-Binomial, per Table~\ref{tab:metric_description}).}
 \label{fig:graphical_model}
 \end{figure}
 
@@ -486,7 +537,7 @@ Figure~\ref{fig:ar_comparison} contrasts the joint model's posterior with the Na
   \centering
   \begin{subfigure}[t]{0.48\linewidth}
     \centering
-    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/player_plots/mcmc/Stephen Curry.png}
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/player_plots/mcmc/Stephen Curry.png}
     \caption{Stephen Curry --- joint model.}
   \end{subfigure}%
   \hfill
@@ -498,7 +549,7 @@ Figure~\ref{fig:ar_comparison} contrasts the joint model's posterior with the Na
 
   \begin{subfigure}[t]{0.48\linewidth}
     \centering
-    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/player_plots/mcmc/Nikola Jokic.png}
+    \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/player_plots/mcmc/Nikola Jokic.png}
     \caption{Nikola Joki\'{c} --- joint model.}
   \end{subfigure}%
   \hfill
@@ -539,14 +590,14 @@ The five holdout schemes are implemented by selecting a random 20\% subset of pl
     \centering
     \begin{subfigure}[t]{0.48\linewidth}
         \centering
-        \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/stratum_coverage.png}
+        \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/stratum_coverage.png}
         \caption{95\% HDI coverage by metric, grouped by age stratum (nominal 95\% marked).}
         \label{fig:stratum_coverage}
     \end{subfigure}%
     \hfill
     \begin{subfigure}[t]{0.48\linewidth}
         \centering
-        \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/stratum_elppd.png}
+        \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/stratum_elppd.png}
         \caption{ELPPD per held-out observation by age stratum ($\pm 1$ SE).}
         \label{fig:stratum_elppd}
     \end{subfigure}
@@ -577,14 +628,14 @@ Figure~\ref{fig:latent_pca_pc34} shows the PC3--PC4 projection of the posterior 
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.75\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/map/latent_pca_scree.png}
+    \includegraphics[width=0.75\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/latent_space/map/latent_pca_scree.png}
     \caption{Eigenvalue scree plot for the posterior mean latent coordinate PCA. Bars show individual variance explained per component; the red line shows cumulative variance explained.}
     \label{fig:pca_scree}
 \end{figure}
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/map/latent_pca_pc34_archetypes.png}
+    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/latent_space/map/latent_pca_pc34_archetypes.png}
     \caption{PC3 vs.\ PC4 of the Procrustes-aligned posterior mean latent coordinates, coloured by archetype. The separation of archetype clusters confirms that the four-archetype structure extends beyond the first two principal components.}
     \label{fig:latent_pca_pc34}
 \end{figure}
@@ -810,8 +861,8 @@ The Kobe Bryant--Nikola Joki\'c contrast illustrates both readings.  On OBPM the
 
 \begin{figure}[htbp]
     \centering
-    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/hsgp_time_basis.png}{%
-      \includegraphics[width=0.9\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/hsgp_time_basis.png}%
+    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/curvature/hsgp_time_basis.png}{%
+      \includegraphics[width=0.9\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/curvature/hsgp_time_basis.png}%
     }{\textit{[Run model\_diagnostics.r to generate]}}
     \caption{The $M = 5$ HSGP time basis functions.  Left: the orthonormal eigenfunctions $\psi_l(t)$ on which the curvature root $g_{pk}(t)$ is expanded.  Right: the pure concave curve $-\Psi_{ll}(t)$ each basis generates alone, the shape a metric loading only basis $l$ would exhibit.  Basis 1 is the lowest-frequency, broadest bend; higher bases carry sharper, more localized curvature.}
     \label{fig:hsgp_time_basis}
@@ -819,8 +870,8 @@ The Kobe Bryant--Nikola Joki\'c contrast illustrates both readings.  On OBPM the
 
 \begin{figure}[htbp]
     \centering
-    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/concave_loadings_heatmap.png}{%
-      \includegraphics[width=0.7\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/concave_loadings_heatmap.png}%
+    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/curvature/concave_loadings_heatmap.png}{%
+      \includegraphics[width=0.7\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/curvature/concave_loadings_heatmap.png}%
     }{\textit{[Run model\_diagnostics.r to generate]}}
     \caption{Posterior-mean curvature energy share by metric and HSGP basis (rows sum to 1).  Each cell reports the fraction of metric $k$'s total curvature energy $\sum_l G_{k,ll}$ carried by basis $l$; metrics are ordered by their basis-1 share.  Metrics concentrated on basis 1 bend once, broadly, over the career; metrics with mass on higher bases exhibit sharper or asymmetric bending.}
     \label{fig:concave_loadings_heatmap}
@@ -828,8 +879,8 @@ The Kobe Bryant--Nikola Joki\'c contrast illustrates both readings.  On OBPM the
 
 \begin{figure}[htbp]
     \centering
-    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/concave_loadings_intervals.png}{%
-      \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/concave_loadings_intervals.png}%
+    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/curvature/concave_loadings_intervals.png}{%
+      \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/curvature/concave_loadings_intervals.png}%
     }{\textit{[Run model\_diagnostics.r to generate]}}
     \caption{Posterior distributions of the per-basis root-mean-square loading $\sqrt{G_{k,ll}}$ for each metric (points: posterior medians; intervals: 66\% and 95\%).  Because $G_k$ is gauge-invariant, these intervals combine draws across chains without sign or rotation alignment.}
     \label{fig:concave_loadings_intervals}
@@ -837,8 +888,8 @@ The Kobe Bryant--Nikola Joki\'c contrast illustrates both readings.  On OBPM the
 
 \begin{figure}[htbp]
     \centering
-    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/concave_canonical_curves.png}{%
-      \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/concave_canonical_curves.png}%
+    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/curvature/concave_canonical_curves.png}{%
+      \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/curvature/concave_canonical_curves.png}%
     }{\textit{[Run model\_diagnostics.r to generate]}}
     \caption{Canonical concave curves by metric: the $M$ eigen-components of each metric's posterior-mean Gram matrix $\bar G_k$, pushed through the peak-parameterized quadratic form (Equation~\ref{eq:max_constraint_gp}) anchored at the metric's posterior-mean peak age and scaled by their $\alpha$-normalized loadings $\xi^k_j / \alpha_k$, so line heights are each component's contribution to the metric's population-mean descent.  Together with their loadings the components reconstruct that curvature exactly (Equation~\ref{eq:canonical_decomp}).  Components are metric-specific: the colour legend indexes each metric's own eigen-order, so a given colour does not denote the same curve across panels.}
     \label{fig:concave_canonical_curves}
@@ -846,8 +897,8 @@ The Kobe Bryant--Nikola Joki\'c contrast illustrates both readings.  On OBPM the
 
 \begin{figure}[htbp]
     \centering
-    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/concave_canonical_loadings_heatmap.png}{%
-      \includegraphics[width=0.7\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/concave_canonical_loadings_heatmap.png}%
+    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/curvature/concave_canonical_loadings_heatmap.png}{%
+      \includegraphics[width=0.7\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/curvature/concave_canonical_loadings_heatmap.png}%
     }{\textit{[Run model\_diagnostics.r to generate]}}
     \caption{Posterior-mean energy share of each canonical curvature component by metric (rows sum to 1).  A metric whose share concentrates on component 1 has an essentially one-dimensional curvature profile --- a single canonical concave shape scaled across players --- while mass on later components indicates genuinely multi-modal bending across the population.  Shares are within-metric quantities: they are comparable across metrics as concentration measures even though the components themselves differ per metric.}
     \label{fig:canonical_loadings_heatmap}
@@ -855,8 +906,8 @@ The Kobe Bryant--Nikola Joki\'c contrast illustrates both readings.  On OBPM the
 
 \begin{figure}[htbp]
     \centering
-    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/curvature_metric_corr.png}{%
-      \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/curvature_metric_corr.png}%
+    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/curvature/curvature_metric_corr.png}{%
+      \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/curvature/curvature_metric_corr.png}%
     }{\textit{[Run model\_diagnostics.r to generate]}}
     \caption{Posterior-mean correlation between metrics' population-mean curvature functions $c_k(t) = \boldsymbol\psi(t)^\top G_k \boldsymbol\psi(t)$, computed over the observed age grid within each posterior draw and averaged across draws; rows and columns are ordered by complete-linkage hierarchical clustering of the distance $1 - r$, so metrics sit together exactly when their curvature shapes correlate highly.  High values indicate metrics whose production bends with age in the same shape.  Because every $c_k$ is non-negative and grows away from the peak, a positive baseline is structural to concavity; the relative ordering is the signal.  GP\% is nearly uncorrelated with USG and OBPM --- availability ages on its own schedule --- while the rate and defensive metrics form a tight cluster and OBPM pairs with USG.}
     \label{fig:curvature_metric_corr}
@@ -864,8 +915,8 @@ The Kobe Bryant--Nikola Joki\'c contrast illustrates both readings.  On OBPM the
 
 \begin{figure}[htbp]
     \centering
-    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/players/Kobe_Bryant.png}{%
-      \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/players/Kobe_Bryant.png}%
+    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/curvature/players/Kobe_Bryant.png}{%
+      \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/curvature/players/Kobe_Bryant.png}%
     }{\textit{[Run model\_diagnostics.r to generate]}}
     \caption{Canonical weight profile for Kobe Bryant: per metric, the trace-normalized matrix $P^k_p$ of Equation~\ref{eq:player_profile}.  Diagonal cells give the share of the player's curvature energy on each of the metric's canonical components (rows of diagonals sum to 1); off-diagonal cells give the signed interference weights, mean-zero across the population by construction.  Bryant is close to a pure canonical ager: the availability and usage metrics (GP\%, MPG, OBPM, USG) concentrate $0.87$--$0.92$ of their energy on their first canonical component with small cross terms, so his aging is well described by the population's dominant shapes at above-average magnitude.  Components are metric-specific and not comparable across panels.}
     \label{fig:player_profile_kobe}
@@ -873,8 +924,8 @@ The Kobe Bryant--Nikola Joki\'c contrast illustrates both readings.  On OBPM the
 
 \begin{figure}[htbp]
     \centering
-    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/players/Nikola_Jokic.png}{%
-      \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/curvature/players/Nikola_Jokic.png}%
+    \IfFileExists{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/curvature/players/Nikola_Jokic.png}{%
+      \includegraphics[width=\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/curvature/players/Nikola_Jokic.png}%
     }{\textit{[Run model\_diagnostics.r to generate]}}
     \caption{Canonical weight profile for Nikola Joki\'c, in the format of Figure~\ref{fig:player_profile_kobe}.  The OBPM panel is nearly identical to Bryant's ($0.92$ vs.\ $0.91$ on component 1), but the GP\% panel shows the display's distinctive information: energy split across components 1 and 2 ($0.51/0.42$) with a coherent \emph{negative} interference weight of $-0.37$, near the Cauchy--Schwarz bound of $-\tfrac{1}{2}$.  The anti-aligned components cancel $45$--$87\%$ of the diagonal bending across ages 28--37: the model encodes his durable availability by loading two canonical shapes against each other rather than by shrinking their loadings.}
     \label{fig:player_profile_jokic}
@@ -887,7 +938,7 @@ Figure~\ref{fig:log_post_trace} shows the log joint posterior trace across 50 po
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.5\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/mcmc/log_posterior_trace.png}
+    \includegraphics[width=0.5\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/mcmc/log_posterior_trace.png}
     \caption{Log joint posterior trace by chain for the injury variant (4 chains, 50 retained draws each after thinning).  Stationarity and chain overlap indicate adequate mixing given the scale of the model.}
     \label{fig:log_post_trace}
 \end{figure}
@@ -897,7 +948,7 @@ Figures~\ref{fig:rhat_latent} and \ref{fig:rhat_mu} report the Gelman--Rubin $\h
 \begin{figure}[htbp]
     \centering
     \resizebox{\linewidth}{!}{
-    \includegraphics{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/rhat_summary_latent_ar.png}
+    \includegraphics{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/rhat_summary_latent_ar.png}
     }
     \caption{Fraction of (player $\times$ age) cells with $\hat{R} > 1.05$ for the latent embedding and AR components, by metric.}
     \label{fig:rhat_latent}
@@ -906,7 +957,7 @@ Figures~\ref{fig:rhat_latent} and \ref{fig:rhat_mu} report the Gelman--Rubin $\h
 \begin{figure}[htbp]
     \centering
     \resizebox{\linewidth}{!}{
-    \includegraphics{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/rhat_summary_mu_ar.png}
+    \includegraphics{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/rhat_summary_mu_ar.png}
     }
     \caption{Fraction of (player $\times$ age) cells with $\hat{R} > 1.05$ for the predictive mean $\mu_{ptk}$, by metric.}
     \label{fig:rhat_mu}
@@ -916,7 +967,7 @@ Figure~\ref{fig:rotated_trace} shows the Procrustes-aligned MCMC trace for Steph
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\linewidth,height=0.82\textheight,keepaspectratio]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/mcmc/rotated_trace_Stephen Curry.png}
+    \includegraphics[width=\linewidth,height=0.82\textheight,keepaspectratio]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/latent_space/mcmc/rotated_trace_Stephen Curry.png}
     \caption{Procrustes-aligned MCMC trace plots for Stephen Curry's latent embedding (one panel per dimension, colors = chains).  After aligning each draw to the MAP reference frame, the chains mix well within each coordinate.}
     \label{fig:rotated_trace}
 \end{figure}
@@ -1489,7 +1540,7 @@ Finally, we can bound the variance of our process as the sum of \eqref{eq:varian
 
 \begin{figure}[!h]
     \centering
-    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/coverage/coverage_validation_yearly.png}
+    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/coverage/coverage_validation_yearly.png}
     \caption{We can see the hold-out coverage as we move further from the end of our in-sample dataset. We see that coverage slightly dips as we move further into the future, but not significantly.}
     \label{fig:coverage_yearly}
 \end{figure}
@@ -1497,7 +1548,7 @@ Finally, we can bound the variance of our process as the sum of \eqref{eq:varian
 
 \begin{figure}[!h]
     \centering
-    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/coverage/coverage_validation_minutes.png}
+    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/coverage/coverage_validation_minutes.png}
     \caption{Hold-out coverage by metric does not seem to significantly differ by number of in-sample seasons available. Note that the lone observation for number of seasons is LeBron James, which we fail to project well as his career arc is anomalous.}
     \label{fig:coverage_minutes}
 \end{figure}
@@ -1597,7 +1648,7 @@ Kyle Korver & F & 26.7 \\
 
 \begin{figure}[!h]
     \centering
-    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR/stratified_next_k/mcmc/plots/latent_space/K_X_heatmap.png}
+    \includegraphics[width=0.85\linewidth]{../model_output/nba_convex_max_tvrflvm_AR_re_on/stratified_next_k/mcmc/plots/latent_space/K_X_heatmap.png}
     \caption{We see that there is a separation of players by position type, much like the PCA plot. }
     \label{fig:cov_matrix}
 \end{figure}
